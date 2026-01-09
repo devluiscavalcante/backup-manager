@@ -7,6 +7,7 @@ import com.backup_manager.application.service.BackupService;
 import com.backup_manager.domain.model.BackupTask;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,8 +20,8 @@ public class BackupController {
     private final ProgressEmitter progressEmitter;
 
     public BackupController(BackupService backupService, ProgressEmitter progressEmitter) {
-        this.backupService;
-        this.progressEmitter;
+        this.backupService = backupService;
+        this.progressEmitter = progressEmitter;
     }
 
     @PostMapping("/start")
@@ -75,5 +76,10 @@ public class BackupController {
         } catch (Exception e) {
             return ResponseEntity.status(500).body("Erro ao listar histórico: " + e.getMessage());
         }
+    }
+
+    @GetMapping("/progress")
+    public SseEmitter streamProgress(){
+        return progressEmitter.createEmitter();
     }
 }
