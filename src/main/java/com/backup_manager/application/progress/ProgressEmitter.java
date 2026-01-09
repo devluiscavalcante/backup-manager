@@ -8,15 +8,14 @@ import tools.jackson.databind.ObjectMapper;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.springframework.jdbc.support.DatabaseStartupValidator.DEFAULT_TIMEOUT;
-
 public class ProgressEmitter {
 
+    private static final long DEFAULT_TIMEOUT = 1000L * 60 * 30;
     private final Set<SseEmitter> emitters = ConcurrentHashMap.newKeySet();
     private final ObjectMapper mapper = new ObjectMapper();
 
     public SseEmitter createEmitter() {
-        SseEmitter emitter = new SseEmitter((long) DEFAULT_TIMEOUT);
+        SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
         emitters.add(emitter);
 
         emitter.onTimeout(() -> emitters.remove(emitter));
@@ -26,10 +25,10 @@ public class ProgressEmitter {
         return emitter;
     }
 
-    public void sendProgress(Progress dto) {
+    public void sendProgress(Progress progress) {
         String payload;
         try {
-            payload = mapper.writeValueAsString(dto);
+            payload = mapper.writeValueAsString(progress);
         } catch (Exception e) {
             payload = "{\"percent\":0,\"currentFile\":\"serialization_error\",\"processed\":0,\"total\":0}";
         }
@@ -37,7 +36,7 @@ public class ProgressEmitter {
         for (SseEmitter emitter : emitters) {
             try {
                 emitter.send(SseEmitter.event().name("progress").data(payload));
-            } catch (IOException | java.io.IOException e) {
+            } catch (IOException e) {
                 emitters.remove(emitter);
             }
         }
@@ -48,7 +47,7 @@ public class ProgressEmitter {
             try {
                 emitter.send(SseEmitter.event().name("complete").data(message));
                 emitter.complete();
-            } catch (IOException | java.io.IOException e) {
+            } catch (IOException e) {
                 emitters.remove(emitter);
             }
         }
