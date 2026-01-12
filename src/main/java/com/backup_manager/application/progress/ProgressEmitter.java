@@ -2,12 +2,14 @@ package com.backup_manager.application.progress;
 
 import com.backup_manager.application.dto.Progress;
 import io.jsonwebtoken.io.IOException;
+import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.ObjectMapper;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Component
 public class ProgressEmitter {
 
     private static final long DEFAULT_TIMEOUT = 1000L * 60 * 30;
