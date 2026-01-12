@@ -6,8 +6,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-import io.swagger.v3.oas.annotations.Operation;
-import io.swagger.v3.oas.annotations.tags.Tag;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,7 +13,6 @@ import java.nio.file.Path;
 
 @RestController
 @RequestMapping("/api/logs")
-@Tag(name = "Logs", description = "Consulta de logs de backup")
 public class LogController {
 
     private final BackupContext backupContext;
@@ -25,8 +22,7 @@ public class LogController {
     }
 
     @GetMapping("/warnings")
-    @Operation(summary = "Retorna o conteúdo do warnings.log do último backup executado",
-            description = "Identifica automaticamente o diretório do último backup realizado e retorna o conteúdo do warnings.log correspondente.")
+
     public ResponseEntity<String> getWarningsLog() {
         try {
             String lastDest = backupContext.getLastDestination();
