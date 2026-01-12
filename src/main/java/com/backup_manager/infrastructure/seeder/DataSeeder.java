@@ -15,7 +15,7 @@ public class DataSeeder {
     @Bean
     CommandLineRunner initDatabase(AppUserRepository repo, PasswordEncoder encoder) {
         return args -> {
-            if (repo.finByUsername("admin").isEmpty()) {
+            if (repo.findByUsername("admin").isEmpty()) {
                 AppUser admin = new AppUser();
                 admin.setUsername("admin");
                 admin.setPassword(encoder.encode("123456"));
