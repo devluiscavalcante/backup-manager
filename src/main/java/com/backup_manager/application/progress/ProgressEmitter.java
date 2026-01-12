@@ -36,7 +36,7 @@ public class ProgressEmitter {
         for (SseEmitter emitter : emitters) {
             try {
                 emitter.send(SseEmitter.event().name("progress").data(payload));
-            } catch (IOException e) {
+            } catch (IOException | java.io.IOException e) {
                 emitters.remove(emitter);
             }
         }
@@ -47,7 +47,7 @@ public class ProgressEmitter {
             try {
                 emitter.send(SseEmitter.event().name("complete").data(message));
                 emitter.complete();
-            } catch (IOException e) {
+            } catch (IOException | java.io.IOException e) {
                 emitters.remove(emitter);
             }
         }
