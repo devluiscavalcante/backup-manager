@@ -1,11 +1,11 @@
 package com.backup_manager.application.progress;
 
 import com.backup_manager.application.dto.Progress;
-import io.jsonwebtoken.io.IOException;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.ObjectMapper;
 
+import java.io.IOException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -38,7 +38,7 @@ public class ProgressEmitter {
         for (SseEmitter emitter : emitters) {
             try {
                 emitter.send(SseEmitter.event().name("progress").data(payload));
-            } catch (IOException | java.io.IOException e) {
+            } catch (java.io.IOException e) {
                 emitters.remove(emitter);
             }
         }
@@ -49,7 +49,7 @@ public class ProgressEmitter {
             try {
                 emitter.send(SseEmitter.event().name("complete").data(message));
                 emitter.complete();
-            } catch (IOException | java.io.IOException e) {
+            } catch (java.io.IOException e) {
                 emitters.remove(emitter);
             }
         }

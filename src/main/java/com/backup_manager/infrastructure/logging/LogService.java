@@ -3,7 +3,7 @@ package com.backup_manager.infrastructure.logging;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
-import io.jsonwebtoken.io.IOException;
+import java.io.IOException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -86,7 +86,7 @@ public class LogService {
             return Files.walk(base, 5)
                     .filter(p -> p.getFileName().toString().equalsIgnoreCase("warnings.log"))
                     .max(Comparator.comparing(this::safeLastModified));
-        } catch (IOException | java.io.IOException e) {
+        } catch (java.io.IOException e) {
             return Optional.empty();
         }
     }
@@ -94,7 +94,7 @@ public class LogService {
     private java.nio.file.attribute.FileTime safeLastModified(Path p) {
         try {
             return Files.getLastModifiedTime(p);
-        } catch (IOException | java.io.IOException e) {
+        } catch (java.io.IOException e) {
             return java.nio.file.attribute.FileTime.fromMillis(0);
         }
     }
