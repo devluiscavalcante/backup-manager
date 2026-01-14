@@ -77,7 +77,7 @@ public class BackupService {
             long fileCount = backupManager.countFiles(sourceFolder);
 
             Path source = sourceFolder.toPath();
-            Path destination = Paths.get(destinationPath, sourceFolder.getName());
+            Path destination = Paths.get(destinationPath);
 
             backupContext.setLastDestination(destination.toString());
 
@@ -161,7 +161,7 @@ public class BackupService {
             Files.walkFileTree(source, new SimpleFileVisitor<>() {
 
                 int processed = 0;
-                int total = 0;
+                int total;
 
                 {
                     try {
@@ -226,7 +226,7 @@ public class BackupService {
                         Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
 
                         processed++;
-                        int percent = 0;
+                        int percent;
                         if (total > 0) {
                             percent = (processed * 100) / total;
                         } else {
