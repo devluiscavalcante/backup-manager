@@ -1,0 +1,38 @@
+name: Feature Branch CI
+
+on:
+  push:
+    branches-ignore: [ main, master ]  # Roda em TODAS exceto main/master
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  feature-ci:
+    name: CI for Feature Branch
+    runs-on: ubuntu-latest
+    if: github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Show Branch Info
+        run: |
+          echo "Running CI on branch: ${{ github.ref }}"
+          echo "Branch name: ${{ github.ref_name }}"
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: 🏗Quick Build Test
+        run: mvn clean compile
+
+      - name: 🎉 Feature CI Success
+        run: |
+          echo "CI executed on feature branch: ${{ github.ref_name }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Author: ${{ github.actor }}"
