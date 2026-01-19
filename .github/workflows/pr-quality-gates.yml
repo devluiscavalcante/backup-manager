@@ -1,10 +1,10 @@
 name: PR Quality Gates
 
 on:
-  pull_request:
-    branches: [ main, master, develop ]
   push:
     branches: [ main, master, develop, 'feature/**', 'bugfix/**', 'hotfix/**' ]
+  pull_request:
+    branches: [ main, master, develop ]
   workflow_dispatch:
 
 jobs:
@@ -29,6 +29,10 @@ jobs:
       - name: Compile Source Code
         run: mvn clean compile
 
+      - name: Checkstyle Analysis
+        run: mvn checkstyle:check
+        continue-on-error: true  # ⚠️ Warning apenas no início
+
       - name: Run Unit Tests
         run: mvn test
 
@@ -37,17 +41,13 @@ jobs:
 
       - name: Create Package
         run: mvn package -DskipTests
-        continue-on-error: true
 
-      - name: Quality Gate Passed
-        if: success()
-        run: echo "🎉 All quality gates passed!"
-
-      - name: Upload Test Reports
+      - name: Upload Quality Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports
+          name: quality-reports-${{ github.ref_name }}
           path: |
             target/surefire-reports/
             target/site/jacoco/
+            target/checkstyle-result.xml
