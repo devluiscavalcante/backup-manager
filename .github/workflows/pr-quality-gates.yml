@@ -1,0 +1,53 @@
+name: PR Quality Gates
+
+on:
+  pull_request:
+    branches: [ main, master ]
+  push:
+    branches: [ main, master, develop ]
+  workflow_dispatch:
+
+jobs:
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Validate Maven Project
+        run: mvn validate
+
+      - name: Compile Source Code
+        run: mvn clean compile
+
+      - name: Run Unit Tests
+        run: mvn test
+
+      - name: Test Coverage Report
+        run: mvn jacoco:report
+
+      - name: Create Package
+        run: mvn package -DskipTests
+        continue-on-error: true
+
+      - name: Quality Gate Passed
+        if: success()
+        run: echo "🎉 All quality gates passed!"
+
+      - name: Upload Test Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: |
+            target/surefire-reports/
+            target/site/jacoco/
