@@ -2,7 +2,7 @@ name: PR Quality Gates
 
 on:
   push:
-    branches: [ main, master, develop, 'feature/**', 'bugfix/**', 'hotfix/**' ]
+    branches: [ main, master, develop, 'feature/**', 'bugfix/**', 'hotfix/**', 'infra/**']
   pull_request:
     branches: [ main, master, develop ]
   workflow_dispatch:
@@ -12,7 +12,6 @@ jobs:
     name: Code Quality Checks
     runs-on: ubuntu-latest
 
-    # ADICIONE ESTA SEÇÃO services:
     services:
       postgres:
         image: postgres:15
@@ -87,6 +86,18 @@ jobs:
       - name: Create Package
         run: mvn package -DskipTests
 
+      - name: Ensure report directories exist
+        if: always()
+        run: |
+          echo "Creating report directories (if missing)..."
+          mkdir -p target/surefire-reports
+          mkdir -p target/site/jacoco
+          # Cria arquivo checkstyle vazio se não existir
+          if [ ! -f target/checkstyle-result.xml ]; then
+            echo '<?xml version="1.0"?><checkstyle version="8.0"></checkstyle>' > target/checkstyle-result.xml
+          fi
+          echo "Report directories ready for upload"
+
       - name: Upload Quality Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -96,3 +107,5 @@ jobs:
             target/surefire-reports/
             target/site/jacoco/
             target/checkstyle-result.xml
+          if-no-files-found: warn
+          retention-days: 7
