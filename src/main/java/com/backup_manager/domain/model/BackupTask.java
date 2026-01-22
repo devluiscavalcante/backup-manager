@@ -13,7 +13,6 @@ import java.time.LocalDateTime;
 @Table(name = "backup_tasks", indexes = {
         @Index(name = "idx_status", columnList = "status"),
         @Index(name = "idx_source_dest", columnList = "source_path, destination_path"),
-        @Index(name = "idx_created_at", columnList = "created_at DESC")
 })
 public class BackupTask {
 
@@ -55,12 +54,6 @@ public class BackupTask {
 
     @Column(name = "is_cancelled", nullable = false)
     private boolean cancelled = false;
-
-    @Column(name = "created_at", updatable = false)
-    private LocalDateTime createdAt;
-
-    @Column(name = "updated_at")
-    private LocalDateTime updatedAt;
 
     @PrePersist
     public void prePersist() {
