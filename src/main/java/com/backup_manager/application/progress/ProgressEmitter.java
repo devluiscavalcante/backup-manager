@@ -22,17 +22,22 @@ public class ProgressEmitter {
         emitters.add(emitter);
 
         emitter.onTimeout(() -> {
-            logger.debug("Emitter timeout");
+            logger.debug("SSE Emitter timeout - client disconnected");
             emitters.remove(emitter);
         });
 
         emitter.onCompletion(() -> {
-            logger.debug("Emitter completed");
+            logger.debug("SSE Emitter completed normally");
             emitters.remove(emitter);
         });
 
         emitter.onError((e) -> {
-            logger.error("Emitter error: {}", e.getMessage());
+
+            if (isNormalDisconnect(e)) {
+                logger.debug("SSE client disconnected normally: {}", e.getMessage());
+            } else {
+                logger.error("SSE Emitter error: {}", e.getMessage(), e);
+            }
             emitters.remove(emitter);
         });
 
@@ -45,12 +50,12 @@ public class ProgressEmitter {
     }
 
     public void sendComplete(String message) {
-        String payload = String.format("{\"message\":\"%s\"}", message);
+        String payload = String.format("{\"message\":\"%s\"}", escapeJson(message));
         sendEvent("complete", payload);
     }
 
     public void sendError(String error) {
-        String payload = String.format("{\"error\":\"%s\"}", error);
+        String payload = String.format("{\"error\":\"%s\"}", escapeJson(error));
         sendEvent("error", payload);
     }
 
@@ -58,7 +63,7 @@ public class ProgressEmitter {
     public void sendControlEvent(String eventType, Long taskId, String status) {
         String payload = String.format(
                 "{\"type\":\"%s\",\"taskId\":%d,\"status\":\"%s\",\"timestamp\":%d}",
-                eventType, taskId, status, System.currentTimeMillis()
+                escapeJson(eventType), taskId, escapeJson(status), System.currentTimeMillis()
         );
         sendEvent("control", payload);
     }
@@ -76,18 +81,72 @@ public class ProgressEmitter {
                 emitter.send(SseEmitter.event()
                         .name(eventName)
                         .data(data));
-                logger.debug("Evento '{}' enviado: {}", eventName, data.substring(0, Math.min(data.length(), 100)));
-            } catch (IOException | IllegalStateException e) {
-                logger.warn("Erro ao enviar evento para emitter: {}", e.getMessage());
+
+                if (logger.isDebugEnabled()) {
+                    logger.debug("SSE event '{}' sent to client: {}...",
+                            eventName, data.length() > 50 ? data.substring(0, 50) + "..." : data);
+                }
+            } catch (IOException e) {
+
+                if (isNormalDisconnect(e)) {
+                    logger.debug("SSE client disconnected during event send: {}", e.getMessage());
+                } else {
+                    logger.warn("SSE IOException: {}", e.getMessage());
+                }
+                deadEmitters.add(emitter);
+            } catch (IllegalStateException e) {
+
+                logger.debug("SSE emitter in illegal state (probably completed): {}", e.getMessage());
+                deadEmitters.add(emitter);
+            } catch (Exception e) {
+
+                logger.warn("Unexpected error sending SSE event: {}", e.getMessage());
                 deadEmitters.add(emitter);
             }
         }
 
-        // Remover emitters mortos
-        emitters.removeAll(deadEmitters);
+        if (!deadEmitters.isEmpty()) {
+            emitters.removeAll(deadEmitters);
+            logger.debug("Removed {} disconnected SSE emitters", deadEmitters.size());
+        }
     }
 
-    // Cria payload JSON manualmente (sem ObjectMapper)
+    private boolean isNormalDisconnect(Throwable e) {
+        if (e == null) {
+            return false;
+        }
+
+        String message = e.getMessage();
+        String className = e.getClass().getName();
+
+        if (message != null) {
+            message = message.toLowerCase();
+
+            if (message.contains("connection reset") ||
+                    message.contains("broken pipe") ||
+                    message.contains("connection closed") ||
+                    message.contains("an established connection was aborted") ||
+                    message.contains("uma conexão estabelecida foi anulada") ||
+                    message.contains("servlet container error notification for disconnected client") ||
+                    message.contains("async request not usable")) {
+                return true;
+            }
+        }
+
+        if (className.contains("ClientAbortException") ||
+                className.contains("EofException") ||
+                className.contains("AsyncRequestNotUsableException")) {
+            return true;
+        }
+
+        Throwable cause = e.getCause();
+        if (cause != null && cause != e) {
+            return isNormalDisconnect(cause);
+        }
+
+        return false;
+    }
+
     private String createProgressPayload(Progress progress) {
         return String.format(
                 "{\"percent\":%d,\"currentFile\":\"%s\",\"processedFiles\":%d,\"totalFiles\":%d,\"taskId\":\"%s\"}",
@@ -95,11 +154,10 @@ public class ProgressEmitter {
                 escapeJson(progress.getCurrentFile()),
                 progress.getProcessedFiles(),
                 progress.getTotalFiles(),
-                progress.getTaskId()
+                escapeJson(progress.getTaskId())
         );
     }
 
-    // Escapar caracteres especiais para JSON
     private String escapeJson(String input) {
         if (input == null) {
             return "";
