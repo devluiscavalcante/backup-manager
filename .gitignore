@@ -43,3 +43,9 @@ Thumbs.db               # Windows
 
 logs/
 tmp/
+
+.env
+.env.local
+.env.development
+.env.production
+.env.test
