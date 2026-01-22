@@ -1,10 +1,7 @@
 package com.backup_manager.domain.model;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.persistence.*;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 import java.math.BigDecimal;
@@ -13,33 +10,64 @@ import java.time.LocalDateTime;
 @Entity
 @Getter
 @Setter
-@NoArgsConstructor
-@AllArgsConstructor
+@Table(name = "backup_tasks", indexes = {
+        @Index(name = "idx_status", columnList = "status"),
+        @Index(name = "idx_source_dest", columnList = "source_path, destination_path"),
+        @Index(name = "idx_created_at", columnList = "created_at DESC")
+})
 public class BackupTask {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "id")
     private Long id;
 
+    @Column(name = "source_path", nullable = false, length = 1000)
     private String sourcePath;
+
+    @Column(name = "destination_path", nullable = false, length = 1000)
     private String destinationPath;
-    private LocalDateTime startedAt;
-    private LocalDateTime finishedAt;
-    private Long fileCount;
-    private BigDecimal totalSizeMB;
 
     @Enumerated(EnumType.STRING)
-    private Status status = Status.EM_ANDAMENTO;
+    @Column(name = "status", nullable = false, length = 20)
+    private Status status;
 
-    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    @Column(name = "error_message", columnDefinition = "TEXT")
     private String errorMessage;
 
+    @Column(name = "file_count")
+    private Long fileCount;
+
+    @Column(name = "total_size_mb", precision = 10, scale = 2)
+    private BigDecimal totalSizeMB;
+
+    @Column(name = "started_at")
+    private LocalDateTime startedAt;
+
+    @Column(name = "finished_at")
+    private LocalDateTime finishedAt;
+
+    @Column(name = "paused_at")
+    private LocalDateTime pausedAt;
+
+    @Column(name = "is_paused", nullable = false)
+    private boolean paused = false;
+
+    @Column(name = "is_cancelled", nullable = false)
+    private boolean cancelled = false;
+
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt;
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt;
+
     @PrePersist
-    public void prePersist(){
-        if(status == null){
+    public void prePersist() {
+        if (status == null) {
             status = Status.EM_ANDAMENTO;
         }
-        if(startedAt == null){
+        if (startedAt == null) {
             startedAt = LocalDateTime.now();
         }
     }
