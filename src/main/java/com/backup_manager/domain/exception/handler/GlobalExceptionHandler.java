@@ -39,11 +39,8 @@ public class GlobalExceptionHandler {
         if (requestPath != null && requestPath.contains("/api/backup/progress")) {
             logger.warn("Exceção SSE ignorada (não deve retornar ResponseEntity): {}", ex.getMessage());
             // Para SSE, não retornar ResponseEntity - deixa a exceção propagar
-<<<<<<< HEAD
-            // ou retorna null para não interferir // COMMITAR SEPARADO
-=======
             // ou retorna null para não interferir
->>>>>>> 0580b5a (fix: ignore exceptions from SSE endpoint to prevent response conversion errors)
+            // ou retorna null para não interferir
             return null;
         }
 
