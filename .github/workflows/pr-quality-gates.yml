@@ -12,6 +12,22 @@ jobs:
     name: Code Quality Checks
     runs-on: ubuntu-latest
 
+    # ADICIONE ESTA SEÇÃO services:
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: backup_manager_test
+          POSTGRES_USER: test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -23,6 +39,29 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
+      - name: Setup PostgreSQL test environment
+        run: |
+          echo "DB_HOST=localhost" >> $GITHUB_ENV
+          echo "DB_PORT=5432" >> $GITHUB_ENV
+          echo "DB_NAME=backup_manager_test" >> $GITHUB_ENV
+          echo "DB_USERNAME=test" >> $GITHUB_ENV
+          echo "DB_PASSWORD=test" >> $GITHUB_ENV
+          echo "APP_PORT=8080" >> $GITHUB_ENV
+          echo "APP_DEBUG=false" >> $GITHUB_ENV
+          
+          echo "DB_HOST=localhost" > .env
+          echo "DB_PORT=5432" >> .env
+          echo "DB_NAME=backup_manager_test" >> .env
+          echo "DB_USERNAME=test" >> .env
+          echo "DB_PASSWORD=test" >> .env
+          echo "APP_PORT=8080" >> .env
+          echo "APP_DEBUG=false" >> .env
+
+      - name: Wait for PostgreSQL to be ready
+        run: |
+          echo "Waiting for PostgreSQL to start..."
+          sleep 5
+
       - name: Validate Maven Project
         run: mvn validate
 
@@ -31,10 +70,16 @@ jobs:
 
       - name: Checkstyle Analysis
         run: mvn checkstyle:check
-        continue-on-error: true  # ⚠️ Warning apenas no início
+        continue-on-error: true
 
       - name: Run Unit Tests
         run: mvn test
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: backup_manager_test
+          DB_USERNAME: test
+          DB_PASSWORD: test
 
       - name: Test Coverage Report
         run: mvn jacoco:report
