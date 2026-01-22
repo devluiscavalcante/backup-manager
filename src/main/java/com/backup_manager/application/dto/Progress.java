@@ -11,4 +11,5 @@ public class Progress {
     private String currentFile;
     private int processedFiles;
     private int totalFiles;
+    private String taskId;
 }
