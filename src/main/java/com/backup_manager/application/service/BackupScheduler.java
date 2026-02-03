@@ -14,7 +14,9 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class BackupScheduler {
@@ -26,6 +28,11 @@ public class BackupScheduler {
 
     private final Map<String, LocalDateTime> lastExecutionMap = new HashMap<>();
     private static final long MIN_INTERVAL_MINUTES = 5;
+
+    private final Map<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService oneTimeScheduler = Executors.newScheduledThreadPool(3);
+
+    private final AtomicLong taskIdCounter = new AtomicLong(1000);
 
     public BackupScheduler(BackupService backupService, BackupSchedulerProperties schedulerProperties) {
         this.backupService = backupService;
@@ -120,6 +127,102 @@ public class BackupScheduler {
         }
     }
 
+    public Long scheduleOneTimeBackup(BackupRequest request, int minutesFromNow, String backupName) {
+        if (minutesFromNow <= 0) {
+            throw new IllegalArgumentException("Minutos devem ser maior que 0");
+        }
+
+        Long taskId = taskIdCounter.incrementAndGet();
+        LocalDateTime scheduledTime = LocalDateTime.now().plusMinutes(minutesFromNow);
+
+        logger.info("Agendando backup único ID {} para {}", taskId, scheduledTime);
+
+        ScheduledFuture<?> future = oneTimeScheduler.schedule(() -> {
+            try {
+                logger.info("Executando backup agendado ID {}: {}", taskId, backupName);
+                executeBackupWithRequest(request, backupName);
+                scheduledTasks.remove(taskId); // Remove após execução
+                logger.info("Backup agendado ID {} concluído", taskId);
+            } catch (Exception e) {
+                logger.error("Erro no backup agendado ID {}: {}", taskId, e.getMessage(), e);
+                scheduledTasks.remove(taskId);
+            }
+        }, minutesFromNow, TimeUnit.MINUTES);
+
+        scheduledTasks.put(taskId, future);
+        return taskId;
+    }
+
+    public boolean cancelScheduledBackup(Long taskId) {
+        ScheduledFuture<?> future = scheduledTasks.get(taskId);
+
+        if (future != null && !future.isDone() && !future.isCancelled()) {
+            boolean cancelled = future.cancel(false);
+            scheduledTasks.remove(taskId);
+
+            if (cancelled) {
+                logger.info("Backup agendado ID {} cancelado com sucesso", taskId);
+            } else {
+                logger.warn("Falha ao cancelar backup agendado ID {}", taskId);
+            }
+
+            return cancelled;
+        }
+
+        logger.warn("Backup agendado ID {} não encontrado ou já executado/cancelado", taskId);
+        return false;
+    }
+
+    public Map<Long, Map<String, Object>> getPendingScheduledBackups() {
+        Map<Long, Map<String, Object>> pendingTasks = new HashMap<>();
+
+        scheduledTasks.forEach((taskId, future) -> {
+            if (!future.isDone() && !future.isCancelled()) {
+                long delaySeconds = future.getDelay(TimeUnit.SECONDS);
+                long delayMinutes = future.getDelay(TimeUnit.MINUTES);
+
+                Map<String, Object> taskInfo = new HashMap<>();
+                taskInfo.put("status", "PENDENTE");
+                taskInfo.put("delaySeconds", delaySeconds);
+                taskInfo.put("delayMinutes", delayMinutes);
+                taskInfo.put("remainingTime", formatRemainingTime(delaySeconds));
+                taskInfo.put("cancelUrl", "/api/backup/scheduler/schedule/" + taskId + "/cancel");
+
+                pendingTasks.put(taskId, taskInfo);
+            }
+        });
+
+        return pendingTasks;
+    }
+
+    private String formatRemainingTime(long seconds) {
+        if (seconds <= 0) return "Executando agora";
+
+        long minutes = seconds / 60;
+        long remainingSeconds = seconds % 60;
+
+        if (minutes == 0) {
+            return String.format("%d segundos", remainingSeconds);
+        } else if (remainingSeconds == 0) {
+            return String.format("%d minutos", minutes);
+        } else {
+            return String.format("%d minutos e %d segundos", minutes, remainingSeconds);
+        }
+    }
+
+    @Scheduled(fixedDelay = 300000)
+    public void cleanupCompletedTasks() {
+        int initialSize = scheduledTasks.size();
+
+        scheduledTasks.entrySet().removeIf(entry ->
+                entry.getValue().isDone() || entry.getValue().isCancelled()
+        );
+
+        if (initialSize != scheduledTasks.size()) {
+            logger.debug("Limpeza de tarefas: {} removidas, {} restantes",
+                    initialSize - scheduledTasks.size(), scheduledTasks.size());
+        }
+    }
     public  void executeBackupWithRequest(BackupRequest request, String backupName) {
         List<String> sources = request.getSources();
         List<String> destinations = request.getDestination();
@@ -153,8 +256,7 @@ public class BackupScheduler {
             }
         }
     }
-
-    @Scheduled(cron = "0 0 0 * * *") // Meia-noite diariamente
+    @Scheduled(cron = "0 0 0 * * *")
     public void cleanupExecutionHistory() {
         try {
             LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
