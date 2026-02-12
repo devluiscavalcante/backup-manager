@@ -79,14 +79,11 @@ public class BackupService {
         task.setStartedAt(LocalDateTime.now());
         task.setStatus(Status.EM_ANDAMENTO);
 
-        // SALVA NO BANCO PRIMEIRO
         task = backupRepository.save(task);
         logger.info("Tarefa salva no banco: ID={}, Status={}", task.getId(), task.getStatus());
 
-        // Registra no gerenciador
         taskManager.registerTask(task.getId(), task);
 
-        // Envia evento de início
         progressEmitter.sendControlEvent("start", task.getId(), "EM_ANDAMENTO");
 
         try {
@@ -111,7 +108,6 @@ public class BackupService {
 
             int warnings = copyDirectoryRecursively(source, destination, task.getId());
 
-            // Verifica se foi cancelado
             if (task.isCancelled()) {
                 task.setStatus(Status.CANCELADO);
                 task.setErrorMessage("Backup cancelado pelo usuário");
@@ -166,7 +162,6 @@ public class BackupService {
         } finally {
             task.setFinishedAt(LocalDateTime.now());
             backupRepository.save(task);
-            // Remover do gerenciador
             taskManager.unregisterTask(task.getId());
         }
     }
@@ -240,7 +235,6 @@ public class BackupService {
                     }
                 }
 
-                // Método para verificar pausa
                 private FileVisitResult checkPauseAndCancel() {
                     BackupTask task = taskManager.getTask(taskId);
                     if (task == null) {
@@ -253,11 +247,9 @@ public class BackupService {
                         return FileVisitResult.TERMINATE;
                     }
 
-                    // Verificar pausa MAS permitir sair do loop
                     int pauseCheckCount = 0;
                     while (task.isPaused() && !task.isCancelled()) {
                         if (pauseCheckCount == 0) {
-                            // Primeira vez que detecta pausa
                             try {
                                 progressEmitter.sendProgress(new Progress(
                                         0,
@@ -273,7 +265,6 @@ public class BackupService {
 
                         pauseCheckCount++;
 
-                        // Verificar a cada 500ms (não 1 segundo)
                         try {
                             Thread.sleep(500);
                         } catch (InterruptedException e) {
@@ -281,32 +272,17 @@ public class BackupService {
                             return FileVisitResult.TERMINATE;
                         }
 
-                        // Buscar tarefa novamente (pode ter mudado)
                         task = taskManager.getTask(taskId);
-                        if (task == null) {
-                            return FileVisitResult.TERMINATE;
-                        }
+                        if (task == null) return FileVisitResult.TERMINATE;
 
-                        // Log a cada 10 verificações (5 segundos)
                         if (pauseCheckCount % 10 == 0) {
                             logger.debug("Backup {} ainda pausado (verificação #{})", taskId, pauseCheckCount);
                         }
                     }
 
-                    // Se saiu do loop porque não está mais pausado
                     if (pauseCheckCount > 0) {
                         logger.info("Backup {} retomado após pausa", taskId);
-                        try {
-                            progressEmitter.sendProgress(new Progress(
-                                    0,
-                                    "Retomando backup...",
-                                    processed,
-                                    total,
-                                    taskId.toString()
-                            ));
-                        } catch (Exception e) {
-                            logger.warn("Erro ao enviar progresso de retomada: {}", e.getMessage());
-                        }
+                        updateProgress(null, processed, total, taskId); // Envia update de retomada
                     }
 
                     return FileVisitResult.CONTINUE;
@@ -314,11 +290,8 @@ public class BackupService {
 
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    // Verificar pausa/cancelamento antes de processar diretório
                     FileVisitResult result = checkPauseAndCancel();
-                    if (result != FileVisitResult.CONTINUE) {
-                        return result;
-                    }
+                    if (result != FileVisitResult.CONTINUE) return result;
 
                     if (shouldExclude(dir, attrs)) {
                         logWarning("Ignorado diretório simbólico/junction", dir);
@@ -341,11 +314,8 @@ public class BackupService {
 
                 @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    // Verificar pausa/cancelamento antes de processar arquivo
                     FileVisitResult result = checkPauseAndCancel();
-                    if (result != FileVisitResult.CONTINUE) {
-                        return result;
-                    }
+                    if (result != FileVisitResult.CONTINUE) return result;
 
                     if (shouldExclude(file, attrs)) {
                         logWarning("Ignorado arquivo simbólico/junction", file);
@@ -354,34 +324,31 @@ public class BackupService {
 
                     Path targetFile = destination.resolve(source.relativize(file));
                     try {
-                        Files.createDirectories(targetFile.getParent());
-                        Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+
+                        boolean skipCopy = false;
+                        if (Files.exists(targetFile)) {
+                            BasicFileAttributes targetAttrs = Files.readAttributes(targetFile, BasicFileAttributes.class);
+
+                            boolean isSameSize = attrs.size() == targetAttrs.size();
+                            boolean isNotModified = attrs.lastModifiedTime().toMillis() <= targetAttrs.lastModifiedTime().toMillis();
+
+                            if (isSameSize && isNotModified) {
+                                skipCopy = true;
+                            }
+                        }
+
+                        if (!skipCopy) {
+                            Files.createDirectories(targetFile.getParent());
+                            Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
+                        }
 
                         processed++;
-                        int percent;
-                        if (total > 0) {
-                            percent = (processed * 100) / total;
-                        } else {
-                            percent = 0;
-                        }
-
-                        try {
-                            progressEmitter.sendProgress(new Progress(
-                                    percent,
-                                    file.toString(),
-                                    processed,
-                                    total,
-                                    taskId.toString()
-                            ));
-                        } catch (Exception ignored) {
-                        }
+                        updateProgress(file, processed, total, taskId);
 
                     } catch (AccessDeniedException ade) {
                         logWarning("Acesso negado ao arquivo", file);
                     } catch (IOException e) {
-                        logWarning("Erro ao copiar arquivo", file);
-                    } catch (Exception e) {
-                        logWarning("Erro inesperado ao copiar arquivo", file);
+                        logWarning("Erro ao processar arquivo (pode estar em uso): " + file.getFileName(), file);
                     }
 
                     return FileVisitResult.CONTINUE;
@@ -396,7 +363,6 @@ public class BackupService {
                 @Override
                 public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
                     if (exc != null) logWarning("Erro ao visitar diretório", dir);
-                    // Também verificar pausa ao sair de diretório
                     return checkPauseAndCancel();
                 }
             });
@@ -405,8 +371,7 @@ public class BackupService {
             try {
                 Files.writeString(logFile, String.format("[%s] %s%n", LocalDateTime.now(), msg),
                         StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            } catch (IOException ignored) {
-            }
+            } catch (IOException ignored) {}
             throw new RuntimeException(msg, e);
         }
 
@@ -418,27 +383,17 @@ public class BackupService {
     }
 
     public boolean pauseBackup(Long taskId) {
-        logger.info("BackupService.pauseBackup() chamado para taskId: {}", taskId);
-        boolean result = taskManager.pauseTask(taskId);
-        logger.info("Resultado do pauseTask(): {}", result);
-        return result;
+        return taskManager.pauseTask(taskId);
     }
 
     public boolean resumeBackup(Long taskId) {
-        logger.info("BackupService.resumeBackup() chamado para taskId: {}", taskId);
-        boolean result = taskManager.resumeTask(taskId);
-        logger.info("Resultado do resumeTask(): {}", result);
-        return result;
+        return taskManager.resumeTask(taskId);
     }
 
     public boolean cancelBackup(Long taskId) {
-        logger.info("BackupService.cancelBackup() chamado para taskId: {}", taskId);
-        boolean result = taskManager.cancelTask(taskId);
-        logger.info("Resultado do cancelTask(): {}", result);
-        return result;
+        return taskManager.cancelTask(taskId);
     }
 
-    // Método para obter tarefa ativa por source/destination
     public Optional<BackupTask> getActiveTask(String sourcePath, String destinationPath) {
         List<BackupTask> tasks = backupRepository.findAll();
         return tasks.stream()
@@ -447,5 +402,23 @@ public class BackupService {
                         (t.getStatus() == Status.EM_ANDAMENTO ||
                                 t.getStatus() == Status.PAUSADO))
                 .findFirst();
+    }
+
+    private void updateProgress(Path file, int processed, int total, Long taskId) {
+
+        if (processed == 1 || processed >= total || processed % 50 == 0) {
+            int percent = (total > 0) ? (processed * 100) / total : 0;
+            String fileName = (file != null) ? file.getFileName().toString() : "Retomando...";
+
+            try {
+                progressEmitter.sendProgress(new Progress(
+                        percent,
+                        fileName,
+                        processed,
+                        total,
+                        taskId.toString()
+                ));
+            } catch (Exception ignored) {}
+        }
     }
 }
