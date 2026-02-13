@@ -318,13 +318,12 @@ public class BackupService {
                     if (result != FileVisitResult.CONTINUE) return result;
 
                     if (shouldExclude(file, attrs)) {
-                        logWarning("Ignorado arquivo simbólico/junction", file);
+                        logDetail(logFile, "SKIPPED", "Ignorado arquivo simbólico/junction", file);
                         return FileVisitResult.CONTINUE;
                     }
 
                     Path targetFile = destination.resolve(source.relativize(file));
                     try {
-
                         boolean skipCopy = false;
                         if (Files.exists(targetFile)) {
                             BasicFileAttributes targetAttrs = Files.readAttributes(targetFile, BasicFileAttributes.class);
@@ -346,9 +345,14 @@ public class BackupService {
                         updateProgress(file, processed, total, taskId);
 
                     } catch (AccessDeniedException ade) {
-                        logWarning("Acesso negado ao arquivo", file);
+                        warnings.incrementAndGet();
+                        logDetail(logFile, "PERMISSION_DENIED", "Acesso negado ao arquivo", file);
+                    } catch (FileSystemException fse) {
+                        warnings.incrementAndGet();
+                        logDetail(logFile, "FILE_LOCKED", "Arquivo em uso por outro processo", file);
                     } catch (IOException e) {
-                        logWarning("Erro ao processar arquivo (pode estar em uso): " + file.getFileName(), file);
+                        warnings.incrementAndGet();
+                        logDetail(logFile, "IO_ERROR", "Erro genérico de IO: " + e.getMessage(), file);
                     }
 
                     return FileVisitResult.CONTINUE;
@@ -420,5 +424,13 @@ public class BackupService {
                 ));
             } catch (Exception ignored) {}
         }
+    }
+
+    private void logDetail(Path logFile, String level, String message, Path path){
+        String logEntry = String.format("[%s] [%s] %s: %s%n",
+                LocalDateTime.now(), level, message, path);
+        try {
+            Files.writeString(logFile, logEntry, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (Exception ignored){}
     }
 }
