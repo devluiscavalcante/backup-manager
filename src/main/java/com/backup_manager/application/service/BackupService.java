@@ -87,6 +87,7 @@ public class BackupService {
         try {
             validateSafePath(sourcePath);
             validateSafePath(destinationPath);
+            validatePathAndDriveSpace(sourcePath, destinationPath);
 
             BackupTask task = createInitialTask(sourcePath, destinationPath);
             task = backupRepository.save(task);
@@ -103,7 +104,10 @@ public class BackupService {
                 Path destination = Paths.get(destinationPath);
 
                 backupContext.setLastDestination(destination.toString());
-                if (!Files.exists(destination)) Files.createDirectories(destination);
+
+                if (!Files.exists(destination)) {
+                    Files.createDirectories(destination);
+                }
 
                 progressEmitter.sendProgress(new Progress(0, "Iniciando...", 0,
                         (int) fileCount, task.getId().toString()));
@@ -123,6 +127,9 @@ public class BackupService {
         } catch (SecurityException se) {
             logger.error("BLOQUEIO DE SEGURANÇA: {}", se.getMessage());
             progressEmitter.sendError("Erro de Segurança: " + se.getMessage());
+        } catch (IllegalArgumentException | IllegalStateException ex) {
+            logger.error("FALHA NA VALIDAÇÃO PRÉVIA: {}", ex.getMessage());
+            progressEmitter.sendError("Falha ao iniciar: " + ex.getMessage());
         }
     }
 
@@ -161,6 +168,36 @@ public class BackupService {
                 return !task.isCancelled();
             }
         });
+    }
+
+    public void validatePathAndDriveSpace(String sourcePath, String destPath) {
+        Path src = Paths.get(sourcePath);
+        Path dest = Paths.get(destPath);
+
+        if (!Files.exists(src)) {
+            throw new IllegalArgumentException("Origem não encontrada: " + sourcePath);
+        }
+
+        File destRoot = dest.getRoot().toFile();
+        if (!destRoot.exists()) {
+            throw new IllegalStateException("O disco de destino " + dest.getRoot() + " não está acessível.");
+        }
+        try {
+            long requiredSpace = backupManager.calculateFolderSizeMB(src.toFile()).longValue() * 1024 * 1024;
+            long availableSpace = destRoot.getUsableSpace();
+
+            if (requiredSpace > availableSpace) {
+                String error = String.format(
+                        "Espaço insuficiente no disco %s. Necessário: %d MB, Disponível: %d MB",
+                        dest.getRoot(),
+                        requiredSpace / (1024 * 1024),
+                        availableSpace / (1024 * 1024)
+                );
+                throw new IOException(error);
+            }
+        } catch (Exception e) {
+            logger.warn("Não foi possível calcular o espaço necessário com precisão: {}", e.getMessage());
+        }
     }
 
     public void validateSafePath(String path) {
