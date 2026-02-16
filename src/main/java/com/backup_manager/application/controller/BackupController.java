@@ -7,6 +7,7 @@ import com.backup_manager.application.service.BackupService;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -31,46 +32,56 @@ public class BackupController {
 
     @PostMapping("/start")
     public ResponseEntity<?> startBackup(@RequestBody BackupRequest request) {
-        List<String> sources = request.getSources();
-        List<String> destinations = request.getDestination();
+        try{
 
-        if (sources == null || destinations == null || sources.isEmpty() || destinations.isEmpty()) {
-            return ResponseEntity.badRequest().body("As listas não podem estar vazias");
-        }
-        if (sources.size() != destinations.size()) {
-            return ResponseEntity.badRequest().body("O número de origens deve ser igual ao número de destinos.");
-        }
+            List<String> sources = request.getSources();
+            List<String> destinations = request.getDestination();
 
-        List<Long> taskIds = new ArrayList<>();
-
-        for (int i = 0; i < sources.size(); i++) {
-            String source = sources.get(i);
-            String destination = destinations.get(i);
-
-            Optional<BackupTask> activeTask = backupService.getActiveTask(source, destination);
-            if (activeTask.isPresent()) {
-                Map<String, Object> errorResponse = new HashMap<>();
-                errorResponse.put("error", "Já existe um backup ativo para este par origem/destino");
-                errorResponse.put("source", source);
-                errorResponse.put("destination", destination);
-                errorResponse.put("taskId", activeTask.get().getId());
-
-                return ResponseEntity.status(409).body(errorResponse);
+            if (sources == null || destinations == null || sources.isEmpty() || destinations.isEmpty()) {
+                return ResponseEntity.badRequest().body("As listas não podem estar vazias");
+            }
+            if (sources.size() != destinations.size()) {
+                return ResponseEntity.badRequest().body("O número de origens deve ser igual ao número de destinos.");
             }
 
-            backupService.runBackup(source, destination);
+            for (String s : sources) backupService.validateSafePath(s);
+            for (String d : destinations) backupService.validateSafePath(d);
 
-            List<BackupTask> recentTasks = backupRepository.findBySourcePathAndDestinationPathOrderByIdDesc(source, destination);
-            if (!recentTasks.isEmpty()) {
-                taskIds.add(recentTasks.getFirst().getId());
+            List<Long> taskIds = new ArrayList<>();
+
+            for (int i = 0; i < sources.size(); i++) {
+                String source = sources.get(i);
+                String destination = destinations.get(i);
+
+                Optional<BackupTask> activeTask = backupService.getActiveTask(source, destination);
+                if (activeTask.isPresent()) {
+                    Map<String, Object> errorResponse = new HashMap<>();
+                    errorResponse.put("error", "Já existe um backup ativo para este par origem/destino");
+                    errorResponse.put("source", source);
+                    errorResponse.put("destination", destination);
+                    errorResponse.put("taskId", activeTask.get().getId());
+
+                    return ResponseEntity.status(409).body(errorResponse);
+                }
+
+                backupService.runBackup(source, destination);
+
+                List<BackupTask> recentTasks = backupRepository.findBySourcePathAndDestinationPathOrderByIdDesc(source,
+                        destination);
+                if (!recentTasks.isEmpty()) {
+                    taskIds.add(recentTasks.getFirst().getId());
+                }
             }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("message", "Backup(s) iniciado(s) com sucesso");
+            response.put("taskIds", taskIds);
+
+            return ResponseEntity.ok(response);
+        } catch (SecurityException e) {
+            // Retorna 403 Forbidden para o Postman
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
         }
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", "Backup(s) iniciado(s) com sucesso");
-        response.put("taskIds", taskIds);
-
-        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/history")

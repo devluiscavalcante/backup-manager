@@ -8,9 +8,11 @@ import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.logging.BackupContext;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.stereotype.Service;
@@ -18,7 +20,10 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -36,6 +41,10 @@ public class BackupService {
     private final BackupContext backupContext;
     private final ProgressEmitter progressEmitter;
     private final BackupTaskManager taskManager;
+    private final FileStorageOperations storageOps;
+
+    @Value("${backup.excluded-folders:AppData,Temp,node_modules}")
+    private List<String> excludedFolders;
 
     private ExecutorService executor;
 
@@ -46,13 +55,15 @@ public class BackupService {
             BackupRepository backupRepository,
             BackupContext backupContext,
             ProgressEmitter progressEmitter,
-            BackupTaskManager taskManager
+            BackupTaskManager taskManager,
+            FileStorageOperations storageOps
     ) {
         this.backupManager = backupManager;
         this.backupRepository = backupRepository;
         this.backupContext = backupContext;
         this.progressEmitter = progressEmitter;
         this.taskManager = taskManager;
+        this.storageOps = storageOps;
     }
 
     @PostConstruct
@@ -73,96 +84,45 @@ public class BackupService {
 
     @Async
     public void runBackup(String sourcePath, String destinationPath) {
-        BackupTask task = new BackupTask();
-        task.setSourcePath(sourcePath);
-        task.setDestinationPath(destinationPath);
-        task.setStartedAt(LocalDateTime.now());
-        task.setStatus(Status.EM_ANDAMENTO);
-
-        task = backupRepository.save(task);
-        logger.info("Tarefa salva no banco: ID={}, Status={}", task.getId(), task.getStatus());
-
-        taskManager.registerTask(task.getId(), task);
-
-        progressEmitter.sendControlEvent("start", task.getId(), "EM_ANDAMENTO");
-
         try {
-            File sourceFolder = backupManager.validateSource(sourcePath);
-            BigDecimal sizeMB = backupManager.calculateFolderSizeMB(sourceFolder);
-            long fileCount = backupManager.countFiles(sourceFolder);
+            validateSafePath(sourcePath);
+            validateSafePath(destinationPath);
 
-            Path source = sourceFolder.toPath();
-            Path destination = Paths.get(destinationPath);
+            BackupTask task = createInitialTask(sourcePath, destinationPath);
+            task = backupRepository.save(task);
 
-            backupContext.setLastDestination(destination.toString());
-
-            if (!Files.exists(destination)) Files.createDirectories(destination);
-
-            progressEmitter.sendProgress(new Progress(
-                    0,
-                    "Iniciando...",
-                    0,
-                    (int) fileCount,
-                    task.getId().toString()
-            ));
-
-            int warnings = copyDirectoryRecursively(source, destination, task.getId());
-
-            if (task.isCancelled()) {
-                task.setStatus(Status.CANCELADO);
-                task.setErrorMessage("Backup cancelado pelo usuário");
-                backupRepository.save(task);
-
-                progressEmitter.sendControlEvent("cancel", task.getId(), "CANCELADO");
-                progressEmitter.sendProgress(new Progress(
-                        0,
-                        "Backup cancelado",
-                        0,
-                        0,
-                        task.getId().toString()
-                ));
-            } else {
-                task.setFinishedAt(LocalDateTime.now());
-                task.setFileCount(fileCount);
-                task.setTotalSizeMB(sizeMB);
-                task.setStatus(Status.CONCLUIDO);
-                task.setErrorMessage(warnings > 0
-                        ? "Concluído com alertas: " + warnings + " item(ns) ignorado(s). Consulte warnings.log no destino."
-                        : null);
-                backupRepository.save(task);
-
-                progressEmitter.sendControlEvent("complete", task.getId(), "CONCLUIDO");
-                progressEmitter.sendProgress(new Progress(
-                        100,
-                        "Backup concluído",
-                        (int) fileCount,
-                        (int) fileCount,
-                        task.getId().toString()
-                ));
-            }
-
-        } catch (Exception e) {
-            task.setStatus(Status.FALHA);
-            task.setErrorMessage(e.getMessage());
-            backupRepository.save(task);
-
-            progressEmitter.sendControlEvent("error", task.getId(), "FALHA");
-            progressEmitter.sendError("Falha no backup: " + e.getMessage());
+            logger.info("Tarefa salva no banco: ID={}, Status={}", task.getId(), task.getStatus());
+            taskManager.registerTask(task.getId(), task);
+            progressEmitter.sendControlEvent("start", task.getId(), "EM_ANDAMENTO");
 
             try {
-                progressEmitter.sendProgress(new Progress(
-                        0,
-                        "Falha: " + e.getMessage(),
-                        0,
-                        0,
-                        task.getId().toString()
-                ));
-            } catch (Exception ignored) {
+                File sourceFolder = backupManager.validateSource(sourcePath);
+                BigDecimal sizeMB = backupManager.calculateFolderSizeMB(sourceFolder);
+                long fileCount = backupManager.countFiles(sourceFolder);
+                Path source = sourceFolder.toPath();
+                Path destination = Paths.get(destinationPath);
+
+                backupContext.setLastDestination(destination.toString());
+                if (!Files.exists(destination)) Files.createDirectories(destination);
+
+                progressEmitter.sendProgress(new Progress(0, "Iniciando...", 0,
+                        (int) fileCount, task.getId().toString()));
+
+                int warnings = executeStorageOperation(source, destination, task.getId(), (int) fileCount);
+
+                finalizeTask(task, fileCount, sizeMB, warnings);
+
+            } catch (Exception e) {
+                handleBackupFailure(task, e);
+            } finally {
+                task.setFinishedAt(LocalDateTime.now());
+                backupRepository.save(task);
+                taskManager.unregisterTask(task.getId());
             }
-        } finally {
-            task.setFinishedAt(LocalDateTime.now());
-            backupRepository.save(task);
-            taskManager.unregisterTask(task.getId());
+
+        } catch (SecurityException se) {
+            logger.error("BLOQUEIO DE SEGURANÇA: {}", se.getMessage());
+            progressEmitter.sendError("Erro de Segurança: " + se.getMessage());
         }
     }
 
@@ -171,266 +131,155 @@ public class BackupService {
         if (destinationPaths == null || destinationPaths.isEmpty()) {
             throw new IllegalArgumentException("Lista de destinos não pode estar vazia.");
         }
-
         for (String destinationPath : destinationPaths) {
-            try {
-                System.out.println("[BackupService] Iniciando backup para destino: " + destinationPath);
-                runBackup(sourcePath, destinationPath);
-            } catch (Exception e) {
-                System.err.println("[BackupService] Falha ao copiar para destino '" + destinationPath + "': " + e.getMessage());
-            }
+            runBackup(sourcePath, destinationPath);
         }
     }
 
-
-    private int copyDirectoryRecursively(Path source, Path destination, Long taskId) {
-        List<String> excludedFolders = List.of(
-                "AppData", "Ambiente de Impressão", "Meus Vídeos",
-                "Links", "Saved Games", "Searches", "Favorites",
-                "MicrosoftEdgeBackups"
-        );
-
-        AtomicInteger warnings = new AtomicInteger(0);
+    private int executeStorageOperation(Path source, Path destination, Long taskId, int totalFiles) throws IOException {
+        AtomicInteger processed = new AtomicInteger(0);
         Path logFile = destination.resolve("warnings.log");
 
-        try {
-            if (!Files.exists(destination)) {
-                Files.createDirectories(destination);
+        return storageOps.copyDirectoryIncremental(source, destination, excludedFolders,
+                new FileStorageOperations.BackupProgressCallback() {
+            @Override
+            public void onFileProcessed(Path file, BasicFileAttributes attrs) {
+                int current = processed.incrementAndGet();
+                updateProgress(file, current, totalFiles, taskId);
             }
 
-            Files.walkFileTree(source, new SimpleFileVisitor<>() {
+            @Override
+            public void onWarning(String message, Path path) {
+                logDetail(logFile, message, path);
+            }
 
-                int processed = 0;
-                int total;
+            @Override
+            public boolean shouldContinue() {
+                BackupTask task = taskManager.getTask(taskId);
+                if (task == null || task.isCancelled()) return false;
+                handlePause(task, taskId, processed.get(), totalFiles);
+                return !task.isCancelled();
+            }
+        });
+    }
 
-                {
-                    try {
-                        total = (int) backupManager.countFiles(source.toFile());
-                        if (total < 0) total = 0;
-                    } catch (Exception ignored) {
-                        total = 0;
-                    }
-                }
+    public void validateSafePath(String path) {
+        if (path == null || path.isBlank()) return;
 
-                private boolean shouldExclude(Path path, BasicFileAttributes attrs) {
-                    try {
-                        if (attrs.isOther() || Files.isSymbolicLink(path)) return true;
-                        String p = path.toString();
-                        for (String excluded : excludedFolders) {
-                            if (p.contains(excluded)) return true;
-                        }
-                    } catch (Exception ignored) {
-                    }
-                    return false;
-                }
+        Path p = Paths.get(path).toAbsolutePath().normalize();
+        String normalizedPath = p.toString().toLowerCase();
 
-                private void logWarning(String message, Path path) {
-                    warnings.incrementAndGet();
-                    String logEntry = String.format("[%s] %s: %s%n",
-                            LocalDateTime.now(), message, path);
-                    System.err.println(logEntry);
-                    try {
-                        Files.writeString(logFile, logEntry, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                    } catch (IOException ignored) {
-                    }
-                }
+        String windowsDir = System.getenv("SystemRoot").toLowerCase();
 
-                private FileVisitResult checkPauseAndCancel() {
-                    BackupTask task = taskManager.getTask(taskId);
-                    if (task == null) {
-                        logger.warn("Tarefa {} não encontrada no gerenciador", taskId);
-                        return FileVisitResult.TERMINATE;
-                    }
+        boolean isForbidden = normalizedPath.startsWith(windowsDir) ||
+                normalizedPath.contains("system32") ||
+                normalizedPath.contains("syswow64") ||
+                normalizedPath.contains("program files") ||
+                normalizedPath.matches("^[a-z]:\\\\$");
 
-                    if (task.isCancelled()) {
-                        logger.info("Backup {} cancelado pelo usuário", taskId);
-                        return FileVisitResult.TERMINATE;
-                    }
-
-                    int pauseCheckCount = 0;
-                    while (task.isPaused() && !task.isCancelled()) {
-                        if (pauseCheckCount == 0) {
-                            try {
-                                progressEmitter.sendProgress(new Progress(
-                                        0,
-                                        "Backup pausado...",
-                                        0,
-                                        0,
-                                        taskId.toString()
-                                ));
-                            } catch (Exception e) {
-                                logger.warn("Erro ao enviar progresso de pausa: {}", e.getMessage());
-                            }
-                        }
-
-                        pauseCheckCount++;
-
-                        try {
-                            Thread.sleep(500);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            return FileVisitResult.TERMINATE;
-                        }
-
-                        task = taskManager.getTask(taskId);
-                        if (task == null) return FileVisitResult.TERMINATE;
-
-                        if (pauseCheckCount % 10 == 0) {
-                            logger.debug("Backup {} ainda pausado (verificação #{})", taskId, pauseCheckCount);
-                        }
-                    }
-
-                    if (pauseCheckCount > 0) {
-                        logger.info("Backup {} retomado após pausa", taskId);
-                        updateProgress(null, processed, total, taskId); // Envia update de retomada
-                    }
-
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    FileVisitResult result = checkPauseAndCancel();
-                    if (result != FileVisitResult.CONTINUE) return result;
-
-                    if (shouldExclude(dir, attrs)) {
-                        logWarning("Ignorado diretório simbólico/junction", dir);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
-
-                    Path targetDir = destination.resolve(source.relativize(dir));
-                    try {
-                        Files.createDirectories(targetDir);
-                    } catch (AccessDeniedException ade) {
-                        logWarning("Acesso negado ao diretório", dir);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    } catch (IOException e) {
-                        logWarning("Erro ao criar diretório destino", dir);
-                        return FileVisitResult.SKIP_SUBTREE;
-                    }
-
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                    FileVisitResult result = checkPauseAndCancel();
-                    if (result != FileVisitResult.CONTINUE) return result;
-
-                    if (shouldExclude(file, attrs)) {
-                        logDetail(logFile, "SKIPPED", "Ignorado arquivo simbólico/junction", file);
-                        return FileVisitResult.CONTINUE;
-                    }
-
-                    Path targetFile = destination.resolve(source.relativize(file));
-                    try {
-                        boolean skipCopy = false;
-                        if (Files.exists(targetFile)) {
-                            BasicFileAttributes targetAttrs = Files.readAttributes(targetFile, BasicFileAttributes.class);
-
-                            boolean isSameSize = attrs.size() == targetAttrs.size();
-                            boolean isNotModified = attrs.lastModifiedTime().toMillis() <= targetAttrs.lastModifiedTime().toMillis();
-
-                            if (isSameSize && isNotModified) {
-                                skipCopy = true;
-                            }
-                        }
-
-                        if (!skipCopy) {
-                            Files.createDirectories(targetFile.getParent());
-                            Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.COPY_ATTRIBUTES);
-                        }
-
-                        processed++;
-                        updateProgress(file, processed, total, taskId);
-
-                    } catch (AccessDeniedException ade) {
-                        warnings.incrementAndGet();
-                        logDetail(logFile, "PERMISSION_DENIED", "Acesso negado ao arquivo", file);
-                    } catch (FileSystemException fse) {
-                        warnings.incrementAndGet();
-                        logDetail(logFile, "FILE_LOCKED", "Arquivo em uso por outro processo", file);
-                    } catch (IOException e) {
-                        warnings.incrementAndGet();
-                        logDetail(logFile, "IO_ERROR", "Erro genérico de IO: " + e.getMessage(), file);
-                    }
-
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult visitFileFailed(Path file, IOException exc) {
-                    logWarning("Falha ao visitar arquivo/pasta", file);
-                    return FileVisitResult.CONTINUE;
-                }
-
-                @Override
-                public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
-                    if (exc != null) logWarning("Erro ao visitar diretório", dir);
-                    return checkPauseAndCancel();
-                }
-            });
-        } catch (IOException e) {
-            String msg = "Erro ao percorrer diretório: " + e.getMessage();
-            try {
-                Files.writeString(logFile, String.format("[%s] %s%n", LocalDateTime.now(), msg),
-                        StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-            } catch (IOException ignored) {}
-            throw new RuntimeException(msg, e);
+        if (isForbidden) {
+            logger.error("BLOQUEIO DE SEGURANÇA: Caminho restrito detectado: {}", path);
+            throw new SecurityException("Acesso negado: O caminho '" + path
+                    + "' é uma área protegida do sistema operacional.");
         }
+    }
 
-        return warnings.get();
+    private void handlePause(BackupTask task, Long taskId, int processed, int total) {
+        int pauseCheckCount = 0;
+        while (task.isPaused() && !task.isCancelled()) {
+            if (pauseCheckCount == 0) {
+                progressEmitter.sendProgress(new Progress(0, "Backup pausado...",
+                        0, 0, taskId.toString()));
+            }
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            task = taskManager.getTask(taskId);
+            pauseCheckCount++;
+        }
+        if (pauseCheckCount > 0 && !task.isCancelled()) {
+            updateProgress(null, processed, total, taskId);
+        }
+    }
+
+    private BackupTask createInitialTask(String source, String dest) {
+        BackupTask task = new BackupTask();
+        task.setSourcePath(source);
+        task.setDestinationPath(dest);
+        task.setStartedAt(LocalDateTime.now());
+        task.setStatus(Status.EM_ANDAMENTO);
+        return task;
+    }
+
+    private void finalizeTask(BackupTask task, long fileCount, BigDecimal sizeMB, int warnings) {
+        if (task.isCancelled()) {
+            task.setStatus(Status.CANCELADO);
+            task.setErrorMessage("Backup cancelado pelo usuário");
+            progressEmitter.sendControlEvent("cancel", task.getId(), "CANCELADO");
+        } else {
+            task.setFinishedAt(LocalDateTime.now());
+            task.setFileCount(fileCount);
+            task.setTotalSizeMB(sizeMB);
+            task.setStatus(Status.CONCLUIDO);
+            task.setErrorMessage(warnings > 0 ? "Concluído com " + warnings
+                    + " alertas. Verifique warnings.log." : null);
+            progressEmitter.sendControlEvent("complete", task.getId(), "CONCLUIDO");
+            progressEmitter.sendProgress(new Progress(100, "Concluído", (int) fileCount,
+                    (int) fileCount, task.getId().toString()));
+        }
+    }
+
+    private void handleBackupFailure(BackupTask task, Exception e) {
+        logger.error("Falha no backup {}: {}", task.getId(), e.getMessage());
+        task.setStatus(Status.FALHA);
+        task.setErrorMessage(e.getMessage());
+        progressEmitter.sendControlEvent("error", task.getId(), "FALHA");
+        progressEmitter.sendError("Falha: " + e.getMessage());
     }
 
     public List<BackupTask> getAllTasks() {
         return backupRepository.findAll();
     }
 
-    public boolean pauseBackup(Long taskId) {
-        return taskManager.pauseTask(taskId);
+    public boolean pauseBackup(Long id) {
+        return taskManager.pauseTask(id);
     }
 
-    public boolean resumeBackup(Long taskId) {
-        return taskManager.resumeTask(taskId);
+    public boolean resumeBackup(Long id) {
+        return taskManager.resumeTask(id);
     }
 
-    public boolean cancelBackup(Long taskId) {
-        return taskManager.cancelTask(taskId);
+    public boolean cancelBackup(Long id) {
+        return taskManager.cancelTask(id);
     }
 
     public Optional<BackupTask> getActiveTask(String sourcePath, String destinationPath) {
-        List<BackupTask> tasks = backupRepository.findAll();
-        return tasks.stream()
+        return backupRepository.findAll().stream()
                 .filter(t -> t.getSourcePath().equals(sourcePath) &&
                         t.getDestinationPath().equals(destinationPath) &&
-                        (t.getStatus() == Status.EM_ANDAMENTO ||
-                                t.getStatus() == Status.PAUSADO))
+                        (t.getStatus() == Status.EM_ANDAMENTO || t.getStatus() == Status.PAUSADO))
                 .findFirst();
     }
 
     private void updateProgress(Path file, int processed, int total, Long taskId) {
-
         if (processed == 1 || processed >= total || processed % 50 == 0) {
             int percent = (total > 0) ? (processed * 100) / total : 0;
-            String fileName = (file != null) ? file.getFileName().toString() : "Retomando...";
-
+            String fileName = (file != null) ? file.getFileName().toString() : "Processando...";
             try {
-                progressEmitter.sendProgress(new Progress(
-                        percent,
-                        fileName,
-                        processed,
-                        total,
-                        taskId.toString()
-                ));
-            } catch (Exception ignored) {}
+                progressEmitter.sendProgress(new Progress(percent, fileName, processed, total, taskId.toString()));
+            } catch (Exception ignored) {
+            }
         }
     }
 
-    private void logDetail(Path logFile, String level, String message, Path path){
-        String logEntry = String.format("[%s] [%s] %s: %s%n",
-                LocalDateTime.now(), level, message, path);
+    private void logDetail(Path logFile, String message, Path path) {
+        String entry = String.format("[%s] [%s] %s: %s%n", LocalDateTime.now(), "WARNING", message, path);
         try {
-            Files.writeString(logFile, logEntry, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-        } catch (Exception ignored){}
+            Files.writeString(logFile, entry, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        } catch (IOException ignored) {
+        }
     }
 }
