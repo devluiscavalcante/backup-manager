@@ -127,7 +127,7 @@ public class BackupService {
         } catch (SecurityException se) {
             logger.error("BLOQUEIO DE SEGURANÇA: {}", se.getMessage());
             progressEmitter.sendError("Erro de Segurança: " + se.getMessage());
-        } catch (IllegalArgumentException | IllegalStateException ex) {
+        } catch (IllegalArgumentException | IllegalStateException | IOException ex) {
             logger.error("FALHA NA VALIDAÇÃO PRÉVIA: {}", ex.getMessage());
             progressEmitter.sendError("Falha ao iniciar: " + ex.getMessage());
         }
@@ -149,28 +149,28 @@ public class BackupService {
 
         return storageOps.copyDirectoryIncremental(source, destination, excludedFolders,
                 new FileStorageOperations.BackupProgressCallback() {
-            @Override
-            public void onFileProcessed(Path file, BasicFileAttributes attrs) {
-                int current = processed.incrementAndGet();
-                updateProgress(file, current, totalFiles, taskId);
-            }
+                    @Override
+                    public void onFileProcessed(Path file, BasicFileAttributes attrs) {
+                        int current = processed.incrementAndGet();
+                        updateProgress(file, current, totalFiles, taskId);
+                    }
 
-            @Override
-            public void onWarning(String message, Path path) {
-                logDetail(logFile, message, path);
-            }
+                    @Override
+                    public void onWarning(String message, Path path) {
+                        logDetail(logFile, message, path);
+                    }
 
-            @Override
-            public boolean shouldContinue() {
-                BackupTask task = taskManager.getTask(taskId);
-                if (task == null || task.isCancelled()) return false;
-                handlePause(task, taskId, processed.get(), totalFiles);
-                return !task.isCancelled();
-            }
-        });
+                    @Override
+                    public boolean shouldContinue() {
+                        BackupTask task = taskManager.getTask(taskId);
+                        if (task == null || task.isCancelled()) return false;
+                        handlePause(task, taskId, processed.get(), totalFiles);
+                        return !task.isCancelled();
+                    }
+                });
     }
 
-    public void validatePathAndDriveSpace(String sourcePath, String destPath) {
+    public void validatePathAndDriveSpace(String sourcePath, String destPath) throws IOException {
         Path src = Paths.get(sourcePath);
         Path dest = Paths.get(destPath);
 
@@ -182,21 +182,18 @@ public class BackupService {
         if (!destRoot.exists()) {
             throw new IllegalStateException("O disco de destino " + dest.getRoot() + " não está acessível.");
         }
-        try {
-            long requiredSpace = backupManager.calculateFolderSizeMB(src.toFile()).longValue() * 1024 * 1024;
-            long availableSpace = destRoot.getUsableSpace();
 
-            if (requiredSpace > availableSpace) {
-                String error = String.format(
-                        "Espaço insuficiente no disco %s. Necessário: %d MB, Disponível: %d MB",
-                        dest.getRoot(),
-                        requiredSpace / (1024 * 1024),
-                        availableSpace / (1024 * 1024)
-                );
-                throw new IOException(error);
-            }
-        } catch (Exception e) {
-            logger.warn("Não foi possível calcular o espaço necessário com precisão: {}", e.getMessage());
+        long requiredSpace = backupManager.calculateFolderSizeMB(src.toFile()).longValue() * 1024 * 1024;
+        long availableSpace = destRoot.getUsableSpace();
+
+        if (requiredSpace > availableSpace) {
+            String error = String.format(
+                    "Espaço insuficiente no disco %s. Necessário: %d MB, Disponível: %d MB",
+                    dest.getRoot(),
+                    requiredSpace / (1024 * 1024),
+                    availableSpace / (1024 * 1024)
+            );
+            throw new IOException(error);
         }
     }
 
@@ -206,7 +203,8 @@ public class BackupService {
         Path p = Paths.get(path).toAbsolutePath().normalize();
         String normalizedPath = p.toString().toLowerCase();
 
-        String windowsDir = System.getenv("SystemRoot").toLowerCase();
+        String rootDir = System.getenv("SystemRoot");
+        String windowsDir = (rootDir != null) ? rootDir.toLowerCase() : "c:\\windows";
 
         boolean isForbidden = normalizedPath.startsWith(windowsDir) ||
                 normalizedPath.contains("system32") ||

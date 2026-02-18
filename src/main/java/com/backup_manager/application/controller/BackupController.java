@@ -12,6 +12,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,8 +33,7 @@ public class BackupController {
 
     @PostMapping("/start")
     public ResponseEntity<?> startBackup(@RequestBody BackupRequest request) {
-        try{
-
+        try {
             List<String> sources = request.getSources();
             List<String> destinations = request.getDestination();
 
@@ -44,14 +44,14 @@ public class BackupController {
                 return ResponseEntity.badRequest().body("O número de origens deve ser igual ao número de destinos.");
             }
 
-            for (String s : sources) backupService.validateSafePath(s);
-            for (String d : destinations) backupService.validateSafePath(d);
-
-            List<Long> taskIds = new ArrayList<>();
-
             for (int i = 0; i < sources.size(); i++) {
                 String source = sources.get(i);
                 String destination = destinations.get(i);
+
+                backupService.validateSafePath(source);
+                backupService.validateSafePath(destination);
+
+                backupService.validatePathAndDriveSpace(source, destination);
 
                 Optional<BackupTask> activeTask = backupService.getActiveTask(source, destination);
                 if (activeTask.isPresent()) {
@@ -60,9 +60,14 @@ public class BackupController {
                     errorResponse.put("source", source);
                     errorResponse.put("destination", destination);
                     errorResponse.put("taskId", activeTask.get().getId());
-
-                    return ResponseEntity.status(409).body(errorResponse);
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
                 }
+            }
+
+            List<Long> taskIds = new ArrayList<>();
+            for (int i = 0; i < sources.size(); i++) {
+                String source = sources.get(i);
+                String destination = destinations.get(i);
 
                 backupService.runBackup(source, destination);
 
@@ -74,13 +79,17 @@ public class BackupController {
             }
 
             Map<String, Object> response = new HashMap<>();
-            response.put("message", "Backup(s) iniciado(s) com sucesso");
+            response.put("message", "Verificações concluídas. Backup(s) iniciado(s) com sucesso");
             response.put("taskIds", taskIds);
 
             return ResponseEntity.ok(response);
+
         } catch (SecurityException e) {
-            // Retorna 403 Forbidden para o Postman
             return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+        } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Falha na validação: " + e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro inesperado: " + e.getMessage());
         }
     }
 
