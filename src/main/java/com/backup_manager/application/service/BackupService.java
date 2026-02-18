@@ -178,6 +178,12 @@ public class BackupService {
             throw new IllegalArgumentException("Origem não encontrada: " + sourcePath);
         }
 
+        try (var stream = Files.list(src)) {
+            if (!stream.findAny().isPresent()) {
+                throw new IllegalArgumentException("A pasta de origem está vazia: " + sourcePath);
+            }
+        }
+
         File destRoot = dest.getRoot().toFile();
         if (!destRoot.exists()) {
             throw new IllegalStateException("O disco de destino " + dest.getRoot() + " não está acessível.");
