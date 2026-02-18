@@ -41,7 +41,6 @@ public class BackupScheduler {
 
     @Scheduled(cron = "${backup.scheduler.cron-expression:0 0 2 * * *}",
             zone = "${backup.scheduler.time-zone:America/Sao_Paulo}")
-
     @Transactional
     public void executeScheduledBackups() {
         try {
@@ -69,7 +68,7 @@ public class BackupScheduler {
                         skippedCount.incrementAndGet();
                     }
                 } catch (Exception e) {
-                    logger.error("Erro ao executar backup agendado '{}': {}", config.getName(), e.getMessage(), e);
+                    logger.error("Erro ao executar backup agendado '{}': {}", config.getName(), e.getMessage());
                 }
             });
 
@@ -105,11 +104,6 @@ public class BackupScheduler {
                 return false;
             }
 
-            logger.info("Iniciando backup agendado '{}' - Fontes: {}, Destinos: {}",
-                    config.getName(),
-                    config.getSources().size(),
-                    config.getDestinations().size());
-
             BackupRequest request = new BackupRequest();
             request.setSources(config.getSources());
             request.setDestination(config.getDestinations());
@@ -117,12 +111,10 @@ public class BackupScheduler {
             executeBackupWithRequest(request, config.getName());
 
             lastExecutionMap.put(backupKey, now);
-
-            logger.info("Backup agendado '{}' concluído com sucesso", config.getName());
             return true;
 
         } catch (Exception e) {
-            logger.error("Falha ao executar backup agendado '{}': {}", config.getName(), e.getMessage(), e);
+            logger.error("Falha ao preparar backup agendado '{}': {}", config.getName(), e.getMessage());
             return false;
         }
     }
@@ -139,12 +131,11 @@ public class BackupScheduler {
 
         ScheduledFuture<?> future = oneTimeScheduler.schedule(() -> {
             try {
-                logger.info("Executando backup agendado ID {}: {}", taskId, backupName);
+                logger.info("Executando backup único agendado ID {}: {}", taskId, backupName);
                 executeBackupWithRequest(request, backupName);
-                scheduledTasks.remove(taskId); // Remove após execução
-                logger.info("Backup agendado ID {} concluído", taskId);
+                scheduledTasks.remove(taskId);
             } catch (Exception e) {
-                logger.error("Erro no backup agendado ID {}: {}", taskId, e.getMessage(), e);
+                logger.error("Erro no backup agendado ID {}: {}", taskId, e.getMessage());
                 scheduledTasks.remove(taskId);
             }
         }, minutesFromNow, TimeUnit.MINUTES);
@@ -153,77 +144,7 @@ public class BackupScheduler {
         return taskId;
     }
 
-    public boolean cancelScheduledBackup(Long taskId) {
-        ScheduledFuture<?> future = scheduledTasks.get(taskId);
-
-        if (future != null && !future.isDone() && !future.isCancelled()) {
-            boolean cancelled = future.cancel(false);
-            scheduledTasks.remove(taskId);
-
-            if (cancelled) {
-                logger.info("Backup agendado ID {} cancelado com sucesso", taskId);
-            } else {
-                logger.warn("Falha ao cancelar backup agendado ID {}", taskId);
-            }
-
-            return cancelled;
-        }
-
-        logger.warn("Backup agendado ID {} não encontrado ou já executado/cancelado", taskId);
-        return false;
-    }
-
-    public Map<Long, Map<String, Object>> getPendingScheduledBackups() {
-        Map<Long, Map<String, Object>> pendingTasks = new HashMap<>();
-
-        scheduledTasks.forEach((taskId, future) -> {
-            if (!future.isDone() && !future.isCancelled()) {
-                long delaySeconds = future.getDelay(TimeUnit.SECONDS);
-                long delayMinutes = future.getDelay(TimeUnit.MINUTES);
-
-                Map<String, Object> taskInfo = new HashMap<>();
-                taskInfo.put("status", "PENDENTE");
-                taskInfo.put("delaySeconds", delaySeconds);
-                taskInfo.put("delayMinutes", delayMinutes);
-                taskInfo.put("remainingTime", formatRemainingTime(delaySeconds));
-                taskInfo.put("cancelUrl", "/api/backup/scheduler/schedule/" + taskId + "/cancel");
-
-                pendingTasks.put(taskId, taskInfo);
-            }
-        });
-
-        return pendingTasks;
-    }
-
-    private String formatRemainingTime(long seconds) {
-        if (seconds <= 0) return "Executando agora";
-
-        long minutes = seconds / 60;
-        long remainingSeconds = seconds % 60;
-
-        if (minutes == 0) {
-            return String.format("%d segundos", remainingSeconds);
-        } else if (remainingSeconds == 0) {
-            return String.format("%d minutos", minutes);
-        } else {
-            return String.format("%d minutos e %d segundos", minutes, remainingSeconds);
-        }
-    }
-
-    @Scheduled(fixedDelay = 300000)
-    public void cleanupCompletedTasks() {
-        int initialSize = scheduledTasks.size();
-
-        scheduledTasks.entrySet().removeIf(entry ->
-                entry.getValue().isDone() || entry.getValue().isCancelled()
-        );
-
-        if (initialSize != scheduledTasks.size()) {
-            logger.debug("Limpeza de tarefas: {} removidas, {} restantes",
-                    initialSize - scheduledTasks.size(), scheduledTasks.size());
-        }
-    }
-    public  void executeBackupWithRequest(BackupRequest request, String backupName) {
+    public void executeBackupWithRequest(BackupRequest request, String backupName) {
         List<String> sources = request.getSources();
         List<String> destinations = request.getDestination();
 
@@ -240,37 +161,74 @@ public class BackupScheduler {
             String destination = destinations.get(i);
 
             try {
+                backupService.validateSafePath(source);
+                backupService.validateSafePath(destination);
+                backupService.validatePathAndDriveSpace(source, destination);
+
                 var activeTask = backupService.getActiveTask(source, destination);
                 if (activeTask.isPresent()) {
-                    logger.warn("Já existe backup ativo para {}. Ignorando execução agendada.",
-                            source + " -> " + destination);
+                    logger.warn("Backup agendado '{}' ignorado: Já existe uma tarefa ativa para {} -> {}",
+                            backupName, source, destination);
                     continue;
                 }
 
-                logger.info("Executando backup agendado '{}': {} -> {}", backupName, source, destination);
+                logger.info("Disparando execução agendada '{}': {} -> {}", backupName, source, destination);
                 backupService.runBackup(source, destination);
 
             } catch (Exception e) {
-                logger.error("Erro ao executar backup agendado para {}: {}", source + " -> "
-                        + destination, e.getMessage(), e);
+                logger.error("Agendador pulou o par [{} -> {}] devido a erro: {}", source, destination, e.getMessage());
             }
         }
     }
+
+    public boolean cancelScheduledBackup(Long taskId) {
+        ScheduledFuture<?> future = scheduledTasks.get(taskId);
+        if (future != null && !future.isDone() && !future.isCancelled()) {
+            boolean cancelled = future.cancel(false);
+            scheduledTasks.remove(taskId);
+            return cancelled;
+        }
+        return false;
+    }
+
+    public Map<Long, Map<String, Object>> getPendingScheduledBackups() {
+        Map<Long, Map<String, Object>> pendingTasks = new HashMap<>();
+        scheduledTasks.forEach((taskId, future) -> {
+            if (!future.isDone() && !future.isCancelled()) {
+                long delaySeconds = future.getDelay(TimeUnit.SECONDS);
+                Map<String, Object> taskInfo = new HashMap<>();
+                taskInfo.put("status", "PENDENTE");
+                taskInfo.put("remainingTime", formatRemainingTime(delaySeconds));
+                taskInfo.put("cancelUrl", "/api/backup/scheduler/schedule/" + taskId + "/cancel");
+                pendingTasks.put(taskId, taskInfo);
+            }
+        });
+        return pendingTasks;
+    }
+
+    private String formatRemainingTime(long seconds) {
+        if (seconds <= 0) return "Executando agora";
+        long minutes = seconds / 60;
+        long remainingSeconds = seconds % 60;
+        if (minutes == 0) return remainingSeconds + " segundos";
+        return minutes + " minutos e " + remainingSeconds + " segundos";
+    }
+
+    @Scheduled(fixedDelay = 300000) // 5 minutos
+    public void cleanupCompletedTasks() {
+        scheduledTasks.entrySet().removeIf(entry -> entry.getValue().isDone()
+                || entry.getValue().isCancelled());
+    }
+
     @Scheduled(cron = "0 0 0 * * *")
     public void cleanupExecutionHistory() {
-        try {
-            LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
-            lastExecutionMap.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
-            logger.debug("Histórico de execuções limpo. Entradas atuais: {}", lastExecutionMap.size());
-        } catch (Exception e) {
-            logger.warn("Erro ao limpar histórico de execuções: {}", e.getMessage());
-        }
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
+        lastExecutionMap.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
     }
 
     public SchedulerStatus getSchedulerStatus() {
         List<ScheduledBackupConfig> backups = schedulerProperties.getScheduledBackups();
-        int enabledCount = backups != null ?
-                (int) backups.stream().filter(ScheduledBackupConfig::isEnabled).count() : 0;
+        int enabledCount = backups != null ? (int) backups.stream().filter(ScheduledBackupConfig::isEnabled).count() : 0;
 
         return new SchedulerStatus(
                 schedulerProperties.isEnabled(),
