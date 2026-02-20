@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/logs")
@@ -19,6 +20,18 @@ public class LogController {
 
     public LogController(BackupContext backupContext) {
         this.backupContext = backupContext;
+    }
+
+    @GetMapping
+    public ResponseEntity<?> getLogStatus() {
+        String lastDest = backupContext.getLastDestination();
+        if (lastDest == null) {
+            return ResponseEntity.ok(Map.of("status", "No backups executed yet in this session."));
+        }
+        return ResponseEntity.ok(Map.of(
+                "lastBackupPath", lastDest,
+                "availableLogs", new String[]{"/warnings"}
+        ));
     }
 
     @GetMapping("/warnings")
