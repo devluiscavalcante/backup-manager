@@ -13,6 +13,8 @@ import java.time.LocalDateTime;
 @Table(name = "backup_tasks", indexes = {
         @Index(name = "idx_status", columnList = "status"),
         @Index(name = "idx_source_dest", columnList = "source_path, destination_path"),
+        @Index(name = "idx_started_at", columnList = "started_at"),
+        @Index(name = "idx_status_started", columnList = "status, started_at")
 })
 public class BackupTask {
 
