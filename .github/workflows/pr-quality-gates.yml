@@ -16,6 +16,15 @@ jobs:
       postgres:
         image: postgres:15
         env:
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          NOTIFICATION_ENABLED: "true"
+          NOTIFICATION_EMAIL_FROM: ${{ secrets.NOTIFICATION_EMAIL_FROM }}
+          NOTIFICATION_EMAIL_RECIPIENTS: ${{ secrets.NOTIFICATION_EMAIL_RECIPIENTS }}
+          NOTIFICATION_NOTIFY_SUCCESS: "true"
+          NOTIFICATION_NOTIFY_FAILURE: "true"
           POSTGRES_PASSWORD: test
           POSTGRES_DB: backup_manager_test
           POSTGRES_USER: test
