@@ -4,13 +4,16 @@ import com.backup_manager.application.dto.CronTemplateResponse;
 import com.backup_manager.application.dto.CronValidationResponse;
 import com.backup_manager.application.service.CronValidationService;
 import com.backup_manager.application.service.DynamicSchedulerService;
+import com.backup_manager.domain.event.BackupScheduledEvent;
 import com.backup_manager.domain.model.ScheduledBackupEntity;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,13 +25,15 @@ public class BackupConfigController {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupConfigController.class);
 
+    private final ApplicationEventPublisher eventPublisher;
     private final ScheduledBackupRepository repository;
     private final DynamicSchedulerService dynamicSchedulerService;
     private final CronValidationService cronValidationService;
 
-    public BackupConfigController(ScheduledBackupRepository repository,
+    public BackupConfigController(ApplicationEventPublisher eventPublisher, ScheduledBackupRepository repository,
                                   DynamicSchedulerService dynamicSchedulerService,
                                   CronValidationService cronValidationService) {
+        this.eventPublisher = eventPublisher;
         this.repository = repository;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.cronValidationService = cronValidationService;
@@ -49,6 +54,16 @@ public class BackupConfigController {
 
             ScheduledBackupEntity saved = repository.save(config);
             dynamicSchedulerService.refreshAllTasks();
+
+            LocalDateTime nextExecution = cronValidationService.calculateNextExecution(saved.getCronExpression());
+            eventPublisher.publishEvent(new BackupScheduledEvent(
+                    saved.getId(),
+                    saved.getName(),
+                    saved.getSources(),
+                    saved.getDestinations(),
+                    nextExecution,
+                    saved.getCronExpression()
+            ));
 
             Map<String, Object> response = new HashMap<>();
             response.put("id", saved.getId());

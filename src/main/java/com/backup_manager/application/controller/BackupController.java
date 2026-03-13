@@ -79,16 +79,19 @@ public class BackupController {
             }
 
             List<Long> taskIds = new ArrayList<>();
+
             for (int i = 0; i < sources.size(); i++) {
                 String source = sources.get(i);
                 String destination = destinations.get(i);
 
-                backupService.runBackup(source, destination);
+                Long taskId = backupService.runBackup(source, destination);
 
-                List<BackupTask> recentTasks = backupRepository.findBySourcePathAndDestinationPathOrderByIdDesc(source,
-                        destination);
-                if (!recentTasks.isEmpty()) {
-                    taskIds.add(recentTasks.getFirst().getId());
+                if (taskId != null) {
+                    taskIds.add(taskId);
+                    logger.info("Backup iniciado com sucesso: taskId={}, source={}, destination={}",
+                            taskId, source, destination);
+                } else {
+                    logger.warn("Falha ao iniciar backup: source={}, destination={}", source, destination);
                 }
             }
 

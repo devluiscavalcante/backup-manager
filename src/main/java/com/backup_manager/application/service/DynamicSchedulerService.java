@@ -78,7 +78,6 @@ public class DynamicSchedulerService implements SchedulingConfigurer {
 
     private void executeScheduledBackup(ScheduledBackupEntity config) {
         logger.info("Iniciando execução agendada: {}", config.getName());
-
         try {
             com.backup_manager.application.dto.BackupRequest request =
                     new com.backup_manager.application.dto.BackupRequest();
@@ -86,16 +85,14 @@ public class DynamicSchedulerService implements SchedulingConfigurer {
             request.setDestination(config.getDestinations());
 
             backupScheduler.executeBackupWithRequest(request, config.getName());
-
             updateLastExecution(config.getId());
-
             logger.info("Execução agendada concluída: {}", config.getName());
-
         } catch (Exception e) {
             logger.error("Erro ao executar backup agendado '{}': {}",
                     config.getName(), e.getMessage(), e);
         }
     }
+
 
     private void updateLastExecution(Long configId) {
         try {
