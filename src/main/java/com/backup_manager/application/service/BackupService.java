@@ -2,7 +2,6 @@ package com.backup_manager.application.service;
 
 import com.backup_manager.application.dto.Progress;
 import com.backup_manager.application.progress.ProgressEmitter;
-import com.backup_manager.domain.event.BackupCancelledEvent;
 import com.backup_manager.domain.event.BackupCompletedEvent;
 import com.backup_manager.domain.event.BackupFailedEvent;
 import com.backup_manager.domain.event.BackupStartedEvent;
@@ -162,13 +161,30 @@ public class BackupService {
 
                 int warnings = executeStorageOperation(source, destination, task.getId(), (int) fileCount);
 
-                finalizeTask(task, fileCount, sizeMB, warnings);
+                BackupTask currentTask = backupRepository.findById(task.getId()).orElse(task);
+
+                if (!currentTask.isCancelled()) {
+                    finalizeTask(currentTask, fileCount, sizeMB, warnings);
+                } else {
+                    logger.info("Backup {} foi cancelado durante execução", task.getId());
+                }
 
             } catch (Exception e) {
-                handleBackupFailure(task, e);
+                BackupTask currentTask = backupRepository.findById(task.getId()).orElse(task);
+
+                if (!currentTask.isCancelled()) {
+                    handleBackupFailure(currentTask, e);
+                } else {
+                    logger.info("Backup {} cancelado (exception capturada)", task.getId());
+                }
             } finally {
-                task.setFinishedAt(LocalDateTime.now());
-                backupRepository.save(task);
+                BackupTask finalTask = backupRepository.findById(task.getId()).orElse(task);
+
+                if (finalTask.getFinishedAt() == null) {
+                    finalTask.setFinishedAt(LocalDateTime.now());
+                }
+
+                backupRepository.save(finalTask);
                 taskManager.unregisterTask(task.getId());
             }
 
@@ -293,25 +309,18 @@ public class BackupService {
     private void finalizeTask(BackupTask task, long fileCount, BigDecimal sizeMB, int warnings) {
         long durationSeconds = calculateDuration(task);
 
-        if (task.isCancelled()) {
-            task.setStatus(Status.CANCELADO);
-            task.setErrorMessage("Backup cancelado pelo usuário");
-            progressEmitter.sendControlEvent("cancel", task.getId(), "CANCELADO");
+        task.setFinishedAt(LocalDateTime.now());
+        task.setFileCount(fileCount);
+        task.setTotalSizeMB(sizeMB);
+        task.setStatus(Status.CONCLUIDO);
+        task.setErrorMessage(warnings > 0 ? "Concluído com " + warnings
+                + " alertas. Verifique warnings.log." : null);
 
-            eventPublisher.publishEvent(new BackupCancelledEvent(task));
-        } else {
-            task.setFinishedAt(LocalDateTime.now());
-            task.setFileCount(fileCount);
-            task.setTotalSizeMB(sizeMB);
-            task.setStatus(Status.CONCLUIDO);
-            task.setErrorMessage(warnings > 0 ? "Concluído com " + warnings
-                    + " alertas. Verifique warnings.log." : null);
-            progressEmitter.sendControlEvent("complete", task.getId(), "CONCLUIDO");
-            progressEmitter.sendProgress(new Progress(100, "Concluído", (int) fileCount,
-                    (int) fileCount, task.getId().toString()));
+        progressEmitter.sendControlEvent("complete", task.getId(), "CONCLUIDO");
+        progressEmitter.sendProgress(new Progress(100, "Concluído", (int) fileCount,
+                (int) fileCount, task.getId().toString()));
 
-            eventPublisher.publishEvent(new BackupCompletedEvent(task, durationSeconds));
-        }
+        eventPublisher.publishEvent(new BackupCompletedEvent(task, durationSeconds));
     }
 
     private void handleBackupFailure(BackupTask task, Exception e) {
