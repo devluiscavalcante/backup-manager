@@ -48,19 +48,19 @@ public class BackupTaskManager {
 
     @Transactional
     public boolean pauseTask(Long taskId) {
-        logger.info("PAUSE iniciado para tarefa: {}", taskId);
+        logger.info("Pausando backup: ID={}", taskId);
 
         try {
             Optional<BackupTask> dbTaskOpt = backupRepository.findById(taskId);
             if (!dbTaskOpt.isPresent()) {
-                logger.error("Tarefa {} não encontrada no banco", taskId);
+                logger.warn("Backup {} não encontrado", taskId);
                 return false;
             }
 
             BackupTask dbTask = dbTaskOpt.get();
 
             if (dbTask.getStatus() != Status.EM_ANDAMENTO) {
-                logger.warn("Tarefa {} não pode ser pausada. Status: {}", taskId, dbTask.getStatus());
+                logger.warn("Backup {} não pode ser pausado. Status: {}", taskId, dbTask.getStatus());
                 return false;
             }
 
@@ -70,53 +70,38 @@ public class BackupTaskManager {
             dbTask.setStatus(Status.PAUSADO);
             dbTask.setPausedAt(pauseTime);
 
-            logger.info("Salvando pausa: ID={}, Time={}", taskId, pauseTime);
-
             backupRepository.save(dbTask);
             backupRepository.flush();
-
-            Optional<BackupTask> verified = backupRepository.findById(taskId);
-            if (verified.isPresent()) {
-                BackupTask v = verified.get();
-                if (v.getPausedAt() == null) {
-                    logger.error("ERRO CRITICO: paused_at ainda NULL apos salvar");
-                    v.setPausedAt(pauseTime);
-                    backupRepository.save(v);
-                }
-                logger.info("Verificado: Status={}, PausedAt={}", v.getStatus(), v.getPausedAt());
-            }
 
             AtomicReference<BackupTask> taskRef = runningTasks.get(taskId);
             if (taskRef != null) {
                 taskRef.set(dbTask);
-                logger.info("Instancia em memoria atualizada: isPaused={}, Status={}",
-                        dbTask.isPaused(), dbTask.getStatus());
             }
 
-            logger.info("PAUSE salvo: ID={}, Status={}", taskId, dbTask.getStatus());
+            logger.info("Backup {} pausado com sucesso", taskId);
             return true;
 
         } catch (Exception e) {
-            logger.error("ERRO ao pausar tarefa {}: {}", taskId, e.getMessage(), e);
+            logger.error("Erro ao pausar backup {}: {}", taskId, e.getMessage(), e);
             return false;
         }
     }
 
     @Transactional
     public boolean resumeTask(Long taskId) {
-        logger.info("RESUME iniciado para tarefa: {}", taskId);
+        logger.info("Retomando backup: ID={}", taskId);
 
         try {
             Optional<BackupTask> dbTaskOpt = backupRepository.findById(taskId);
             if (!dbTaskOpt.isPresent()) {
-                logger.error("Tarefa {} não encontrada no banco", taskId);
+                logger.warn("Backup {} não encontrado", taskId);
                 return false;
             }
 
             BackupTask dbTask = dbTaskOpt.get();
 
             if (dbTask.getStatus() != Status.PAUSADO) {
-                logger.warn("Tarefa {} não pode ser retomada. Status: {}", taskId, dbTask.getStatus());
+                logger.warn("Backup {} não pode ser retomado. Status: {}", taskId, dbTask.getStatus());
                 return false;
             }
 
@@ -129,27 +114,25 @@ public class BackupTaskManager {
             AtomicReference<BackupTask> taskRef = runningTasks.get(taskId);
             if (taskRef != null) {
                 taskRef.set(dbTask);
-                logger.info("Instancia em memoria atualizada: isPaused={}, Status={}",
-                        dbTask.isPaused(), dbTask.getStatus());
             }
 
-            logger.info("RESUME salvo: ID={}, Status={}", taskId, dbTask.getStatus());
+            logger.info("Backup {} retomado com sucesso", taskId);
             return true;
 
         } catch (Exception e) {
-            logger.error("ERRO ao retomar tarefa {}: {}", taskId, e.getMessage(), e);
+            logger.error("Erro ao retomar backup {}: {}", taskId, e.getMessage(), e);
             return false;
         }
     }
 
     @Transactional
     public boolean cancelTask(Long taskId) {
-        logger.info("CANCEL iniciado para tarefa: {}", taskId);
+        logger.info("Cancelando backup: ID={}", taskId);
 
         try {
             Optional<BackupTask> dbTaskOpt = backupRepository.findById(taskId);
             if (!dbTaskOpt.isPresent()) {
-                logger.error("Tarefa {} não encontrada no banco", taskId);
+                logger.warn("Backup {} não encontrado", taskId);
                 return false;
             }
 
@@ -157,7 +140,7 @@ public class BackupTaskManager {
 
             if (dbTask.getStatus() != Status.EM_ANDAMENTO &&
                     dbTask.getStatus() != Status.PAUSADO) {
-                logger.warn("Tarefa {} não pode ser cancelada. Status: {}", taskId, dbTask.getStatus());
+                logger.warn("Backup {} não pode ser cancelado. Status: {}", taskId, dbTask.getStatus());
                 return false;
             }
 
@@ -170,27 +153,24 @@ public class BackupTaskManager {
 
             if (dbTask.getStatus() == Status.PAUSADO && dbTask.getPausedAt() == null) {
                 dbTask.setPausedAt(cancelTime.minusSeconds(10));
-                logger.warn("Definindo paused_at retroativamente para tarefa {}", taskId);
             }
 
             backupRepository.save(dbTask);
             backupRepository.flush();
 
+            // Atualizar memória
             AtomicReference<BackupTask> taskRef = runningTasks.get(taskId);
             if (taskRef != null) {
                 taskRef.set(dbTask);
-                logger.info("Instancia em memoria atualizada: isCancelled={}, Status={}",
-                        dbTask.isCancelled(), dbTask.getStatus());
             }
 
             eventPublisher.publishEvent(new BackupCancelledEvent(dbTask));
-            logger.info("Evento BackupCancelledEvent publicado para task {}", taskId);
+            logger.info("Backup {} cancelado com sucesso", taskId);
 
-            logger.info("CANCEL salvo: ID={}, Status={}", taskId, dbTask.getStatus());
             return true;
 
         } catch (Exception e) {
-            logger.error("ERRO ao cancelar tarefa {}: {}", taskId, e.getMessage(), e);
+            logger.error("Erro ao cancelar backup {}: {}", taskId, e.getMessage(), e);
             return false;
         }
     }
