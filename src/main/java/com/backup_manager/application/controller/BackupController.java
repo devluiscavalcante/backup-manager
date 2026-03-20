@@ -88,10 +88,6 @@ public class BackupController {
 
                 if (taskId != null) {
                     taskIds.add(taskId);
-                    logger.info("Backup iniciado com sucesso: taskId={}, source={}, destination={}",
-                            taskId, source, destination);
-                } else {
-                    logger.warn("Falha ao iniciar backup: source={}, destination={}", source, destination);
                 }
             }
 

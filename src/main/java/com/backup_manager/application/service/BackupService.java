@@ -161,30 +161,87 @@ public class BackupService {
 
                 int warnings = executeStorageOperation(source, destination, task.getId(), (int) fileCount);
 
-                BackupTask currentTask = backupRepository.findById(task.getId()).orElse(task);
+                // VERIFICAÇÃO TRIPLA DEFENSIVA
+                BackupTask memoryTask = taskManager.getTask(task.getId());
+                BackupTask dbTask = backupRepository.findById(task.getId()).orElse(null);
 
-                if (!currentTask.isCancelled()) {
-                    finalizeTask(currentTask, fileCount, sizeMB, warnings);
+                logger.info("PRE-FINALIZE CHECK - ID={}: memoryTask exists={}, memory.isCancelled={}, memory.status={}",
+                        task.getId(),
+                        memoryTask != null,
+                        memoryTask != null ? memoryTask.isCancelled() : "N/A",
+                        memoryTask != null ? memoryTask.getStatus() : "N/A");
+
+                logger.info("PRE-FINALIZE CHECK - ID={}: dbTask exists={}, db.isCancelled={}, db.status={}",
+                        task.getId(),
+                        dbTask != null,
+                        dbTask != null ? dbTask.isCancelled() : "N/A",
+                        dbTask != null ? dbTask.getStatus() : "N/A");
+
+                // Cancelado se QUALQUER verificação mostrar cancelamento
+                boolean wasCancelled = false;
+                String cancelSource = "";
+
+                if (memoryTask != null && memoryTask.isCancelled()) {
+                    wasCancelled = true;
+                    cancelSource = "memory.isCancelled";
+                }
+
+                if (memoryTask != null && memoryTask.getStatus() == Status.CANCELADO) {
+                    wasCancelled = true;
+                    cancelSource = cancelSource.isEmpty() ? "memory.status" : cancelSource + " + memory.status";
+                }
+
+                if (dbTask != null && dbTask.isCancelled()) {
+                    wasCancelled = true;
+                    cancelSource = cancelSource.isEmpty() ? "db.isCancelled" : cancelSource + " + db.isCancelled";
+                }
+
+                if (dbTask != null && dbTask.getStatus() == Status.CANCELADO) {
+                    wasCancelled = true;
+                    cancelSource = cancelSource.isEmpty() ? "db.status" : cancelSource + " + db.status";
+                }
+
+                if (wasCancelled) {
+                    logger.info("DECISAO: Backup {} CANCELADO (fonte: {}), pulando finalizacao", task.getId(), cancelSource);
                 } else {
-                    logger.info("Backup {} foi cancelado durante execução", task.getId());
+                    logger.info("DECISAO: Backup {} NAO CANCELADO, prosseguindo com finalizacao", task.getId());
+                    finalizeTask(dbTask != null ? dbTask : task, fileCount, sizeMB, warnings);
                 }
 
             } catch (Exception e) {
-                BackupTask currentTask = backupRepository.findById(task.getId()).orElse(task);
+                BackupTask memoryTask = taskManager.getTask(task.getId());
+                BackupTask dbTask = backupRepository.findById(task.getId()).orElse(null);
 
-                if (!currentTask.isCancelled()) {
-                    handleBackupFailure(currentTask, e);
+                boolean wasCancelled = false;
+                if (memoryTask != null && (memoryTask.isCancelled() || memoryTask.getStatus() == Status.CANCELADO)) {
+                    wasCancelled = true;
+                }
+                if (dbTask != null && (dbTask.isCancelled() || dbTask.getStatus() == Status.CANCELADO)) {
+                    wasCancelled = true;
+                }
+
+                if (wasCancelled) {
+                    logger.info("Backup {} cancelado (exception capturada), pulando tratamento de falha", task.getId());
                 } else {
-                    logger.info("Backup {} cancelado (exception capturada)", task.getId());
+                    handleBackupFailure(dbTask != null ? dbTask : task, e);
                 }
             } finally {
+                BackupTask memoryTask = taskManager.getTask(task.getId());
+
+                if (memoryTask != null &&
+                        (memoryTask.isCancelled() || memoryTask.getStatus() == Status.CANCELADO)) {
+                    logger.info("Finally: Backup {} cancelado, nao sobrescreve estado", task.getId());
+                    taskManager.unregisterTask(task.getId());
+                    return;
+                }
+
                 BackupTask finalTask = backupRepository.findById(task.getId()).orElse(task);
 
                 if (finalTask.getFinishedAt() == null) {
                     finalTask.setFinishedAt(LocalDateTime.now());
+                    backupRepository.save(finalTask);
                 }
 
-                backupRepository.save(finalTask);
                 taskManager.unregisterTask(task.getId());
             }
 
