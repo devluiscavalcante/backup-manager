@@ -54,14 +54,13 @@ public class RestoreService {
                           RestoreTaskManager taskManager,
                           FileRestoreOperations restoreOps,
                           ApplicationEventPublisher eventPublisher,
-                          ObjectMapper objectMapper,
                           @Lazy RestoreService self) {
         this.backupRepository = backupRepository;
         this.restoreRepository = restoreRepository;
         this.taskManager = taskManager;
         this.restoreOps = restoreOps;
         this.eventPublisher = eventPublisher;
-        this.objectMapper = objectMapper;
+        this.objectMapper = new ObjectMapper();
         this.self = self;
     }
 
