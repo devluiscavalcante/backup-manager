@@ -4,10 +4,18 @@ import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.SchedulerStatus;
 import com.backup_manager.application.service.BackupScheduler;
 import jakarta.annotation.PreDestroy;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -36,13 +44,7 @@ public class BackupSchedulerController {
         SchedulerStatus status = backupScheduler.getSchedulerStatus();
 
         String info = String.format(
-                "Agendamento de Backups\n" +
-                        "────────────────────────────\n" +
-                        "Status: %s\n" +
-                        "Expressão Cron: %s\n" +
-                        "Fuso Horário: %s\n" +
-                        "Configurações: %d total, %d ativas\n" +
-                        "Execuções recentes: %d",
+                "Agendamento de Backups%nStatus: %s%nExpressao Cron: %s%nFuso Horario: %s%nConfiguracoes: %d total, %d ativas%nExecucoes recentes: %d",
                 status.isEnabled() ? "ATIVO" : "INATIVO",
                 status.getCronExpression(),
                 status.getTimeZone(),
@@ -57,7 +59,7 @@ public class BackupSchedulerController {
     @PostMapping("/schedule-once")
     public ResponseEntity<Map<String, Object>> scheduleOneTimeBackup(
             @RequestParam int minutesFromNow,
-            @RequestBody BackupRequest request) {
+            @Valid @RequestBody BackupRequest request) {
 
         try {
             if (minutesFromNow <= 0) {
@@ -81,8 +83,6 @@ public class BackupSchedulerController {
             response.put("scheduledTime", scheduledTime.toString());
             response.put("backupName", backupName);
             response.put("cancelUrl", "/api/backup/scheduler/schedule/" + taskId + "/cancel");
-            response.put("sources", request.getSources());
-            response.put("destinations", request.getDestination());
 
             return ResponseEntity.ok(response);
 
@@ -97,7 +97,7 @@ public class BackupSchedulerController {
 
             Map<String, Object> error = new HashMap<>();
             error.put("success", false);
-            error.put("error", "Erro interno ao agendar backup: " + e.getMessage());
+            error.put("error", "Erro interno ao agendar backup");
             return ResponseEntity.internalServerError().body(error);
         }
     }
@@ -114,17 +114,17 @@ public class BackupSchedulerController {
                 response.put("taskId", taskId);
                 response.put("timestamp", LocalDateTime.now().toString());
 
-                logger.info("Backup ID {} cancelado pelo usuário", taskId);
+                logger.info("Backup ID {} cancelado pelo usuario", taskId);
                 return ResponseEntity.ok(response);
-            } else {
-                Map<String, Object> error = new HashMap<>();
-                error.put("success", false);
-                error.put("error", "Tarefa não encontrada ou já executada/cancelada");
-                error.put("taskId", taskId);
-
-                logger.warn("Tentativa de cancelar tarefa inexistente: {}", taskId);
-                return ResponseEntity.status(404).body(error);
             }
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("success", false);
+            error.put("error", "Tarefa nao encontrada ou ja executada/cancelada");
+            error.put("taskId", taskId);
+
+            logger.warn("Tentativa de cancelar tarefa inexistente: {}", taskId);
+            return ResponseEntity.status(404).body(error);
         } catch (Exception e) {
             logger.error("Erro ao cancelar backup {}: {}", taskId, e.getMessage(), e);
 
@@ -142,17 +142,8 @@ public class BackupSchedulerController {
             Map<Long, Map<String, Object>> pendingTasks = backupScheduler.getPendingScheduledBackups();
 
             Map<String, Object> response = new HashMap<>();
-
-            if (pendingTasks.isEmpty()) {
-                response.put("message", "Nenhum backup agendado pendente");
-                response.put("count", 0);
-                response.put("pendingTasks", Map.of());
-            } else {
-                response.put("message", "Backups agendados pendentes");
-                response.put("count", pendingTasks.size());
-                response.put("pendingTasks", pendingTasks);
-            }
-
+            response.put("count", pendingTasks.size());
+            response.put("pendingTasks", pendingTasks);
             response.put("timestamp", LocalDateTime.now().toString());
             response.put("success", true);
 
@@ -168,10 +159,10 @@ public class BackupSchedulerController {
     }
 
     @PostMapping("/execute-now")
-    public ResponseEntity<Map<String, Object>> executeNow(@RequestBody BackupRequest request) {
+    public ResponseEntity<Map<String, Object>> executeNow(@Valid @RequestBody BackupRequest request) {
         try {
             String backupName = "Backup Imediato " + LocalDateTime.now();
-            logger.info("⚡ Executando backup imediato: {}", backupName);
+            logger.info("Executando backup imediato: {}", backupName);
 
             backupScheduler.executeBackupWithRequest(request, backupName);
 
@@ -188,45 +179,8 @@ public class BackupSchedulerController {
 
             Map<String, Object> error = new HashMap<>();
             error.put("success", false);
-            error.put("error", e.getMessage());
+            error.put("error", "Falha ao executar backup imediato.");
 
-            return ResponseEntity.badRequest().body(error);
-        }
-    }
-
-    // EndPoint para fins de teste
-    @PostMapping("/test-5min")
-    public ResponseEntity<Map<String, Object>> test5MinuteBackup() {
-        try {
-            BackupRequest request = new BackupRequest();
-            request.setSources(java.util.List.of("C:/Temp/origem"));
-            request.setDestination(java.util.List.of("C:/Temp/destino"));
-
-            logger.info("Teste: Agendando backup para 5 minutos");
-
-            return scheduleOneTimeBackup(5, request);
-        } catch (Exception e) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", "Erro no teste: " + e.getMessage());
-            return ResponseEntity.badRequest().body(error);
-        }
-    }
-
-    @PostMapping("/test-quick")
-    public ResponseEntity<Map<String, Object>> testQuickBackup() {
-        try {
-            BackupRequest request = new BackupRequest();
-            request.setSources(java.util.List.of("C:/Temp/test-origem"));
-            request.setDestination(java.util.List.of("C:/Temp/test-destino"));
-
-            logger.info("Teste rápido: Agendando backup para 1 minuto");
-
-            return scheduleOneTimeBackup(1, request);
-        } catch (Exception e) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", "Erro no teste rápido: " + e.getMessage());
             return ResponseEntity.badRequest().body(error);
         }
     }
@@ -250,7 +204,7 @@ public class BackupSchedulerController {
 
             Map<String, Object> error = new HashMap<>();
             error.put("status", "DOWN");
-            error.put("error", e.getMessage());
+            error.put("error", "Falha na verificacao do scheduler.");
             error.put("timestamp", LocalDateTime.now().toString());
 
             return ResponseEntity.status(503).body(error);

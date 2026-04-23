@@ -7,6 +7,7 @@ import com.backup_manager.application.service.DynamicSchedulerService;
 import com.backup_manager.domain.event.BackupScheduledEvent;
 import com.backup_manager.domain.model.ScheduledBackupEntity;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -40,7 +41,7 @@ public class BackupConfigController {
     }
 
     @PostMapping
-    public ResponseEntity<?> createOrUpdate(@RequestBody ScheduledBackupEntity config) {
+    public ResponseEntity<?> createOrUpdate(@Valid @RequestBody ScheduledBackupEntity config) {
         try {
             CronValidationResponse validation = cronValidationService.validateCronExpression(config.getCronExpression());
 

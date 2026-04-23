@@ -9,6 +9,7 @@ import com.backup_manager.application.service.BackupService;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -46,7 +47,7 @@ public class BackupController {
     }
 
     @PostMapping("/start")
-    public ResponseEntity<?> startBackup(@RequestBody BackupRequest request) {
+    public ResponseEntity<?> startBackup(@Valid @RequestBody BackupRequest request) {
         try {
             List<String> sources = request.getSources();
             List<String> destinations = request.getDestination();
