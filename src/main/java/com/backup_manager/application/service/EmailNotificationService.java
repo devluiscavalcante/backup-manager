@@ -1,6 +1,7 @@
 package com.backup_manager.application.service;
 
 import com.backup_manager.domain.model.BackupTask;
+import com.backup_manager.domain.model.RestoreTask;
 import com.backup_manager.infrastructure.config.NotificationProperties;
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
@@ -23,7 +24,7 @@ import java.util.List;
 public class EmailNotificationService {
 
     private static final Logger logger = LoggerFactory.getLogger(EmailNotificationService.class);
-    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm");
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy 'as' HH:mm");
 
     private final JavaMailSender mailSender;
     private final NotificationProperties notificationProperties;
@@ -37,7 +38,7 @@ public class EmailNotificationService {
     @Async
     public void sendStartedNotification(BackupTask task, boolean isScheduled) {
         if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnStarted()) {
-            logger.debug("Notificação de início desabilitada");
+            logger.debug("Notificacao de inicio desabilitada");
             return;
         }
 
@@ -51,7 +52,7 @@ public class EmailNotificationService {
                                           List<String> destinations, LocalDateTime nextExecution,
                                           String cronExpression) {
         if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnScheduled()) {
-            logger.debug("Notificação de agendamento desabilitada");
+            logger.debug("Notificacao de agendamento desabilitada");
             return;
         }
 
@@ -63,11 +64,11 @@ public class EmailNotificationService {
     @Async
     public void sendSuccessNotification(BackupTask task, long durationSeconds) {
         if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnSuccess()) {
-            logger.debug("Notificação de sucesso desabilitada");
+            logger.debug("Notificacao de sucesso desabilitada");
             return;
         }
 
-        String subject = "Backup Concluído com Sucesso";
+        String subject = "Backup Concluido com Sucesso";
         String body = buildSuccessEmail(task, durationSeconds);
         sendEmail(subject, body);
     }
@@ -75,7 +76,7 @@ public class EmailNotificationService {
     @Async
     public void sendFailureNotification(BackupTask task, String errorMessage) {
         if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnFailure()) {
-            logger.debug("Notificação de falha desabilitada");
+            logger.debug("Notificacao de falha desabilitada");
             return;
         }
 
@@ -85,20 +86,65 @@ public class EmailNotificationService {
         try {
             sendEmailWithRetry(subject, body);
         } catch (MessagingException e) {
-            logger.error("Falha ao enviar email de falha após tentativas: {}", e.getMessage());
+            logger.error("Falha ao enviar email de falha apos tentativas: {}", e.getMessage());
         }
     }
 
     @Async
     public void sendCancellationNotification(BackupTask task) {
         if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnCancellation()) {
-            logger.debug("Notificação de cancelamento desabilitada");
+            logger.debug("Notificacao de cancelamento desabilitada");
             return;
         }
 
         String subject = "Backup Cancelado";
         String body = buildCancellationEmail(task);
         sendEmail(subject, body);
+    }
+
+    @Async
+    public void sendRestoreStartedNotification(RestoreTask task) {
+        if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnStarted()) {
+            logger.debug("Notificacao de inicio de restauracao desabilitada");
+            return;
+        }
+
+        sendEmail("Restauracao Iniciada", buildRestoreStartedEmail(task));
+    }
+
+    @Async
+    public void sendRestoreCompletedNotification(RestoreTask task, long durationSeconds) {
+        if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnSuccess()) {
+            logger.debug("Notificacao de sucesso de restauracao desabilitada");
+            return;
+        }
+
+        sendEmail("Restauracao Concluida com Sucesso",
+                buildRestoreCompletedEmail(task, durationSeconds));
+    }
+
+    @Async
+    public void sendRestoreFailedNotification(RestoreTask task, String errorMessage) {
+        if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnFailure()) {
+            logger.debug("Notificacao de falha de restauracao desabilitada");
+            return;
+        }
+
+        try {
+            sendEmailWithRetry("Falha na Restauracao", buildRestoreFailureEmail(task, errorMessage));
+        } catch (MessagingException e) {
+            logger.error("Falha ao enviar email de restauracao apos tentativas: {}", e.getMessage());
+        }
+    }
+
+    @Async
+    public void sendRestoreCancelledNotification(RestoreTask task) {
+        if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnCancellation()) {
+            logger.debug("Notificacao de cancelamento de restauracao desabilitada");
+            return;
+        }
+
+        sendEmail("Restauracao Cancelada", buildRestoreCancellationEmail(task));
     }
 
     public boolean sendTestEmail() {
@@ -123,7 +169,7 @@ public class EmailNotificationService {
         List<String> recipients = notificationProperties.getEmail().getRecipients();
 
         if (recipients == null || recipients.isEmpty()) {
-            logger.warn("Nenhum destinatário configurado em notification.email.recipients");
+            logger.warn("Nenhum destinatario configurado em notification.email.recipients");
             return;
         }
 
@@ -153,7 +199,7 @@ public class EmailNotificationService {
         List<String> recipients = notificationProperties.getEmail().getRecipients();
 
         if (recipients == null || recipients.isEmpty()) {
-            logger.warn("Nenhum destinatário configurado");
+            logger.warn("Nenhum destinatario configurado");
             return;
         }
 
@@ -166,14 +212,13 @@ public class EmailNotificationService {
         helper.setText(body, true);
 
         mailSender.send(message);
-        logger.info("Email crítico enviado: '{}'", subject);
+        logger.info("Email critico enviado: '{}'", subject);
     }
 
     @Recover
     public void recoverFromEmailFailure(MessagingException e, String subject, String body) {
-        logger.error("FALHA DEFINITIVA ao enviar email crítico '{}' após 3 tentativas: {}",
+        logger.error("Falha definitiva ao enviar email critico '{}' apos 3 tentativas: {}",
                 subject, e.getMessage());
-        // Aqui você poderia: salvar em fila de emails pendentes, alertar administrador, etc.
     }
 
     private boolean shouldSendEmail() {
@@ -202,7 +247,7 @@ public class EmailNotificationService {
                         </div>
                     </div>
                     <p style="color: #666; font-size: 12px; text-align: center; margin-top: 20px;">
-                        Sistema de Backups Automáticos
+                        Sistema de Backups Automaticos
                     </p>
                 </div>
             </body>
@@ -230,13 +275,13 @@ public class EmailNotificationService {
                         <p><strong>Nome:</strong> %s</p>
                         <p><strong>Origem(s):</strong> %s</p>
                         <p><strong>Destino(s):</strong> %s</p>
-                        <p><strong>Expressão Cron:</strong> <code>%s</code></p>
+                        <p><strong>Expressao Cron:</strong> <code>%s</code></p>
                         <div style="background: #f3e5f5; border-left: 4px solid #9C27B0; padding: 15px; margin: 15px 0;">
-                            <strong>Próxima Execução:</strong><br>%s
+                            <strong>Proxima Execucao:</strong><br>%s
                         </div>
                     </div>
                     <p style="color: #666; font-size: 12px; text-align: center; margin-top: 20px;">
-                        Sistema de Backups Automáticos
+                        Sistema de Backups Automaticos
                     </p>
                 </div>
             </body>
@@ -257,19 +302,19 @@ public class EmailNotificationService {
             <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
                     <div style="background: #4CAF50; color: white; padding: 20px; border-radius: 5px;">
-                        <h1>Backup Concluído com Sucesso</h1>
+                        <h1>Backup Concluido com Sucesso</h1>
                     </div>
                     <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
                         <p><strong>ID:</strong> %d</p>
                         <p><strong>Origem:</strong> %s</p>
                         <p><strong>Destino:</strong> %s</p>
-                        <p><strong>Concluído em:</strong> %s</p>
-                        <p><strong>Duração:</strong> %s</p>
+                        <p><strong>Concluido em:</strong> %s</p>
+                        <p><strong>Duracao:</strong> %s</p>
                         <p><strong>Tamanho:</strong> %s</p>
                         <p><strong>Arquivos:</strong> %s</p>
                     </div>
                     <p style="color: #666; font-size: 12px; text-align: center; margin-top: 20px;">
-                        Sistema de Backups Automáticos
+                        Sistema de Backups Automaticos
                     </p>
                 </div>
             </body>
@@ -293,13 +338,13 @@ public class EmailNotificationService {
                     <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
                         <p><strong>ID:</strong> %d</p>
                         <p><strong>Origem:</strong> %s</p>
-                        <p><strong>Horário:</strong> %s</p>
+                        <p><strong>Horario:</strong> %s</p>
                         <div style="background: #ffebee; border-left: 4px solid #f44336; padding: 15px; margin: 15px 0;">
                             <strong>Erro:</strong><br>%s
                         </div>
                     </div>
                     <p style="color: #666; font-size: 12px; text-align: center; margin-top: 20px;">
-                        Sistema de Backups Automáticos
+                        Sistema de Backups Automaticos
                     </p>
                 </div>
             </body>
@@ -323,16 +368,122 @@ public class EmailNotificationService {
                     <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
                         <p><strong>ID:</strong> %d</p>
                         <p><strong>Origem:</strong> %s</p>
-                        <p><strong>Horário:</strong> %s</p>
+                        <p><strong>Horario:</strong> %s</p>
                     </div>
                     <p style="color: #666; font-size: 12px; text-align: center; margin-top: 20px;">
-                        Sistema de Backups Automáticos
+                        Sistema de Backups Automaticos
                     </p>
                 </div>
             </body>
             </html>
             """,
                 task.getId(), task.getSourcePath(), startedAt
+        );
+    }
+
+    private String buildRestoreStartedEmail(RestoreTask task) {
+        String startedAt = task.getStartedAt() != null ? task.getStartedAt().format(DATE_FORMATTER) : "N/A";
+        String restoreType = task.getRestoreType() != null ? task.getRestoreType().name() : "N/A";
+        String backupPath = task.getSourceBackup() != null ? task.getSourceBackup().getDestinationPath() : "N/A";
+
+        return String.format("""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: #1565C0; color: white; padding: 20px; border-radius: 5px;">
+                        <h1>Restauracao Iniciada</h1>
+                    </div>
+                    <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                        <p><strong>ID:</strong> %d</p>
+                        <p><strong>Tipo:</strong> %s</p>
+                        <p><strong>Backup:</strong> %s</p>
+                        <p><strong>Destino:</strong> %s</p>
+                        <p><strong>Iniciada em:</strong> %s</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """,
+                task.getId(), restoreType, backupPath, task.getTargetPath(), startedAt
+        );
+    }
+
+    private String buildRestoreCompletedEmail(RestoreTask task, long durationSeconds) {
+        String finishedAt = task.getFinishedAt() != null ? task.getFinishedAt().format(DATE_FORMATTER) : "N/A";
+        String restoredFiles = task.getRestoredFiles() != null ? task.getRestoredFiles().toString() : "N/A";
+        String size = task.getTotalSizeMB() != null ? task.getTotalSizeMB() + " MB" : "N/A";
+
+        return String.format("""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: #2E7D32; color: white; padding: 20px; border-radius: 5px;">
+                        <h1>Restauracao Concluida</h1>
+                    </div>
+                    <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                        <p><strong>ID:</strong> %d</p>
+                        <p><strong>Destino:</strong> %s</p>
+                        <p><strong>Concluida em:</strong> %s</p>
+                        <p><strong>Duracao:</strong> %s</p>
+                        <p><strong>Arquivos restaurados:</strong> %s</p>
+                        <p><strong>Tamanho restaurado:</strong> %s</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """,
+                task.getId(), task.getTargetPath(), finishedAt, formatDuration(durationSeconds),
+                restoredFiles, size
+        );
+    }
+
+    private String buildRestoreFailureEmail(RestoreTask task, String errorMessage) {
+        String startedAt = task.getStartedAt() != null ? task.getStartedAt().format(DATE_FORMATTER) : "N/A";
+
+        return String.format("""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: #C62828; color: white; padding: 20px; border-radius: 5px;">
+                        <h1>Falha na Restauracao</h1>
+                    </div>
+                    <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                        <p><strong>ID:</strong> %d</p>
+                        <p><strong>Destino:</strong> %s</p>
+                        <p><strong>Iniciada em:</strong> %s</p>
+                        <div style="background: #ffebee; border-left: 4px solid #C62828; padding: 15px; margin: 15px 0;">
+                            <strong>Erro:</strong><br>%s
+                        </div>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """,
+                task.getId(), task.getTargetPath(), startedAt,
+                errorMessage != null ? errorMessage : "Erro desconhecido"
+        );
+    }
+
+    private String buildRestoreCancellationEmail(RestoreTask task) {
+        String startedAt = task.getStartedAt() != null ? task.getStartedAt().format(DATE_FORMATTER) : "N/A";
+
+        return String.format("""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: #EF6C00; color: white; padding: 20px; border-radius: 5px;">
+                        <h1>Restauracao Cancelada</h1>
+                    </div>
+                    <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                        <p><strong>ID:</strong> %d</p>
+                        <p><strong>Destino:</strong> %s</p>
+                        <p><strong>Iniciada em:</strong> %s</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """,
+                task.getId(), task.getTargetPath(), startedAt
         );
     }
 
@@ -346,12 +497,12 @@ public class EmailNotificationService {
                     </div>
                     <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
                         <div style="background: #d4edda; border-left: 4px solid #28a745; padding: 15px;">
-                            <strong>✓ Configuração funcionando!</strong><br>
-                            Você receberá notificações de backups.
+                            <strong>Configuracao funcionando!</strong><br>
+                            Voce recebera notificacoes de backups.
                         </div>
                     </div>
                     <p style="color: #666; font-size: 12px; text-align: center; margin-top: 20px;">
-                        Sistema de Backups Automáticos
+                        Sistema de Backups Automaticos
                     </p>
                 </div>
             </body>
