@@ -1,9 +1,13 @@
 package com.backup_manager.application.controller;
 
+import com.backup_manager.application.dto.NotificationSettingsResponse;
 import com.backup_manager.application.service.EmailNotificationService;
 import com.backup_manager.infrastructure.config.NotificationProperties;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Map;
 
@@ -22,7 +26,18 @@ public class NotificationController {
 
     @GetMapping("/settings")
     public ResponseEntity<?> getSettings() {
-        return ResponseEntity.ok(properties);
+        NotificationProperties.Email email = properties.getEmail();
+        return ResponseEntity.ok(new NotificationSettingsResponse(
+                properties.isEnabled(),
+                email.isEnabled(),
+                email.getFrom(),
+                email.getRecipients() != null ? email.getRecipients().size() : 0,
+                email.isNotifyOnSuccess(),
+                email.isNotifyOnFailure(),
+                email.isNotifyOnCancellation(),
+                email.isNotifyOnStarted(),
+                email.isNotifyOnScheduled()
+        ));
     }
 
     @PostMapping("/test")
@@ -32,14 +47,13 @@ public class NotificationController {
         if (success) {
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "message", "Email de teste enviado",
-                    "recipients", properties.getEmail().getRecipients()
-            ));
-        } else {
-            return ResponseEntity.status(500).body(Map.of(
-                    "success", false,
-                    "error", "Falha ao enviar email. Verifique configurações SMTP."
+                    "message", "Email de teste enviado"
             ));
         }
+
+        return ResponseEntity.status(500).body(Map.of(
+                "success", false,
+                "error", "Falha ao enviar email de teste."
+        ));
     }
 }

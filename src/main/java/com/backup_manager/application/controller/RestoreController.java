@@ -6,6 +6,7 @@ import com.backup_manager.application.dto.SelectiveRestoreRequest;
 import com.backup_manager.application.service.RestoreService;
 import com.backup_manager.domain.model.RestoreTask;
 import com.backup_manager.infrastructure.persistence.RestoreRepository;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -61,7 +62,7 @@ public class RestoreController {
 
     @PostMapping("/backup/{id}/restore")
     public ResponseEntity<?> startFullRestore(@PathVariable Long id,
-                                              @RequestBody RestoreRequest request) {
+                                              @Valid @RequestBody RestoreRequest request) {
         try {
             logger.info("Restauração completa solicitada: backupId={}, target={}",
                     id, request.getTargetPath());
@@ -94,7 +95,7 @@ public class RestoreController {
 
     @PostMapping("/backup/{id}/restore/selective")
     public ResponseEntity<?> startSelectiveRestore(@PathVariable Long id,
-                                                   @RequestBody SelectiveRestoreRequest request) {
+                                                   @Valid @RequestBody SelectiveRestoreRequest request) {
         try {
             int selectedFilesCount = request.getSelectedFiles() != null ? request.getSelectedFiles().size() : 0;
             logger.info("Restauração seletiva solicitada: backupId={}, target={}, files={}",

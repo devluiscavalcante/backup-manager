@@ -7,6 +7,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotWritableException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.WebRequest;
@@ -24,7 +27,23 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handleBackupExceptions(RuntimeException ex) {
         Map<String, Object> errorBody = new HashMap<>();
         errorBody.put("status", HttpStatus.BAD_REQUEST.value());
-        errorBody.put("error", ex.getMessage());
+        errorBody.put("error", "Falha na validacao da operacao solicitada.");
+        errorBody.put("timestamp", LocalDateTime.now());
+
+        return new ResponseEntity<>(errorBody, HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<Map<String, Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        Map<String, Object> validationErrors = new HashMap<>();
+        for (FieldError fieldError : ex.getBindingResult().getFieldErrors()) {
+            validationErrors.put(fieldError.getField(), fieldError.getDefaultMessage());
+        }
+
+        Map<String, Object> errorBody = new HashMap<>();
+        errorBody.put("status", HttpStatus.BAD_REQUEST.value());
+        errorBody.put("error", "Falha na validacao dos dados enviados.");
+        errorBody.put("details", validationErrors);
         errorBody.put("timestamp", LocalDateTime.now());
 
         return new ResponseEntity<>(errorBody, HttpStatus.BAD_REQUEST);
@@ -32,34 +51,27 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleAllExceptions(Exception ex, WebRequest request) {
-        // Verifica se é uma requisição SSE
         String requestPath = request.getDescription(false);
 
-        // Se for o endpoint SSE, não tratar a exceção (deixar propagar)
         if (requestPath != null && requestPath.contains("/api/backup/progress")) {
-            logger.warn("Exceção SSE ignorada (não deve retornar ResponseEntity): {}", ex.getMessage());
-            // Para SSE, não retornar ResponseEntity - deixa a exceção propagar
-            // ou retorna null para não interferir
-            // ou retorna null para não interferir
+            logger.warn("Excecao SSE ignorada: {}", ex.getMessage());
             return null;
         }
 
-        // Também verifica se é um erro de conversão SSE
-        if (ex instanceof org.springframework.http.converter.HttpMessageNotWritableException) {
+        if (ex instanceof HttpMessageNotWritableException) {
             String message = ex.getMessage();
             if (message != null && message.contains("text/event-stream")) {
-                logger.warn("Erro de conversão SSE ignorado: {}", ex.getMessage());
+                logger.warn("Erro de conversao SSE ignorado: {}", ex.getMessage());
                 return null;
             }
         }
 
-        // Para todas as outras exceções, trata normalmente
         Map<String, Object> errorBody = new HashMap<>();
         errorBody.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
-        errorBody.put("error", "Erro inesperado: " + ex.getMessage());
+        errorBody.put("error", "Erro interno inesperado.");
         errorBody.put("timestamp", LocalDateTime.now());
 
-        logger.error("Erro não tratado: {}", ex.getMessage(), ex);
+        logger.error("Erro nao tratado: {}", ex.getMessage(), ex);
 
         return new ResponseEntity<>(errorBody, HttpStatus.INTERNAL_SERVER_ERROR);
     }

@@ -24,18 +24,13 @@ public class HealthController {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            // Testa conexão
-            Integer result = jdbcTemplate.queryForObject("SELECT 1", Integer.class);
-
-            // Verifica tabela backup_tasks
             Integer tableCount = jdbcTemplate.queryForObject(
                     "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'backup_tasks'",
                     Integer.class
             );
 
-            // Conta registros
             Integer recordCount = 0;
-            if (tableCount > 0) {
+            if (tableCount != null && tableCount > 0) {
                 recordCount = jdbcTemplate.queryForObject(
                         "SELECT COUNT(*) FROM backup_tasks",
                         Integer.class
@@ -46,9 +41,8 @@ public class HealthController {
 
             response.put("status", "UP");
             response.put("database", "PostgreSQL");
-            response.put("version", version.split(",")[0]);
-            response.put("connectionTest", "SUCCESS");
-            response.put("tableExists", tableCount > 0);
+            response.put("version", version != null ? version.split(",")[0] : "unknown");
+            response.put("tableExists", tableCount != null && tableCount > 0);
             response.put("totalRecords", recordCount);
             response.put("timestamp", java.time.LocalDateTime.now());
 
@@ -57,7 +51,7 @@ public class HealthController {
         } catch (Exception e) {
             response.put("status", "DOWN");
             response.put("database", "PostgreSQL");
-            response.put("error", e.getMessage());
+            response.put("error", "Falha na verificacao de conectividade.");
             response.put("timestamp", java.time.LocalDateTime.now());
             return ResponseEntity.status(503).body(response);
         }
