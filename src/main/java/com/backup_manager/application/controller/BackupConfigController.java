@@ -11,6 +11,7 @@ import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -47,7 +48,7 @@ public class BackupConfigController {
 
             if (!validation.isValid()) {
                 Map<String, Object> error = new HashMap<>();
-                error.put("error", "Expressão cron inválida");
+                error.put("error", "Expressao cron invalida");
                 error.put("message", validation.getErrorMessage());
                 error.put("cronExpression", config.getCronExpression());
                 return ResponseEntity.badRequest().body(error);
@@ -75,12 +76,12 @@ public class BackupConfigController {
             response.put("nextExecution", cronValidationService.calculateNextExecution(saved.getCronExpression()));
             response.put("cronDescription", validation.getDescription());
 
-            logger.info("Configuração de backup salva e agendada: {}", saved.getName());
+            logger.info("Configuracao de backup salva e agendada: {}", saved.getName());
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("Erro ao salvar configuração: {}", e.getMessage());
-            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+            logger.error("Erro ao salvar configuracao", e);
+            return errorResponse(HttpStatus.BAD_REQUEST, "Nao foi possivel salvar a configuracao de backup.");
         }
     }
 
@@ -107,8 +108,8 @@ public class BackupConfigController {
             return ResponseEntity.ok(enrichedConfigs);
 
         } catch (Exception e) {
-            logger.error("Erro ao listar configurações: {}", e.getMessage());
-            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+            logger.error("Erro ao listar configuracoes", e);
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao listar configuracoes de backup.");
         }
     }
 
@@ -146,7 +147,7 @@ public class BackupConfigController {
         repository.deleteById(id);
         dynamicSchedulerService.refreshAllTasks();
 
-        logger.info("Configuração de backup ID {} removida", id);
+        logger.info("Configuracao de backup ID {} removida", id);
         return ResponseEntity.noContent().build();
     }
 
@@ -176,8 +177,8 @@ public class BackupConfigController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
-            logger.error("Erro ao alternar status do agendamento {}: {}", id, e.getMessage());
-            return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
+            logger.error("Erro ao alternar status do agendamento {}", id, e);
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao atualizar o agendamento.");
         }
     }
 
@@ -190,7 +191,7 @@ public class BackupConfigController {
                     new CronValidationResponse(
                             false,
                             null,
-                            "Expressão cron não pode estar vazia",
+                            "Expressao cron nao pode estar vazia",
                             null
                     )
             );
@@ -204,5 +205,11 @@ public class BackupConfigController {
     public ResponseEntity<Map<String, CronTemplateResponse>> getCronTemplates() {
         Map<String, CronTemplateResponse> templates = cronValidationService.getCronTemplates();
         return ResponseEntity.ok(templates);
+    }
+
+    private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String message) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("error", message);
+        return ResponseEntity.status(status).body(error);
     }
 }
