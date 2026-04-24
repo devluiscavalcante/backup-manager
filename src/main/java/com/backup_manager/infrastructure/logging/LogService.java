@@ -82,8 +82,8 @@ public class LogService {
 
     private Optional<Path> latestWarningsUnderBase(Path base) {
         if (!Files.exists(base)) return Optional.empty();
-        try {
-            return Files.walk(base, 5)
+        try (var walk = Files.walk(base, 5)) {
+            return walk
                     .filter(p -> p.getFileName().toString().equalsIgnoreCase("warnings.log"))
                     .max(Comparator.comparing(this::safeLastModified));
         } catch (java.io.IOException e) {
