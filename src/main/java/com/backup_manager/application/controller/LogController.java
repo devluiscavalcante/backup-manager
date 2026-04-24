@@ -1,6 +1,6 @@
 package com.backup_manager.application.controller;
 
-import com.backup_manager.infrastructure.logging.BackupContext;
+import com.backup_manager.infrastructure.logging.LogService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -8,24 +8,23 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/logs")
 public class LogController {
 
-    private final BackupContext backupContext;
+    private final LogService logService;
 
-    public LogController(BackupContext backupContext) {
-        this.backupContext = backupContext;
+    public LogController(LogService logService) {
+        this.logService = logService;
     }
 
     @GetMapping
     public ResponseEntity<?> getLogStatus() {
-        String lastDest = backupContext.getLastDestination();
-        if (lastDest == null) {
+        try {
+            logService.resolveLatestWarningsLog();
+        } catch (IOException e) {
             return ResponseEntity.ok(Map.of("status", "No backups executed yet in this session."));
         }
 
@@ -38,28 +37,15 @@ public class LogController {
     @GetMapping("/warnings")
     public ResponseEntity<String> getWarningsLog() {
         try {
-            String lastDest = backupContext.getLastDestination();
-
-            if (lastDest == null) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body("Nenhum backup foi executado nesta sessao ainda.");
-            }
-
-            Path logPath = Path.of(lastDest, "warnings.log");
-            if (!Files.exists(logPath)) {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body("O arquivo warnings.log nao foi encontrado.");
-            }
-
-            String content = Files.readString(logPath);
+            String content = logService.redLog(logService.resolveLatestWarningsLog());
             if (content.isBlank()) {
                 return ResponseEntity.ok("Nenhum alerta encontrado.");
             }
 
             return ResponseEntity.ok(content);
         } catch (IOException e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body("Erro interno ao ler warnings.log.");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body("Nenhum warnings.log disponivel para consulta.");
         }
     }
 }
