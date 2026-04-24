@@ -23,7 +23,7 @@ public class SystemStorageService {
 
             long totalSpace = root.getTotalSpace();
             long usableSpace = root.getUsableSpace();
-            long usedSpace = root.getUsableSpace();
+            long usedSpace = totalSpace - usableSpace;
 
             double usagePercent = ((double) usedSpace / totalSpace) * 100;
 

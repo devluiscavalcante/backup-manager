@@ -7,6 +7,7 @@ import jakarta.annotation.PreDestroy;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -87,18 +88,12 @@ public class BackupSchedulerController {
             return ResponseEntity.ok(response);
 
         } catch (IllegalArgumentException e) {
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", e.getMessage());
-            return ResponseEntity.badRequest().body(error);
+            logger.warn("Falha de validacao ao agendar backup: {}", e.getMessage());
+            return errorResponse(HttpStatus.BAD_REQUEST, "Nao foi possivel agendar o backup com os dados informados.");
 
         } catch (Exception e) {
             logger.error("Erro ao agendar backup: {}", e.getMessage(), e);
-
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", "Erro interno ao agendar backup");
-            return ResponseEntity.internalServerError().body(error);
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao agendar backup.");
         }
     }
 
@@ -127,12 +122,7 @@ public class BackupSchedulerController {
             return ResponseEntity.status(404).body(error);
         } catch (Exception e) {
             logger.error("Erro ao cancelar backup {}: {}", taskId, e.getMessage(), e);
-
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", "Erro interno ao cancelar backup");
-            error.put("taskId", taskId);
-            return ResponseEntity.internalServerError().body(error);
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar backup.");
         }
     }
 
@@ -150,11 +140,7 @@ public class BackupSchedulerController {
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             logger.error("Erro ao listar backups pendentes: {}", e.getMessage(), e);
-
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", "Erro interno ao listar backups pendentes");
-            return ResponseEntity.internalServerError().body(error);
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao listar backups pendentes.");
         }
     }
 
@@ -176,12 +162,7 @@ public class BackupSchedulerController {
 
         } catch (Exception e) {
             logger.error("Erro ao executar backup imediato: {}", e.getMessage(), e);
-
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", "Falha ao executar backup imediato.");
-
-            return ResponseEntity.badRequest().body(error);
+            return errorResponse(HttpStatus.BAD_REQUEST, "Falha ao executar backup imediato.");
         }
     }
 
@@ -194,8 +175,6 @@ public class BackupSchedulerController {
             health.put("status", "UP");
             health.put("timestamp", LocalDateTime.now().toString());
             health.put("schedulerEnabled", status.isEnabled());
-            health.put("activeConfigurations", status.getEnabledConfigurations());
-            health.put("recentExecutions", status.getRecentExecutions());
             health.put("service", "backup-scheduler");
 
             return ResponseEntity.ok(health);
@@ -214,5 +193,12 @@ public class BackupSchedulerController {
     @PreDestroy
     public void cleanup() {
         logger.info("Desligando controller do scheduler...");
+    }
+
+    private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String message) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("success", false);
+        error.put("error", message);
+        return ResponseEntity.status(status).body(error);
     }
 }
