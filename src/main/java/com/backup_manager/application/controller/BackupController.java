@@ -53,10 +53,10 @@ public class BackupController {
             List<String> destinations = request.getDestination();
 
             if (sources == null || destinations == null || sources.isEmpty() || destinations.isEmpty()) {
-                return ResponseEntity.badRequest().body("As listas não podem estar vazias");
+                return ResponseEntity.badRequest().body("As listas nao podem estar vazias");
             }
             if (sources.size() != destinations.size()) {
-                return ResponseEntity.badRequest().body("O número de origens deve ser igual ao número de destinos.");
+                return ResponseEntity.badRequest().body("O numero de origens deve ser igual ao numero de destinos.");
             }
 
             for (int i = 0; i < sources.size(); i++) {
@@ -71,7 +71,7 @@ public class BackupController {
                 Optional<BackupTask> activeTask = backupService.getActiveTask(source, destination);
                 if (activeTask.isPresent()) {
                     Map<String, Object> errorResponse = new HashMap<>();
-                    errorResponse.put("error", "Já existe um backup ativo para este par origem/destino");
+                    errorResponse.put("error", "Ja existe um backup ativo para este par origem/destino");
                     errorResponse.put("source", source);
                     errorResponse.put("destination", destination);
                     errorResponse.put("taskId", activeTask.get().getId());
@@ -93,17 +93,20 @@ public class BackupController {
             }
 
             Map<String, Object> response = new HashMap<>();
-            response.put("message", "Verificações concluídas. Backup(s) iniciado(s) com sucesso");
+            response.put("message", "Verificacoes concluidas. Backup(s) iniciado(s) com sucesso");
             response.put("taskIds", taskIds);
 
             return ResponseEntity.ok(response);
 
         } catch (SecurityException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).body(e.getMessage());
+            logger.warn("Bloqueio de seguranca ao iniciar backup: {}", e.getMessage());
+            return errorResponse(HttpStatus.FORBIDDEN, "Operacao de backup nao autorizada.");
         } catch (IOException | IllegalArgumentException | IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body("Falha na validação: " + e.getMessage());
+            logger.warn("Falha de validacao ao iniciar backup: {}", e.getMessage());
+            return errorResponse(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de backup.");
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro inesperado: " + e.getMessage());
+            logger.error("Erro inesperado ao iniciar backup", e);
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar backup.");
         }
     }
 
@@ -140,7 +143,8 @@ public class BackupController {
             return ResponseEntity.ok(responseList);
 
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("Erro ao listar histórico: " + e.getMessage());
+            logger.error("Erro ao listar historico de backups", e);
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao listar historico.");
         }
     }
 
@@ -157,12 +161,12 @@ public class BackupController {
         try {
             if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Data inicial não pode ser posterior à data final"));
+                        .body(Map.of("error", "Data inicial nao pode ser posterior a data final"));
             }
 
             if (size < 1 || size > 100) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Tamanho da página deve estar entre 1 e 100"));
+                        .body(Map.of("error", "Tamanho da pagina deve estar entre 1 e 100"));
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
@@ -171,9 +175,9 @@ public class BackupController {
             return ResponseEntity.ok(result);
 
         } catch (Exception e) {
-            logger.error("Erro ao buscar histórico: {}", e.getMessage(), e);
-            return ResponseEntity.status(500)
-                    .body(Map.of("error", "Erro ao buscar histórico: " + e.getMessage()));
+            logger.error("Erro ao buscar historico", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Erro interno ao buscar historico."));
         }
     }
 
@@ -183,9 +187,9 @@ public class BackupController {
             BackupStatsResponse stats = historyService.getStatistics();
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
-            logger.error("Erro ao calcular estatísticas: {}", e.getMessage(), e);
-            return ResponseEntity.status(500)
-                    .body(Map.of("error", "Erro ao calcular estatísticas: " + e.getMessage()));
+            logger.error("Erro ao calcular estatisticas", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Erro interno ao calcular estatisticas."));
         }
     }
 
@@ -203,9 +207,9 @@ public class BackupController {
             return ResponseEntity.ok(recent);
 
         } catch (Exception e) {
-            logger.error("Erro ao buscar backups recentes: {}", e.getMessage(), e);
-            return ResponseEntity.status(500)
-                    .body(Map.of("error", "Erro ao buscar backups recentes: " + e.getMessage()));
+            logger.error("Erro ao buscar backups recentes", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Erro interno ao buscar backups recentes."));
         }
     }
 
@@ -221,10 +225,11 @@ public class BackupController {
             if (success) {
                 return ResponseEntity.ok("Backup pausado com sucesso");
             } else {
-                return ResponseEntity.status(404).body("Tarefa não encontrada ou não pode ser pausada");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada ou nao pode ser pausada");
             }
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("Erro ao pausar backup: " + e.getMessage());
+            logger.error("Erro ao pausar backup {}", taskId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro interno ao pausar backup.");
         }
     }
 
@@ -235,10 +240,11 @@ public class BackupController {
             if (success) {
                 return ResponseEntity.ok("Backup retomado com sucesso");
             } else {
-                return ResponseEntity.status(404).body("Tarefa não encontrada ou não pode ser retomada");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada ou nao pode ser retomada");
             }
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("Erro ao retomar backup: " + e.getMessage());
+            logger.error("Erro ao retomar backup {}", taskId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro interno ao retomar backup.");
         }
     }
 
@@ -249,10 +255,11 @@ public class BackupController {
             if (success) {
                 return ResponseEntity.ok("Backup cancelado com sucesso");
             } else {
-                return ResponseEntity.status(404).body("Tarefa não encontrada ou não pode ser cancelada");
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada ou nao pode ser cancelada");
             }
         } catch (Exception e) {
-            return ResponseEntity.status(500).body("Erro ao cancelar backup: " + e.getMessage());
+            logger.error("Erro ao cancelar backup {}", taskId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro interno ao cancelar backup.");
         }
     }
 
@@ -262,7 +269,7 @@ public class BackupController {
         if (task.isPresent()) {
             return ResponseEntity.ok(task.get());
         } else {
-            return ResponseEntity.status(404).body("Tarefa não encontrada");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada");
         }
     }
 
@@ -270,10 +277,15 @@ public class BackupController {
     public ResponseEntity<?> getActiveTasks() {
         List<BackupTask> allTasks = backupRepository.findAll();
         List<BackupTask> activeTasks = allTasks.stream()
-                .filter(t -> t.getStatus() == Status.EM_ANDAMENTO ||
-                        t.getStatus() == Status.PAUSADO)
+                .filter(t -> t.getStatus() == Status.EM_ANDAMENTO || t.getStatus() == Status.PAUSADO)
                 .collect(Collectors.toList());
 
         return ResponseEntity.ok(activeTasks);
+    }
+
+    private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String message) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("error", message);
+        return ResponseEntity.status(status).body(error);
     }
 }
