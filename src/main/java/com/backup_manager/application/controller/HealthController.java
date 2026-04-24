@@ -24,26 +24,11 @@ public class HealthController {
         Map<String, Object> response = new HashMap<>();
 
         try {
-            Integer tableCount = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = 'backup_tasks'",
-                    Integer.class
-            );
-
-            Integer recordCount = 0;
-            if (tableCount != null && tableCount > 0) {
-                recordCount = jdbcTemplate.queryForObject(
-                        "SELECT COUNT(*) FROM backup_tasks",
-                        Integer.class
-                );
-            }
-
-            String version = jdbcTemplate.queryForObject("SELECT version()", String.class);
+            // Mantemos o health de banco minimo para evitar fingerprinting do ambiente.
+            jdbcTemplate.queryForObject("SELECT 1", Integer.class);
 
             response.put("status", "UP");
             response.put("database", "PostgreSQL");
-            response.put("version", version != null ? version.split(",")[0] : "unknown");
-            response.put("tableExists", tableCount != null && tableCount > 0);
-            response.put("totalRecords", recordCount);
             response.put("timestamp", java.time.LocalDateTime.now());
 
             return ResponseEntity.ok(response);
