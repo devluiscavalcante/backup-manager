@@ -13,12 +13,12 @@ import com.backup_manager.infrastructure.logging.BackupContext;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Async;
-import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -38,7 +38,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
-@EnableAsync
 public class BackupService {
 
     private final BackupManager backupManager;
@@ -48,6 +47,7 @@ public class BackupService {
     private final BackupTaskManager taskManager;
     private final FileStorageOperations storageOps;
     private final ApplicationEventPublisher eventPublisher;
+    private final BackupService self;
 
     @Value("${backup.excluded-folders:AppData,Temp,node_modules}")
     private List<String> excludedFolders;
@@ -63,7 +63,8 @@ public class BackupService {
             ProgressEmitter progressEmitter,
             BackupTaskManager taskManager,
             FileStorageOperations storageOps,
-            ApplicationEventPublisher eventPublisher
+            ApplicationEventPublisher eventPublisher,
+            @Lazy BackupService self
     ) {
         this.backupManager = backupManager;
         this.backupRepository = backupRepository;
@@ -72,6 +73,7 @@ public class BackupService {
         this.taskManager = taskManager;
         this.storageOps = storageOps;
         this.eventPublisher = eventPublisher;
+        this.self = self;
     }
 
     @PostConstruct
@@ -103,7 +105,8 @@ public class BackupService {
 
             logger.info("Backup criado com ID={}, iniciando processamento assíncrono", taskId);
 
-            processBackupAsync(task);
+            // A chamada via proxy garante que a anotacao @Async seja aplicada de fato.
+            self.processBackupAsync(task);
 
             return taskId;
 
@@ -133,8 +136,8 @@ public class BackupService {
         return taskIds;
     }
 
-    @Async
-    private void processBackupAsync(BackupTask task) {
+    @Async("backupTaskExecutor")
+    public void processBackupAsync(BackupTask task) {
         try {
             logger.info("Iniciando processamento assíncrono: ID={}, Status={}", task.getId(), task.getStatus());
 
