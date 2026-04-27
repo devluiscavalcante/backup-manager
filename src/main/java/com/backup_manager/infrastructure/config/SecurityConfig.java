@@ -43,6 +43,11 @@ public class SecurityConfig {
     public UserDetailsService userDetailsService(AppSecurityProperties securityProperties,
                                                  PasswordEncoder passwordEncoder) {
         if ("change-me-now".equals(securityProperties.getPassword())) {
+            if (!securityProperties.isAllowDefaultPassword()) {
+                throw new IllegalStateException(
+                        "APP_SECURITY_PASSWORD precisa ser definido fora do valor default para subir a aplicacao neste ambiente."
+                );
+            }
             logger.warn("Usando senha default de seguranca. Defina APP_SECURITY_PASSWORD no ambiente.");
         }
 
