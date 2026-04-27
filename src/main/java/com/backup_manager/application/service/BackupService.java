@@ -13,11 +13,11 @@ import com.backup_manager.infrastructure.logging.BackupContext;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import jakarta.annotation.PostConstruct;
-import org.springframework.context.annotation.Lazy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -40,6 +40,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Service
 public class BackupService {
 
+    private static final Logger logger = LoggerFactory.getLogger(BackupService.class);
+
     private final BackupManager backupManager;
     private final BackupRepository backupRepository;
     private final BackupContext backupContext;
@@ -53,8 +55,6 @@ public class BackupService {
     private List<String> excludedFolders;
 
     private ExecutorService executor;
-
-    private static final Logger logger = LoggerFactory.getLogger(BackupService.class);
 
     public BackupService(
             BackupManager backupManager,
@@ -102,20 +102,18 @@ public class BackupService {
             task = backupRepository.save(task);
 
             final Long taskId = task.getId();
-
-            logger.info("Backup criado com ID={}, iniciando processamento assíncrono", taskId);
+            logger.info("Backup criado com ID={}, iniciando processamento assincrono", taskId);
 
             // A chamada via proxy garante que a anotacao @Async seja aplicada de fato.
             self.processBackupAsync(task);
-
             return taskId;
 
         } catch (SecurityException se) {
-            logger.error("BLOQUEIO DE SEGURANÇA: {}", se.getMessage());
-            progressEmitter.sendError("Erro de Segurança: " + se.getMessage());
+            logger.error("BLOQUEIO DE SEGURANCA: {}", se.getMessage());
+            progressEmitter.sendError("Erro de Seguranca: " + se.getMessage());
             return null;
         } catch (IllegalArgumentException | IllegalStateException | IOException ex) {
-            logger.error("FALHA NA VALIDAÇÃO PRÉVIA: {}", ex.getMessage());
+            logger.error("FALHA NA VALIDACAO PREVIA: {}", ex.getMessage());
             progressEmitter.sendError("Falha ao iniciar: " + ex.getMessage());
             return null;
         }
@@ -123,7 +121,7 @@ public class BackupService {
 
     public List<Long> runBackup(String sourcePath, List<String> destinationPaths) {
         if (destinationPaths == null || destinationPaths.isEmpty()) {
-            throw new IllegalArgumentException("Lista de destinos não pode estar vazia.");
+            throw new IllegalArgumentException("Lista de destinos nao pode estar vazia.");
         }
 
         List<Long> taskIds = new ArrayList<>();
@@ -139,11 +137,10 @@ public class BackupService {
     @Async("backupTaskExecutor")
     public void processBackupAsync(BackupTask task) {
         try {
-            logger.info("Iniciando processamento assíncrono: ID={}, Status={}", task.getId(), task.getStatus());
+            logger.info("Iniciando processamento assincrono: ID={}, Status={}", task.getId(), task.getStatus());
 
             taskManager.registerTask(task.getId(), task);
             progressEmitter.sendControlEvent("start", task.getId(), "EM_ANDAMENTO");
-
             eventPublisher.publishEvent(new BackupStartedEvent(task, false));
 
             try {
@@ -159,28 +156,35 @@ public class BackupService {
                     Files.createDirectories(destination);
                 }
 
-                progressEmitter.sendProgress(new Progress(0, "Iniciando...", 0,
-                        (int) fileCount, task.getId().toString()));
+                progressEmitter.sendProgress(new Progress(
+                        0,
+                        "Iniciando...",
+                        0,
+                        (int) fileCount,
+                        task.getId().toString()
+                ));
 
                 int warnings = executeStorageOperation(source, destination, task.getId(), (int) fileCount);
 
-                // VERIFICAÇÃO TRIPLA DEFENSIVA
                 BackupTask memoryTask = taskManager.getTask(task.getId());
                 BackupTask dbTask = backupRepository.findById(task.getId()).orElse(null);
 
-                logger.info("PRE-FINALIZE CHECK - ID={}: memoryTask exists={}, memory.isCancelled={}, memory.status={}",
+                logger.info(
+                        "PRE-FINALIZE CHECK - ID={}: memoryTask exists={}, memory.isCancelled={}, memory.status={}",
                         task.getId(),
                         memoryTask != null,
                         memoryTask != null ? memoryTask.isCancelled() : "N/A",
-                        memoryTask != null ? memoryTask.getStatus() : "N/A");
+                        memoryTask != null ? memoryTask.getStatus() : "N/A"
+                );
 
-                logger.info("PRE-FINALIZE CHECK - ID={}: dbTask exists={}, db.isCancelled={}, db.status={}",
+                logger.info(
+                        "PRE-FINALIZE CHECK - ID={}: dbTask exists={}, db.isCancelled={}, db.status={}",
                         task.getId(),
                         dbTask != null,
                         dbTask != null ? dbTask.isCancelled() : "N/A",
-                        dbTask != null ? dbTask.getStatus() : "N/A");
+                        dbTask != null ? dbTask.getStatus() : "N/A"
+                );
 
-                // Cancelado se QUALQUER verificação mostrar cancelamento
                 boolean wasCancelled = false;
                 String cancelSource = "";
 
@@ -239,7 +243,6 @@ public class BackupService {
                 }
 
                 BackupTask finalTask = backupRepository.findById(task.getId()).orElse(task);
-
                 if (finalTask.getFinishedAt() == null) {
                     finalTask.setFinishedAt(LocalDateTime.now());
                     backupRepository.save(finalTask);
@@ -249,8 +252,7 @@ public class BackupService {
             }
 
         } catch (Exception e) {
-            logger.error("Erro crítico no processamento assíncrono da task {}: {}",
-                    task.getId(), e.getMessage(), e);
+            logger.error("Erro critico no processamento assincrono da task {}: {}", task.getId(), e.getMessage(), e);
         }
     }
 
@@ -258,7 +260,10 @@ public class BackupService {
         AtomicInteger processed = new AtomicInteger(0);
         Path logFile = destination.resolve("warnings.log");
 
-        return storageOps.copyDirectoryIncremental(source, destination, excludedFolders,
+        return storageOps.copyDirectoryIncremental(
+                source,
+                destination,
+                excludedFolders,
                 new FileStorageOperations.BackupProgressCallback() {
                     @Override
                     public void onFileProcessed(Path file, BasicFileAttributes attrs) {
@@ -274,11 +279,15 @@ public class BackupService {
                     @Override
                     public boolean shouldContinue() {
                         BackupTask task = taskManager.getTask(taskId);
-                        if (task == null || task.isCancelled()) return false;
+                        if (task == null || task.isCancelled()) {
+                            return false;
+                        }
+
                         handlePause(task, taskId, processed.get(), totalFiles);
                         return !task.isCancelled();
                     }
-                });
+                }
+        );
     }
 
     public void validatePathAndDriveSpace(String sourcePath, String destPath) throws IOException {
@@ -286,18 +295,18 @@ public class BackupService {
         Path dest = Paths.get(destPath);
 
         if (!Files.exists(src)) {
-            throw new IllegalArgumentException("Origem não encontrada: " + sourcePath);
+            throw new IllegalArgumentException("Origem nao encontrada: " + sourcePath);
         }
 
         try (var stream = Files.list(src)) {
-            if (!stream.findAny().isPresent()) {
-                throw new IllegalArgumentException("A pasta de origem está vazia: " + sourcePath);
+            if (stream.findAny().isEmpty()) {
+                throw new IllegalArgumentException("A pasta de origem esta vazia: " + sourcePath);
             }
         }
 
         File destRoot = dest.getRoot().toFile();
         if (!destRoot.exists()) {
-            throw new IllegalStateException("O disco de destino " + dest.getRoot() + " não está acessível.");
+            throw new IllegalStateException("O disco de destino " + dest.getRoot() + " nao esta acessivel.");
         }
 
         long requiredSpace = backupManager.calculateFolderSizeMB(src.toFile()).longValue() * 1024 * 1024;
@@ -305,7 +314,7 @@ public class BackupService {
 
         if (requiredSpace > availableSpace) {
             String error = String.format(
-                    "Espaço insuficiente no disco %s. Necessário: %d MB, Disponível: %d MB",
+                    "Espaco insuficiente no disco %s. Necessario: %d MB, Disponivel: %d MB",
                     dest.getRoot(),
                     requiredSpace / (1024 * 1024),
                     availableSpace / (1024 * 1024)
@@ -315,24 +324,27 @@ public class BackupService {
     }
 
     public void validateSafePath(String path) {
-        if (path == null || path.isBlank()) return;
+        if (path == null || path.isBlank()) {
+            return;
+        }
 
-        Path p = Paths.get(path).toAbsolutePath().normalize();
-        String normalizedPath = p.toString().toLowerCase();
+        Path normalizedPath = Paths.get(path).toAbsolutePath().normalize();
+        String normalized = normalizedPath.toString().toLowerCase();
 
         String rootDir = System.getenv("SystemRoot");
-        String windowsDir = (rootDir != null) ? rootDir.toLowerCase() : "c:\\windows";
+        String windowsDir = rootDir != null ? rootDir.toLowerCase() : "c:\\windows";
 
-        boolean isForbidden = normalizedPath.startsWith(windowsDir) ||
-                normalizedPath.contains("system32") ||
-                normalizedPath.contains("syswow64") ||
-                normalizedPath.contains("program files") ||
-                normalizedPath.matches("^[a-z]:\\\\$");
+        boolean isForbidden = normalized.startsWith(windowsDir)
+                || normalized.contains("system32")
+                || normalized.contains("syswow64")
+                || normalized.contains("program files")
+                || normalized.matches("^[a-z]:\\\\$");
 
         if (isForbidden) {
-            logger.error("BLOQUEIO DE SEGURANÇA: Caminho restrito detectado: {}", path);
-            throw new SecurityException("Acesso negado: O caminho '" + path
-                    + "' é uma área protegida do sistema operacional.");
+            logger.error("BLOQUEIO DE SEGURANCA: Caminho restrito detectado: {}", path);
+            throw new SecurityException(
+                    "Acesso negado: O caminho '" + path + "' e uma area protegida do sistema operacional."
+            );
         }
     }
 
@@ -340,18 +352,20 @@ public class BackupService {
         int pauseCheckCount = 0;
         while (task.isPaused() && !task.isCancelled()) {
             if (pauseCheckCount == 0) {
-                progressEmitter.sendProgress(new Progress(0, "Backup pausado...",
-                        0, 0, taskId.toString()));
+                progressEmitter.sendProgress(new Progress(0, "Backup pausado...", 0, 0, taskId.toString()));
             }
+
             try {
                 Thread.sleep(500);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             }
+
             task = taskManager.getTask(taskId);
             pauseCheckCount++;
         }
+
         if (pauseCheckCount > 0 && !task.isCancelled()) {
             updateProgress(null, processed, total, taskId);
         }
@@ -367,30 +381,41 @@ public class BackupService {
     }
 
     private void finalizeTask(BackupTask task, long fileCount, BigDecimal sizeMB, int warnings) {
-        long durationSeconds = calculateDuration(task);
-
         task.setFinishedAt(LocalDateTime.now());
         task.setFileCount(fileCount);
         task.setTotalSizeMB(sizeMB);
         task.setStatus(Status.CONCLUIDO);
-        task.setErrorMessage(warnings > 0 ? "Concluído com " + warnings
-                + " alertas. Verifique warnings.log." : null);
+        task.setErrorMessage(warnings > 0
+                ? "Concluido com " + warnings + " alertas. Verifique warnings.log."
+                : null);
 
-        progressEmitter.sendControlEvent("complete", task.getId(), "CONCLUIDO");
-        progressEmitter.sendProgress(new Progress(100, "Concluído", (int) fileCount,
-                (int) fileCount, task.getId().toString()));
+        long durationSeconds = calculateDuration(task);
+        BackupTask persistedTask = backupRepository.save(task);
 
-        eventPublisher.publishEvent(new BackupCompletedEvent(task, durationSeconds));
+        progressEmitter.sendControlEvent("complete", persistedTask.getId(), "CONCLUIDO");
+        progressEmitter.sendProgress(new Progress(
+                100,
+                "Concluido",
+                (int) fileCount,
+                (int) fileCount,
+                persistedTask.getId().toString()
+        ));
+
+        eventPublisher.publishEvent(new BackupCompletedEvent(persistedTask, durationSeconds));
     }
 
     private void handleBackupFailure(BackupTask task, Exception e) {
         logger.error("Falha no backup {}: {}", task.getId(), e.getMessage());
+
         task.setStatus(Status.FALHA);
         task.setErrorMessage(e.getMessage());
-        progressEmitter.sendControlEvent("error", task.getId(), "FALHA");
+        task.setFinishedAt(LocalDateTime.now());
+
+        BackupTask persistedTask = backupRepository.save(task);
+        progressEmitter.sendControlEvent("error", persistedTask.getId(), "FALHA");
         progressEmitter.sendError("Falha: " + e.getMessage());
 
-        eventPublisher.publishEvent(new BackupFailedEvent(task, e.getMessage()));
+        eventPublisher.publishEvent(new BackupFailedEvent(persistedTask, e.getMessage()));
     }
 
     public List<BackupTask> getAllTasks() {
@@ -411,16 +436,16 @@ public class BackupService {
 
     public Optional<BackupTask> getActiveTask(String sourcePath, String destinationPath) {
         return backupRepository.findAll().stream()
-                .filter(t -> t.getSourcePath().equals(sourcePath) &&
-                        t.getDestinationPath().equals(destinationPath) &&
-                        (t.getStatus() == Status.EM_ANDAMENTO || t.getStatus() == Status.PAUSADO))
+                .filter(task -> task.getSourcePath().equals(sourcePath)
+                        && task.getDestinationPath().equals(destinationPath)
+                        && (task.getStatus() == Status.EM_ANDAMENTO || task.getStatus() == Status.PAUSADO))
                 .findFirst();
     }
 
     private void updateProgress(Path file, int processed, int total, Long taskId) {
         if (processed == 1 || processed >= total || processed % 50 == 0) {
-            int percent = (total > 0) ? (processed * 100) / total : 0;
-            String fileName = (file != null) ? file.getFileName().toString() : "Processando...";
+            int percent = total > 0 ? (processed * 100) / total : 0;
+            String fileName = file != null ? file.getFileName().toString() : "Processando...";
             try {
                 progressEmitter.sendProgress(new Progress(percent, fileName, processed, total, taskId.toString()));
             } catch (Exception ignored) {
