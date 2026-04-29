@@ -7,6 +7,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
 import jakarta.validation.constraints.NotBlank;
+import java.util.ArrayList;
+import java.util.List;
 
 @Getter
 @Setter
@@ -25,4 +27,6 @@ public class AppSecurityProperties {
     private String role = "ADMIN";
 
     private boolean allowDefaultPassword = false;
+
+    private List<String> allowedPathRoots = new ArrayList<>();
 }

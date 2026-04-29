@@ -47,6 +47,7 @@ public class RestoreService {
     private final FileRestoreOperations restoreOps;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    private final PathSecurityService pathSecurityService;
     private final RestoreService self;
 
     public RestoreService(BackupRepository backupRepository,
@@ -54,12 +55,14 @@ public class RestoreService {
                           RestoreTaskManager taskManager,
                           FileRestoreOperations restoreOps,
                           ApplicationEventPublisher eventPublisher,
+                          PathSecurityService pathSecurityService,
                           @Lazy RestoreService self) {
         this.backupRepository = backupRepository;
         this.restoreRepository = restoreRepository;
         this.taskManager = taskManager;
         this.restoreOps = restoreOps;
         this.eventPublisher = eventPublisher;
+        this.pathSecurityService = pathSecurityService;
         this.objectMapper = new ObjectMapper();
         this.self = self;
     }
@@ -174,6 +177,8 @@ public class RestoreService {
                 backupId, request.getTargetPath());
 
         BackupTask backup = validateBackup(backupId);
+        // Reaproveita a allowlist compartilhada para impedir restauracoes fora das raizes aprovadas.
+        pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
         validateRestorePath(request.getTargetPath());
 
         RestoreTask task = createRestoreTask(backup, request.getTargetPath(),
@@ -195,6 +200,8 @@ public class RestoreService {
         BackupTask backup = validateBackup(backupId);
         Path backupRoot = Paths.get(backup.getDestinationPath());
 
+        // Reaproveita a allowlist compartilhada para impedir restauracoes fora das raizes aprovadas.
+        pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
         validateRestorePath(request.getTargetPath());
         validateSelectedFiles(request.getSelectedFiles(), backupRoot);
 
