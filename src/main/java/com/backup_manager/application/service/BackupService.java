@@ -49,6 +49,7 @@ public class BackupService {
     private final BackupTaskManager taskManager;
     private final FileStorageOperations storageOps;
     private final ApplicationEventPublisher eventPublisher;
+    private final PathSecurityService pathSecurityService;
     private final BackupService self;
 
     @Value("${backup.excluded-folders:AppData,Temp,node_modules}")
@@ -64,6 +65,7 @@ public class BackupService {
             BackupTaskManager taskManager,
             FileStorageOperations storageOps,
             ApplicationEventPublisher eventPublisher,
+            PathSecurityService pathSecurityService,
             @Lazy BackupService self
     ) {
         this.backupManager = backupManager;
@@ -73,6 +75,7 @@ public class BackupService {
         this.taskManager = taskManager;
         this.storageOps = storageOps;
         this.eventPublisher = eventPublisher;
+        this.pathSecurityService = pathSecurityService;
         this.self = self;
     }
 
@@ -324,28 +327,7 @@ public class BackupService {
     }
 
     public void validateSafePath(String path) {
-        if (path == null || path.isBlank()) {
-            return;
-        }
-
-        Path normalizedPath = Paths.get(path).toAbsolutePath().normalize();
-        String normalized = normalizedPath.toString().toLowerCase();
-
-        String rootDir = System.getenv("SystemRoot");
-        String windowsDir = rootDir != null ? rootDir.toLowerCase() : "c:\\windows";
-
-        boolean isForbidden = normalized.startsWith(windowsDir)
-                || normalized.contains("system32")
-                || normalized.contains("syswow64")
-                || normalized.contains("program files")
-                || normalized.matches("^[a-z]:\\\\$");
-
-        if (isForbidden) {
-            logger.error("BLOQUEIO DE SEGURANCA: Caminho restrito detectado: {}", path);
-            throw new SecurityException(
-                    "Acesso negado: O caminho '" + path + "' e uma area protegida do sistema operacional."
-            );
-        }
+        pathSecurityService.validateManagedPath(path, "backup");
     }
 
     private void handlePause(BackupTask task, Long taskId, int processed, int total) {
