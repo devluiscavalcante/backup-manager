@@ -1,6 +1,7 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.FileTreeDTO;
+import com.backup_manager.application.dto.RestoreTaskResponse;
 import com.backup_manager.application.dto.RestoreRequest;
 import com.backup_manager.application.dto.SelectiveRestoreRequest;
 import com.backup_manager.application.service.RestoreService;
@@ -155,7 +156,7 @@ public class RestoreController {
             Optional<RestoreTask> task = restoreRepository.findById(taskId);
 
             if (task.isPresent()) {
-                return ResponseEntity.ok(task.get());
+                return ResponseEntity.ok(RestoreTaskResponse.fromTask(task.get()));
             } else {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(Map.of("error", "Tarefa de restauracao nao encontrada"));
@@ -181,7 +182,8 @@ public class RestoreController {
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
-            Page<RestoreTask> history = restoreRepository.findAllOrderByStartedAtDesc(pageable);
+            Page<RestoreTaskResponse> history = restoreRepository.findAllOrderByStartedAtDesc(pageable)
+                    .map(RestoreTaskResponse::fromTask);
 
             return ResponseEntity.ok(history);
 
@@ -202,7 +204,10 @@ public class RestoreController {
             }
 
             Pageable pageable = PageRequest.of(0, limit);
-            List<RestoreTask> recent = restoreRepository.findTopNByOrderByStartedAtDesc(pageable);
+            List<RestoreTaskResponse> recent = restoreRepository.findTopNByOrderByStartedAtDesc(pageable)
+                    .stream()
+                    .map(RestoreTaskResponse::fromTask)
+                    .toList();
 
             return ResponseEntity.ok(recent);
 
@@ -216,7 +221,10 @@ public class RestoreController {
     @GetMapping("/backup/{id}/restore/history")
     public ResponseEntity<?> getBackupRestoreHistory(@PathVariable Long id) {
         try {
-            List<RestoreTask> history = restoreRepository.findByBackupId(id);
+            List<RestoreTaskResponse> history = restoreRepository.findByBackupId(id)
+                    .stream()
+                    .map(RestoreTaskResponse::fromTask)
+                    .toList();
             return ResponseEntity.ok(history);
 
         } catch (Exception e) {
