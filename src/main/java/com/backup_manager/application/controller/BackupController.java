@@ -3,6 +3,7 @@ package com.backup_manager.application.controller;
 import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.BackupResponse;
 import com.backup_manager.application.dto.BackupStatsResponse;
+import com.backup_manager.application.dto.BackupTaskSummaryResponse;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupService;
@@ -25,8 +26,6 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.stream.Collectors;
-
 @RestController
 @RequestMapping("/api/backup")
 public class BackupController {
@@ -267,7 +266,7 @@ public class BackupController {
     public ResponseEntity<?> getTaskStatus(@PathVariable Long taskId) {
         Optional<BackupTask> task = backupRepository.findById(taskId);
         if (task.isPresent()) {
-            return ResponseEntity.ok(task.get());
+            return ResponseEntity.ok(BackupTaskSummaryResponse.fromTask(task.get()));
         } else {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada");
         }
@@ -275,10 +274,11 @@ public class BackupController {
 
     @GetMapping("/active")
     public ResponseEntity<?> getActiveTasks() {
-        List<BackupTask> allTasks = backupRepository.findAll();
-        List<BackupTask> activeTasks = allTasks.stream()
-                .filter(t -> t.getStatus() == Status.EM_ANDAMENTO || t.getStatus() == Status.PAUSADO)
-                .collect(Collectors.toList());
+        // Busca apenas os status operacionais necessarios para evitar filtrar tudo em memoria.
+        List<BackupTaskSummaryResponse> activeTasks = backupRepository.findByStatusIn(List.of(Status.EM_ANDAMENTO, Status.PAUSADO))
+                .stream()
+                .map(BackupTaskSummaryResponse::fromTask)
+                .toList();
 
         return ResponseEntity.ok(activeTasks);
     }
