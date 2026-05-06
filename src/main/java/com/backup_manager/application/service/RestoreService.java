@@ -55,6 +55,7 @@ public class RestoreService {
                           RestoreTaskManager taskManager,
                           FileRestoreOperations restoreOps,
                           ApplicationEventPublisher eventPublisher,
+                          ObjectMapper objectMapper,
                           PathSecurityService pathSecurityService,
                           @Lazy RestoreService self) {
         this.backupRepository = backupRepository;
@@ -62,8 +63,9 @@ public class RestoreService {
         this.taskManager = taskManager;
         this.restoreOps = restoreOps;
         this.eventPublisher = eventPublisher;
+        // Reutiliza a configuracao global do Spring para manter a serializacao consistente.
+        this.objectMapper = objectMapper;
         this.pathSecurityService = pathSecurityService;
-        this.objectMapper = new ObjectMapper();
         this.self = self;
     }
 
