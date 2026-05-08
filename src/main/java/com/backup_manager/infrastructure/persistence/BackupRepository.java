@@ -18,6 +18,11 @@ public interface BackupRepository extends JpaRepository<BackupTask, Long> {
     Optional<BackupTask> findTopByStatusOrderByFinishedAtDesc(Status status);
     Optional<BackupTask> findTopByOrderByFinishedAtDesc();
     List<BackupTask> findBySourcePathAndDestinationPathOrderByIdDesc(String sourcePath, String destinationPath);
+    Optional<BackupTask> findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
+            String sourcePath,
+            String destinationPath,
+            List<Status> statuses
+    );
 
     @Query("SELECT b FROM BackupTask b WHERE b.status IN :statuses")
     List<BackupTask> findByStatusIn(@Param("statuses") List<Status> statuses);
