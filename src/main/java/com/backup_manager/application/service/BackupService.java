@@ -417,11 +417,12 @@ public class BackupService {
     }
 
     public Optional<BackupTask> getActiveTask(String sourcePath, String destinationPath) {
-        return backupRepository.findAll().stream()
-                .filter(task -> task.getSourcePath().equals(sourcePath)
-                        && task.getDestinationPath().equals(destinationPath)
-                        && (task.getStatus() == Status.EM_ANDAMENTO || task.getStatus() == Status.PAUSADO))
-                .findFirst();
+        // Busca diretamente no banco para evitar carregar todas as tarefas em memoria.
+        return backupRepository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
+                sourcePath,
+                destinationPath,
+                List.of(Status.EM_ANDAMENTO, Status.PAUSADO)
+        );
     }
 
     private void updateProgress(Path file, int processed, int total, Long taskId) {
