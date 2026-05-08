@@ -181,7 +181,6 @@ public class RestoreService {
         BackupTask backup = validateBackup(backupId);
         // Reaproveita a allowlist compartilhada para impedir restauracoes fora das raizes aprovadas.
         pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
-        validateRestorePath(request.getTargetPath());
 
         RestoreTask task = createRestoreTask(backup, request.getTargetPath(),
                 RestoreType.FULL, null);
@@ -204,7 +203,6 @@ public class RestoreService {
 
         // Reaproveita a allowlist compartilhada para impedir restauracoes fora das raizes aprovadas.
         pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
-        validateRestorePath(request.getTargetPath());
         validateSelectedFiles(request.getSelectedFiles(), backupRoot);
 
         RestoreTask task = createRestoreTask(
