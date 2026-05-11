@@ -6,17 +6,18 @@ import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties.ScheduledBackupConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -32,17 +33,19 @@ public class BackupScheduler {
     private final BackupService backupService;
     private final BackupRequestValidationService backupRequestValidationService;
     private final BackupSchedulerProperties schedulerProperties;
+    private final ThreadPoolTaskScheduler backupOneTimeScheduler;
 
     private final Map<String, LocalDateTime> lastExecutionMap = new HashMap<>();
     private final Map<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService oneTimeScheduler = Executors.newScheduledThreadPool(3);
     private final AtomicLong taskIdCounter = new AtomicLong(1000);
 
     public BackupScheduler(BackupService backupService,
                            BackupRequestValidationService backupRequestValidationService,
+                           @Qualifier("backupOneTimeScheduler") ThreadPoolTaskScheduler backupOneTimeScheduler,
                            BackupSchedulerProperties schedulerProperties) {
         this.backupService = backupService;
         this.backupRequestValidationService = backupRequestValidationService;
+        this.backupOneTimeScheduler = backupOneTimeScheduler;
         this.schedulerProperties = schedulerProperties;
     }
 
@@ -131,7 +134,7 @@ public class BackupScheduler {
 
         logger.info("Agendando backup unico ID {} para {}", taskId, scheduledTime);
 
-        ScheduledFuture<?> future = oneTimeScheduler.schedule(() -> {
+        ScheduledFuture<?> future = backupOneTimeScheduler.schedule(() -> {
             try {
                 logger.info("Executando backup unico agendado ID {}: {}", taskId, backupName);
                 executeBackupWithRequest(request, backupName);
@@ -140,7 +143,7 @@ public class BackupScheduler {
                 logger.error("Erro no backup agendado ID {}: {}", taskId, e.getMessage());
                 scheduledTasks.remove(taskId);
             }
-        }, minutesFromNow, TimeUnit.MINUTES);
+        }, scheduledTime.atZone(ZoneId.systemDefault()).toInstant());
 
         scheduledTasks.put(taskId, future);
         return taskId;
