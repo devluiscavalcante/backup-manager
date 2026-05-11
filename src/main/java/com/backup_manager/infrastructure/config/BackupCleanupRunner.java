@@ -27,9 +27,7 @@ public class BackupCleanupRunner implements CommandLineRunner {
     public void run(String... args){
         logger.info("Iniciando verificação de integridade pós-boot");
 
-        List<BackupTask> orfaoTasks = repository.findAll().stream()
-                .filter(t -> t.getStatus() == Status.EM_ANDAMENTO || t.getStatus() == Status.PAUSADO)
-                .toList();
+        List<BackupTask> orfaoTasks = repository.findByStatusIn(List.of(Status.EM_ANDAMENTO, Status.PAUSADO));
 
         if (orfaoTasks.isEmpty()){
             logger.info("Nenhuma tarefa órfã encontrada.");
