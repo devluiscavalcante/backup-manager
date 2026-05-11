@@ -25,7 +25,11 @@ public class LogController {
         try {
             logService.resolveLatestWarningsLog();
         } catch (IOException e) {
-            return ResponseEntity.ok(Map.of("status", "No backups executed yet in this session."));
+            return ResponseEntity.ok(Map.of(
+                    "logsAvailable", false,
+                    "availableLogs", new String[0],
+                    "message", "No backups executed yet in this session."
+            ));
         }
 
         return ResponseEntity.ok(Map.of(
@@ -35,17 +39,17 @@ public class LogController {
     }
 
     @GetMapping("/warnings")
-    public ResponseEntity<String> getWarningsLog() {
+    public ResponseEntity<?> getWarningsLog() {
         try {
             String content = logService.redLog(logService.resolveLatestWarningsLog());
             if (content.isBlank()) {
-                return ResponseEntity.ok("Nenhum alerta encontrado.");
+                return ResponseEntity.ok(Map.of("message", "Nenhum alerta encontrado."));
             }
 
             return ResponseEntity.ok(content);
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body("Nenhum warnings.log disponivel para consulta.");
+                    .body(Map.of("error", "Nenhum warnings.log disponivel para consulta."));
         }
     }
 }
