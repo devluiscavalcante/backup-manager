@@ -36,7 +36,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/health/application").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers("/api/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/health/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/system/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/logs/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/backup/config/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/backup/scheduler/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/backup/notifications/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/backup/**", "/api/restore/**")
+                        .hasAnyRole(securityProperties.getRole(), securityProperties.getOperatorRole())
                         .anyRequest().authenticated()
                 )
                 .build();
