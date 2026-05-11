@@ -218,47 +218,47 @@ public class BackupController {
     }
 
     @PostMapping("/{taskId}/pause")
-    public ResponseEntity<String> pauseBackup(@PathVariable Long taskId) {
+    public ResponseEntity<Map<String, Object>> pauseBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.pauseBackup(taskId);
             if (success) {
-                return ResponseEntity.ok("Backup pausado com sucesso");
+                return successResponse("Backup pausado com sucesso", taskId);
             } else {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada ou nao pode ser pausada");
+                return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser pausada", taskId);
             }
         } catch (Exception e) {
             logger.error("Erro ao pausar backup {}", taskId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro interno ao pausar backup.");
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao pausar backup.", taskId);
         }
     }
 
     @PostMapping("/{taskId}/resume")
-    public ResponseEntity<String> resumeBackup(@PathVariable Long taskId) {
+    public ResponseEntity<Map<String, Object>> resumeBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.resumeBackup(taskId);
             if (success) {
-                return ResponseEntity.ok("Backup retomado com sucesso");
+                return successResponse("Backup retomado com sucesso", taskId);
             } else {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada ou nao pode ser retomada");
+                return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser retomada", taskId);
             }
         } catch (Exception e) {
             logger.error("Erro ao retomar backup {}", taskId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro interno ao retomar backup.");
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao retomar backup.", taskId);
         }
     }
 
     @PostMapping("/{taskId}/cancel")
-    public ResponseEntity<String> cancelBackup(@PathVariable Long taskId) {
+    public ResponseEntity<Map<String, Object>> cancelBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.cancelBackup(taskId);
             if (success) {
-                return ResponseEntity.ok("Backup cancelado com sucesso");
+                return successResponse("Backup cancelado com sucesso", taskId);
             } else {
-                return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada ou nao pode ser cancelada");
+                return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser cancelada", taskId);
             }
         } catch (Exception e) {
             logger.error("Erro ao cancelar backup {}", taskId, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body("Erro interno ao cancelar backup.");
+            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar backup.", taskId);
         }
     }
 
@@ -268,7 +268,7 @@ public class BackupController {
         if (task.isPresent()) {
             return ResponseEntity.ok(BackupTaskSummaryResponse.fromTask(task.get()));
         } else {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND).body("Tarefa nao encontrada");
+            return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada", taskId);
         }
     }
 
@@ -287,5 +287,19 @@ public class BackupController {
         Map<String, Object> error = new HashMap<>();
         error.put("error", message);
         return ResponseEntity.status(status).body(error);
+    }
+
+    private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String message, Long taskId) {
+        Map<String, Object> error = new HashMap<>();
+        error.put("error", message);
+        error.put("taskId", taskId);
+        return ResponseEntity.status(status).body(error);
+    }
+
+    private ResponseEntity<Map<String, Object>> successResponse(String message, Long taskId) {
+        Map<String, Object> response = new HashMap<>();
+        response.put("message", message);
+        response.put("taskId", taskId);
+        return ResponseEntity.ok(response);
     }
 }
