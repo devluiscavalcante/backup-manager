@@ -2,6 +2,8 @@ package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.CronTemplateResponse;
 import com.backup_manager.application.dto.CronValidationResponse;
+import com.backup_manager.application.dto.ScheduledBackupRequest;
+import com.backup_manager.application.dto.ScheduledBackupResponse;
 import com.backup_manager.application.service.CronValidationService;
 import com.backup_manager.application.service.DynamicSchedulerService;
 import com.backup_manager.domain.event.BackupScheduledEvent;
@@ -42,18 +44,24 @@ public class BackupConfigController {
     }
 
     @PostMapping
-    public ResponseEntity<?> createOrUpdate(@Valid @RequestBody ScheduledBackupEntity config) {
+    public ResponseEntity<?> createOrUpdate(@Valid @RequestBody ScheduledBackupRequest request) {
         try {
-            CronValidationResponse validation = cronValidationService.validateCronExpression(config.getCronExpression());
+            if (request.getSources().size() != request.getDestinations().size()) {
+                return errorResponse(HttpStatus.BAD_REQUEST,
+                        "O numero de origens deve ser igual ao numero de destinos.");
+            }
+
+            CronValidationResponse validation = cronValidationService.validateCronExpression(request.getCronExpression());
 
             if (!validation.isValid()) {
                 Map<String, Object> error = new HashMap<>();
                 error.put("error", "Expressao cron invalida");
                 error.put("message", validation.getErrorMessage());
-                error.put("cronExpression", config.getCronExpression());
+                error.put("cronExpression", request.getCronExpression());
                 return ResponseEntity.badRequest().body(error);
             }
 
+            ScheduledBackupEntity config = resolveEntityForSave(request);
             ScheduledBackupEntity saved = repository.save(config);
             dynamicSchedulerService.refreshAllTasks();
 
@@ -68,17 +76,15 @@ public class BackupConfigController {
             ));
 
             Map<String, Object> response = new HashMap<>();
-            response.put("id", saved.getId());
-            response.put("name", saved.getName());
-            response.put("cronExpression", saved.getCronExpression());
-            response.put("enabled", saved.isEnabled());
-            response.put("lastExecution", saved.getLastExecution());
-            response.put("nextExecution", cronValidationService.calculateNextExecution(saved.getCronExpression()));
+            response.put("config", ScheduledBackupResponse.fromEntity(saved, nextExecution));
             response.put("cronDescription", validation.getDescription());
 
             logger.info("Configuracao de backup salva e agendada: {}", saved.getName());
             return ResponseEntity.ok(response);
 
+        } catch (IllegalArgumentException e) {
+            logger.warn("Falha de validacao ao salvar configuracao: {}", e.getMessage());
+            return errorResponse(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
             logger.error("Erro ao salvar configuracao", e);
             return errorResponse(HttpStatus.BAD_REQUEST, "Nao foi possivel salvar a configuracao de backup.");
@@ -90,20 +96,9 @@ public class BackupConfigController {
         try {
             List<ScheduledBackupEntity> configs = repository.findAll();
 
-            List<Map<String, Object>> enrichedConfigs = configs.stream().map(config -> {
-                Map<String, Object> enriched = new HashMap<>();
-                enriched.put("id", config.getId());
-                enriched.put("name", config.getName());
-                enriched.put("sources", config.getSources());
-                enriched.put("destinations", config.getDestinations());
-                enriched.put("cronExpression", config.getCronExpression());
-                enriched.put("enabled", config.isEnabled());
-                enriched.put("lastExecution", config.getLastExecution());
-                enriched.put("nextExecution", cronValidationService.calculateNextExecution(config.getCronExpression()));
-                enriched.put("createdAt", config.getCreatedAt());
-                enriched.put("updatedAt", config.getUpdatedAt());
-                return enriched;
-            }).toList();
+            List<ScheduledBackupResponse> enrichedConfigs = configs.stream()
+                    .map(this::toResponse)
+                    .toList();
 
             return ResponseEntity.ok(enrichedConfigs);
 
@@ -121,21 +116,7 @@ public class BackupConfigController {
             return ResponseEntity.notFound().build();
         }
 
-        ScheduledBackupEntity entity = config.get();
-
-        Map<String, Object> response = new HashMap<>();
-        response.put("id", entity.getId());
-        response.put("name", entity.getName());
-        response.put("sources", entity.getSources());
-        response.put("destinations", entity.getDestinations());
-        response.put("cronExpression", entity.getCronExpression());
-        response.put("enabled", entity.isEnabled());
-        response.put("lastExecution", entity.getLastExecution());
-        response.put("nextExecution", cronValidationService.calculateNextExecution(entity.getCronExpression()));
-        response.put("createdAt", entity.getCreatedAt());
-        response.put("updatedAt", entity.getUpdatedAt());
-
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(toResponse(config.get()));
     }
 
     @DeleteMapping("/{id}")
@@ -167,9 +148,7 @@ public class BackupConfigController {
             dynamicSchedulerService.refreshAllTasks();
 
             Map<String, Object> response = new HashMap<>();
-            response.put("id", saved.getId());
-            response.put("name", saved.getName());
-            response.put("enabled", saved.isEnabled());
+            response.put("config", toResponse(saved));
             response.put("message", saved.isEnabled() ? "Agendamento ativado" : "Agendamento desativado");
 
             logger.info("Agendamento ID {} {}", id, saved.isEnabled() ? "ativado" : "desativado");
@@ -211,5 +190,31 @@ public class BackupConfigController {
         Map<String, Object> error = new HashMap<>();
         error.put("error", message);
         return ResponseEntity.status(status).body(error);
+    }
+
+    private ScheduledBackupResponse toResponse(ScheduledBackupEntity entity) {
+        LocalDateTime nextExecution = cronValidationService.calculateNextExecution(entity.getCronExpression());
+        return ScheduledBackupResponse.fromEntity(entity, nextExecution);
+    }
+
+    private ScheduledBackupEntity resolveEntityForSave(ScheduledBackupRequest request) {
+        ScheduledBackupEntity entity = request.getId() == null
+                ? new ScheduledBackupEntity()
+                : repository.findById(request.getId())
+                .orElseThrow(() -> new IllegalArgumentException("Configuracao de backup nao encontrada para atualizacao."));
+
+        // Preserva campos operacionais do agendamento em updates e limita o payload aos campos editaveis.
+        entity.setName(request.getName());
+        entity.setSources(request.getSources());
+        entity.setDestinations(request.getDestinations());
+        entity.setCronExpression(request.getCronExpression());
+
+        if (request.getEnabled() != null) {
+            entity.setEnabled(request.getEnabled());
+        } else if (entity.getId() == null) {
+            entity.setEnabled(true);
+        }
+
+        return entity;
     }
 }
