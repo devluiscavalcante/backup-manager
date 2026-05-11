@@ -12,10 +12,10 @@ import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.logging.BackupContext;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Async;
@@ -33,8 +33,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
@@ -50,12 +49,11 @@ public class BackupService {
     private final FileStorageOperations storageOps;
     private final ApplicationEventPublisher eventPublisher;
     private final PathSecurityService pathSecurityService;
+    private final Executor backupDispatchExecutor;
     private final BackupService self;
 
     @Value("${backup.excluded-folders:AppData,Temp,node_modules}")
     private List<String> excludedFolders;
-
-    private ExecutorService executor;
 
     public BackupService(
             BackupManager backupManager,
@@ -66,6 +64,7 @@ public class BackupService {
             FileStorageOperations storageOps,
             ApplicationEventPublisher eventPublisher,
             PathSecurityService pathSecurityService,
+            @Qualifier("backupDispatchExecutor") Executor backupDispatchExecutor,
             @Lazy BackupService self
     ) {
         this.backupManager = backupManager;
@@ -76,12 +75,8 @@ public class BackupService {
         this.storageOps = storageOps;
         this.eventPublisher = eventPublisher;
         this.pathSecurityService = pathSecurityService;
+        this.backupDispatchExecutor = backupDispatchExecutor;
         this.self = self;
-    }
-
-    @PostConstruct
-    public void init() {
-        this.executor = Executors.newFixedThreadPool(4);
     }
 
     public void validateDestination(String destination) {
@@ -91,7 +86,7 @@ public class BackupService {
     public void startMultipleBackups(List<String> sources, String destination) {
         validateDestination(destination);
         for (String source : sources) {
-            executor.submit(() -> runBackup(source, destination));
+            backupDispatchExecutor.execute(() -> runBackup(source, destination));
         }
     }
 
