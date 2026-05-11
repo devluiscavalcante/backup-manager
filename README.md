@@ -1,88 +1,69 @@
 # Backup Manager
 
-API para execução, agendamento e auditoria de rotinas de backup e restauração de arquivos, com foco em operação controlada, segurança de acesso e execução assíncrona.
+API backend para execução, agendamento e auditoria de rotinas de backup e restauração de arquivos. O projeto foi construído para operar com controle de acesso, validação de caminhos, processamento assíncrono e histórico persistido em banco.
 
-## Visão Geral
+## 📌 Sobre o projeto
 
-O projeto foi construído como um serviço backend em Java com Spring Boot para atender três necessidades principais:
+O `Backup Manager` centraliza operações que normalmente acabam espalhadas entre scripts manuais, tarefas do sistema operacional e rotinas administrativas sem rastreabilidade. A proposta aqui é transformar esse processo em um serviço HTTP estruturado, com regras explícitas, segurança de acesso e visibilidade operacional.
 
-- iniciar backups sob demanda com acompanhamento de progresso e histórico
-- agendar execuções recorrentes e pontuais
-- restaurar backups completos ou seletivos com validação de caminhos e trilha operacional
+Na prática, a aplicação resolve quatro frentes:
 
-Além da execução das rotinas, a aplicação também oferece:
+- execução de backups sob demanda
+- agendamento de backups recorrentes e pontuais
+- restauração completa ou seletiva de conteúdo
+- histórico, status, progresso e notificações operacionais
 
-- controle de tarefas em andamento
-- persistência de histórico em PostgreSQL
-- notificações por e-mail
-- endpoints operacionais de saúde, armazenamento e logs
-- proteção por autenticação e autorização para superfícies administrativas e operacionais
+O projeto foi implementado em Java com Spring Boot, adotando uma arquitetura em camadas para separar contrato HTTP, regras de aplicação, modelo de domínio e infraestrutura.
 
-## Objetivos de Projeto
-
-O serviço foi estruturado para operar como uma API de backend com responsabilidades bem definidas:
-
-- camada HTTP responsável por entrada, resposta e contrato da API
-- camada de aplicação concentrando regras de orquestração
-- camada de domínio representando tarefas, eventos e estados do processo
-- camada de infraestrutura cuidando de persistência, segurança, agendamento, logging e integração com o sistema de arquivos
-
-O desenho atual prioriza:
-
-- execução assíncrona real para backups e restaurações
-- separação entre operações administrativas e operacionais
-- proteção de paths com allowlist configurável
-- persistência consistente do estado final das tarefas
-- uso de DTOs para reduzir exposição de entidades internas
-
-## Principais Funcionalidades
+## 🧱 O que o sistema faz
 
 ### Backups
 
-- início manual de backup
-- pausa, retomada e cancelamento de tarefas
-- acompanhamento de progresso
-- histórico com consulta, busca e estatísticas
-- prevenção de execução duplicada para o mesmo par origem/destino
+- inicia backups manualmente via API
+- impede execução concorrente duplicada para a mesma origem e destino
+- acompanha progresso em tempo real
+- permite pausar, retomar e cancelar tarefas
+- mantém histórico consultável com busca e estatísticas
 
 ### Restauração
 
-- pré-visualização da estrutura do backup
-- restauração completa
-- restauração seletiva por arquivos e diretórios
-- cancelamento e consulta de status
-- histórico geral e histórico por backup de origem
+- gera pré-visualização do conteúdo disponível no backup
+- executa restauração completa
+- executa restauração seletiva por arquivo ou diretório
+- registra histórico de restauração por tarefa e por backup de origem
+- permite cancelamento de tarefas em andamento
 
 ### Agendamento
 
-- cadastro de configurações recorrentes
-- validação de expressões cron
-- execução agendada dinâmica
-- agendamento pontual de tarefas únicas
-- disparo imediato de configurações válidas
+- cadastra rotinas recorrentes baseadas em cron
+- valida expressões cron antes da persistência
+- agenda execuções únicas para um horário futuro
+- permite disparo imediato de configurações válidas
+- recarrega agendamentos ativos durante o ciclo de vida da aplicação
 
-### Operação e Observabilidade
+### Operação
 
-- health checks da aplicação e do banco
-- consulta de uso de armazenamento
-- leitura controlada de logs de warning
-- notificações por e-mail para eventos de backup e restauração
+- expõe health checks da aplicação e do banco
+- informa métricas de armazenamento
+- centraliza warnings operacionais
+- envia notificações por e-mail para eventos relevantes
 
-## Arquitetura
+## 🏗️ Arquitetura
 
-### Visão em camadas
+O projeto segue uma divisão clara entre entrada HTTP, orquestração, domínio e infraestrutura.
 
 ```mermaid
 flowchart TD
-    A["Controllers"] --> B["Application Services"]
-    B --> C["Domain Models and Events"]
-    B --> D["Infrastructure Services"]
-    D --> E["PostgreSQL"]
-    D --> F["File System"]
-    D --> G["Mail Server"]
+    A["REST Controllers"] --> B["Application Services"]
+    B --> C["Domain Models"]
+    B --> D["Domain Events"]
+    B --> E["Infrastructure Components"]
+    E --> F["PostgreSQL"]
+    E --> G["Local File System"]
+    E --> H["SMTP Server"]
 ```
 
-### Organização do código
+### Estrutura do código
 
 ```text
 src/main/java/com/backup_manager
@@ -105,125 +86,188 @@ src/main/java/com/backup_manager
     └── validation
 ```
 
-### Componentes centrais
+### Papéis das camadas
 
-- `application/controller`: expõe a API REST e aplica o contrato externo do sistema
-- `application/service`: concentra a orquestração de backup, restore, validação, histórico e agendamento
-- `domain/model`: representa tarefas de backup, restore e configurações agendadas
-- `domain/event`: publica eventos de início, conclusão, falha e cancelamento
-- `infrastructure/persistence`: repositórios JPA para PostgreSQL
-- `infrastructure/storage`: operações físicas de cópia e restauração de arquivos
-- `infrastructure/config`: segurança, async, scheduler, serialização, CORS e bootstrap
+- `application/controller`
+  Expõe os endpoints REST, traduz a entrada HTTP e devolve respostas adequadas ao contrato da API.
 
-### Fluxo de execução
+- `application/service`
+  Orquestra execução de backup, restore, histórico, validação, notificações e agendamento.
 
-1. o controller recebe a requisição e valida o payload
-2. a camada de aplicação valida origem, destino, espaço, cron e restrições de segurança
-3. a tarefa é persistida com estado inicial
-4. a execução segue por executor gerenciado pelo Spring
-5. progresso, status final e histórico são gravados no banco
-6. eventos de domínio disparam notificações e integrações internas
+- `domain/model`
+  Representa entidades como `BackupTask`, `RestoreTask` e `ScheduledBackupEntity`, além dos estados do processo.
 
-## Stack Técnica
+- `domain/event`
+  Modela eventos de início, conclusão, falha e cancelamento, desacoplando execução e reação operacional.
+
+- `infrastructure/persistence`
+  Implementa os repositórios JPA usados para persistência em PostgreSQL.
+
+- `infrastructure/storage`
+  Encapsula as operações físicas de leitura, cópia e restauração de arquivos.
+
+- `infrastructure/config`
+  Reúne segurança, serialização, execução assíncrona, scheduler, CORS e verificações de bootstrap.
+
+## ⚙️ Decisões técnicas relevantes
+
+Algumas decisões estruturais definem o comportamento atual do serviço:
+
+- uso de `Spring Security` com autenticação HTTP Basic e autorização por papel
+- `spring.jpa.open-in-view=false` para evitar acesso lazy implícito na camada web
+- `ddl-auto=validate` com `Flyway` como responsável pelas migrações
+- execução assíncrona via executores gerenciados pelo Spring
+- validação centralizada de requisições de backup
+- proteção de filesystem baseada em allowlist configurável
+- uso de DTOs para reduzir exposição de entidades internas nos endpoints
+
+## 🔐 Segurança
+
+O sistema não foi desenhado como uma API pública aberta. Ele assume uso administrativo ou operacional controlado.
+
+### Modelo de autenticação e autorização
+
+- autenticação por HTTP Basic
+- sessão stateless
+- usuário administrativo com role `ADMIN`
+- usuário operacional opcional com role `OPERATOR`
+
+### Regras de acesso atuais
+
+**Público**
+
+- `GET /api/health/application`
+
+**Apenas `ADMIN`**
+
+- `/api/health/**`
+- `/api/system/**`
+- `/api/logs/**`
+- `/api/backup/config/**`
+- `/api/backup/scheduler/**`
+- `/api/backup/notifications/**`
+
+**`ADMIN` ou `OPERATOR`**
+
+- `/api/backup/**`
+- `/api/restore/**`
+
+### Proteção de caminhos
+
+As operações de backup e restauração não aceitam paths arbitrários sem controle. O projeto utiliza uma allowlist definida em `APP_SECURITY_ALLOWED_PATH_ROOTS` e aplica validações para:
+
+- impedir path traversal
+- bloquear caminhos fora das roots permitidas
+- restringir escrita em destinos não autorizados
+- evitar manipulação acidental de áreas sensíveis do host
+
+### Recomendação operacional
+
+Não use os valores default de credenciais fora de ambiente controlado. Em produção, configure no mínimo:
+
+- `APP_SECURITY_USERNAME`
+- `APP_SECURITY_PASSWORD`
+- `APP_SECURITY_ALLOWED_PATH_ROOTS`
+
+Se houver separação entre usuários administrativos e operacionais:
+
+- `APP_SECURITY_OPERATOR_ENABLED=true`
+- `APP_SECURITY_OPERATOR_USERNAME`
+- `APP_SECURITY_OPERATOR_PASSWORD`
+
+## 🧠 Fluxo de execução
+
+### Fluxo de backup
+
+1. o controller recebe a requisição
+2. a entrada é validada
+3. a aplicação verifica origem, destino, espaço disponível e regras de segurança
+4. a tarefa é persistida com estado inicial
+5. a execução segue por um executor assíncrono gerenciado pelo Spring
+6. progresso e estado final são persistidos
+7. eventos de domínio disparam listeners e notificações
+
+### Fluxo de restauração
+
+1. o backup de origem é localizado
+2. o destino solicitado é validado contra a allowlist
+3. o modo de restauração é definido como completo ou seletivo
+4. a tarefa é persistida
+5. a restauração roda de forma assíncrona
+6. histórico, duração e resultado ficam disponíveis para consulta
+
+### Fluxo de agendamento
+
+1. a configuração é validada
+2. a expressão cron ou agendamento único é persistido
+3. o scheduler carrega as tarefas ativas
+4. no momento da execução, a aplicação revalida a operação
+5. o backup é disparado e acompanhado como tarefa normal
+
+## 🗃️ Persistência e modelo de dados
+
+O projeto usa PostgreSQL como banco principal e Flyway para versionamento de schema.
+
+### Entidades centrais
+
+- `BackupTask`
+  Registro de execução de backup, com status, progresso, origem, destino, duração e resultados.
+
+- `RestoreTask`
+  Registro de execução de restauração, incluindo tipo de restore, destino, resultado e histórico.
+
+- `ScheduledBackupEntity`
+  Configuração recorrente de backup agendado, com cron, estado de ativação e metadados operacionais.
+
+### Migrações existentes
+
+- `V1__create_backup_tasks_table.sql`
+- `V2__add_scheduled_backups_timestamps.sql`
+- `V4__create_restore_tasks_table.sql`
+
+## 🚀 Stack técnica
 
 - Java 21
 - Spring Boot 4.0.1
 - Spring Web MVC
 - Spring Data JPA
 - Spring Security
-- PostgreSQL
 - Flyway
+- PostgreSQL
 - Jakarta Validation
 - Spring Mail
 - Spring Retry
 - Maven
-- Docker e Docker Compose
+- Docker
+- Docker Compose
 - GitHub Actions
 
-## Segurança
-
-O projeto já incorpora uma camada de segurança operacional importante:
-
-- autenticação HTTP Basic
-- sessão stateless
-- separação de papéis entre `ADMIN` e `OPERATOR`
-- bloqueio de endpoints administrativos para usuários operacionais
-- validação de paths com roots permitidas por configuração
-- `spring.jpa.open-in-view=false`
-- respostas mais enxutas para reduzir exposição de detalhes internos
-
-### Regras atuais de acesso
-
-- público:
-  - `GET /api/health/application`
-- administrativo:
-  - `/api/health/**`
-  - `/api/system/**`
-  - `/api/logs/**`
-  - `/api/backup/config/**`
-  - `/api/backup/scheduler/**`
-  - `/api/backup/notifications/**`
-- operacional e administrativo:
-  - `/api/backup/**`
-  - `/api/restore/**`
-
-### Observações de segurança
-
-- as senhas default não devem ser usadas fora de ambiente controlado
-- em produção, configure `APP_SECURITY_USERNAME`, `APP_SECURITY_PASSWORD` e, se aplicável, as credenciais do operador
-- a propriedade `APP_SECURITY_ALLOWED_PATH_ROOTS` deve restringir explicitamente as áreas autorizadas do filesystem
-
-## Modelo de Dados
-
-O banco é gerenciado com Flyway e o Hibernate roda com `ddl-auto=validate`.
-
-Migrações versionadas disponíveis:
-
-- `V1__create_backup_tasks_table.sql`
-- `V2__add_scheduled_backups_timestamps.sql`
-- `V4__create_restore_tasks_table.sql`
-
-Entidades principais:
-
-- `BackupTask`: histórico e ciclo de vida de execuções de backup
-- `RestoreTask`: histórico e ciclo de vida de restaurações
-- `ScheduledBackupEntity`: configuração recorrente de backup agendado
-
-## Estrutura de Execução Assíncrona
-
-Os fluxos assíncronos são executados por beans gerenciados pelo Spring:
-
-- `backupDispatchExecutor`: despacho de rotinas assíncronas
-- `backupTaskExecutor`: processamento das tarefas de backup
-- `backupOneTimeScheduler`: agendamento de execuções pontuais
-
-Essa abordagem elimina pools manuais dispersos em services e melhora o encerramento controlado da aplicação.
-
-## Como Executar Localmente
+## ▶️ Como executar localmente
 
 ### Pré-requisitos
 
 - Java 21
-- Maven 3.9+
+- Maven 3.9 ou superior
 - Docker e Docker Compose
-- PostgreSQL, caso não use o `docker-compose.yml`
 
-### 1. Subir o banco com Docker Compose
+### 1. Subir o banco de dados
+
+O repositório já inclui `docker-compose.yml` para o PostgreSQL local:
 
 ```bash
 docker compose up -d
 ```
 
-O compose sobe:
+Serviço provisionado:
 
-- PostgreSQL 15
-- database `backup_manager`
+- imagem `postgres:15-alpine`
+- banco `backup_manager`
 - usuário `postgres`
 - senha `postgres`
 
-### 2. Configurar variáveis de ambiente
+### 2. Configurar ambiente
 
-Você pode usar variáveis de ambiente do sistema ou um arquivo `.env` na raiz do projeto.
+A aplicação lê variáveis do sistema e também aceita um arquivo `.env` na raiz do projeto.
 
 Exemplo:
 
@@ -265,28 +309,33 @@ NOTIFICATION_NOTIFY_FAILURE=true
 mvn spring-boot:run
 ```
 
-Ou, para gerar o artefato:
+Para gerar o pacote:
 
 ```bash
 mvn clean package
 java -jar target/*.jar
 ```
 
-### Perfis disponíveis
+### Perfis
 
-- padrão: ambiente normal com validações de segurança ativas
-- `dev`: permite `app.security.allow-default-password=true`
-- `test`: usa `ddl-auto=create-drop` e libera senha default para execução de testes
+- padrão
+  Operação normal com regras de segurança completas.
 
-Para ativar um perfil:
+- `dev`
+  Permite subida com senha default para facilitar desenvolvimento local.
+
+- `test`
+  Usa `create-drop` e flexibiliza o ambiente de teste automatizado.
+
+Ativação de perfil:
 
 ```bash
 mvn spring-boot:run -Dspring-boot.run.profiles=dev
 ```
 
-## Execução com Docker
+## 🐳 Docker
 
-### Build da imagem
+### Build
 
 ```bash
 docker build -t backup-manager:local .
@@ -307,7 +356,14 @@ docker run --rm -p 8080:8080 \
   backup-manager:local
 ```
 
-## Configuração por Variáveis de Ambiente
+### Observações sobre a imagem
+
+- build multi-stage com Maven e Eclipse Temurin 21
+- runtime em `eclipse-temurin:21-jre-alpine`
+- healthcheck baseado em `/actuator/health`
+- execução com usuário não root
+
+## 🧾 Variáveis de ambiente
 
 | Variável | Finalidade | Valor padrão |
 | --- | --- | --- |
@@ -324,19 +380,19 @@ docker run --rm -p 8080:8080 \
 | `APP_SECURITY_OPERATOR_USERNAME` | usuário operacional | `operator` |
 | `APP_SECURITY_OPERATOR_PASSWORD` | senha operacional | `change-me-operator` |
 | `APP_SECURITY_OPERATOR_ROLE` | role operacional | `OPERATOR` |
-| `APP_SECURITY_ALLOW_DEFAULT_PASSWORD` | permite subida com senha default | `false` |
-| `APP_SECURITY_ALLOWED_PATH_ROOTS` | allowlist de roots permitidas | `${user.home}` |
+| `APP_SECURITY_ALLOW_DEFAULT_PASSWORD` | permite senha default | `false` |
+| `APP_SECURITY_ALLOWED_PATH_ROOTS` | roots permitidas para filesystem | `${user.home}` |
 | `NOTIFICATION_ENABLED` | habilita notificações | `false` |
-| `NOTIFICATION_EMAIL_FROM` | remetente de e-mail | `noreply-test@engefort.com.br` |
-| `NOTIFICATION_EMAIL_RECIPIENTS` | lista de destinatários | `dev-test@engefort.com.br` |
-| `NOTIFICATION_NOTIFY_SUCCESS` | notifica sucesso | `false` |
-| `NOTIFICATION_NOTIFY_FAILURE` | notifica falha | `false` |
+| `NOTIFICATION_EMAIL_FROM` | remetente dos e-mails | `noreply-test@engefort.com.br` |
+| `NOTIFICATION_EMAIL_RECIPIENTS` | destinatários | `dev-test@engefort.com.br` |
+| `NOTIFICATION_NOTIFY_SUCCESS` | envia notificação de sucesso | `false` |
+| `NOTIFICATION_NOTIFY_FAILURE` | envia notificação de falha | `false` |
 | `MAIL_HOST` | host SMTP | `smtp.test.local` |
 | `MAIL_PORT` | porta SMTP | `465` |
 | `MAIL_USERNAME` | usuário SMTP | `test@test.local` |
 | `MAIL_PASSWORD` | senha SMTP | `dummy-password` |
 
-## Endpoints Principais
+## 🌐 Endpoints principais
 
 ### Backup
 
@@ -363,7 +419,7 @@ docker run --rm -p 8080:8080 \
 - `GET /api/restore/recent`
 - `GET /api/backup/{id}/restore/history`
 
-### Configuração e Agendamento
+### Configuração e scheduler
 
 - `POST /api/backup/config`
 - `GET /api/backup/config`
@@ -390,7 +446,7 @@ docker run --rm -p 8080:8080 \
 - `GET /api/backup/notifications/settings`
 - `POST /api/backup/notifications/test`
 
-## Exemplos de Uso
+## 💡 Exemplos de uso
 
 ### Iniciar um backup
 
@@ -405,7 +461,7 @@ curl -u admin:strong-admin-password \
   }'
 ```
 
-### Criar configuração recorrente
+### Criar uma configuração recorrente
 
 ```bash
 curl -u admin:strong-admin-password \
@@ -432,7 +488,7 @@ curl -u operator:strong-operator-password \
   }'
 ```
 
-## Qualidade, Testes e Build
+## 🧪 Testes e build
 
 ### Comandos úteis
 
@@ -444,50 +500,49 @@ mvn jacoco:report
 mvn package -DskipTests
 ```
 
-### Testes existentes
+### Cobertura atual
 
-O projeto já possui cobertura automatizada para áreas críticas como:
+O projeto já possui testes para áreas sensíveis da aplicação, incluindo:
 
-- validação de segurança de paths
+- regras de segurança por papel
+- validação de paths
 - validação centralizada de requisições de backup
-- regras de segurança de acesso por papel
 - bootstrap da aplicação
 
-## CI/CD
+## 🔄 CI/CD
 
-Os workflows do repositório estão organizados da seguinte forma:
+O repositório possui workflows separados por responsabilidade:
 
 - `feature-branch-ci.yml`
-  - build rápido em branches de trabalho
+  Build rápido para branches de trabalho.
+
 - `pr-quality-gates.yml`
-  - validação completa com PostgreSQL, compilação, testes, cobertura e artefatos
+  Validação mais completa com PostgreSQL, compilação, testes, cobertura e upload de artefatos.
+
 - `container-registry.yml`
-  - build e publicação da imagem no GitHub Container Registry para `main` e `master`
+  Build e publicação da imagem no GitHub Container Registry para `main` e `master`.
+
 - `version-release.yml`
-  - empacotamento e criação de release GitHub a partir de tags `v*.*.*`
+  Empacotamento e criação de release GitHub a partir de tags versionadas.
 
-## Logging e Operação
+## 📂 Observabilidade e operação
 
-- logs da aplicação usam `INFO` para o namespace `com.backup_manager`
+- logs da aplicação usam nível `INFO` para o namespace `com.backup_manager`
 - warnings operacionais podem ser consultados por endpoint protegido
-- o endpoint `/actuator/health` é usado pelo `HEALTHCHECK` da imagem Docker
-- o endpoint público recomendado para monitoramento externo é `GET /api/health/application`
+- a imagem Docker usa `/actuator/health` como healthcheck
+- para monitoramento externo simples, o endpoint público recomendado é `GET /api/health/application`
 
-## Boas Práticas Operacionais
+## Boas práticas de uso
 
-- definir roots restritas em `APP_SECURITY_ALLOWED_PATH_ROOTS`
-- separar credenciais de admin e operador
-- usar banco dedicado para cada ambiente
-- não subir o serviço em produção com senhas default
-- restringir o acesso ao SMTP e aos volumes de destino
-- manter rotação e retenção de backups alinhadas com a política do ambiente
+- defina roots mínimas em `APP_SECURITY_ALLOWED_PATH_ROOTS`
+- separe credenciais de administração e operação
+- mantenha o banco isolado por ambiente
+- não suba o serviço em produção com senhas default
+- limite o acesso do processo aos diretórios realmente necessários
+- proteja as credenciais SMTP fora do código e do repositório
 
-## Limitações Conhecidas
+## Limitações atuais
 
-- a autenticação atual é baseada em usuários em memória e HTTP Basic
-- o agendamento depende da disponibilidade contínua da aplicação
-- a cópia e a restauração operam sobre filesystem local acessível pelo processo da aplicação
-
-## Licença
-
-Defina a licença do projeto de acordo com a política do repositório antes de uso externo ou distribuição.
+- a autenticação ainda é baseada em usuários em memória e HTTP Basic
+- o agendamento depende da aplicação estar disponível
+- as rotinas operam sobre filesystem local acessível pelo processo da aplicação
