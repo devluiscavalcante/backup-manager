@@ -19,16 +19,21 @@ import java.util.concurrent.ScheduledFuture;
 @Service
 public class DynamicSchedulerService implements SchedulingConfigurer {
 
-    private final ScheduledBackupRepository repository;
-    private final BackupScheduler backupScheduler;
-    private final ConcurrentHashMap<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
-    private ScheduledTaskRegistrar taskRegistrar;
-
     private static final Logger logger = LoggerFactory.getLogger(DynamicSchedulerService.class);
 
-    public DynamicSchedulerService(ScheduledBackupRepository repository, BackupScheduler backupScheduler) {
+    private final ScheduledBackupRepository repository;
+    private final BackupScheduler backupScheduler;
+    private final BackupRequestValidationService backupRequestValidationService;
+    private final ConcurrentHashMap<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
+
+    private ScheduledTaskRegistrar taskRegistrar;
+
+    public DynamicSchedulerService(ScheduledBackupRepository repository,
+                                   BackupScheduler backupScheduler,
+                                   BackupRequestValidationService backupRequestValidationService) {
         this.repository = repository;
         this.backupScheduler = backupScheduler;
+        this.backupRequestValidationService = backupRequestValidationService;
     }
 
     @Override
@@ -44,7 +49,6 @@ public class DynamicSchedulerService implements SchedulingConfigurer {
         scheduledTasks.clear();
 
         List<ScheduledBackupEntity> activeBackups = repository.findByEnabledTrue();
-
         logger.info("Encontrados {} agendamentos ativos", activeBackups.size());
 
         for (ScheduledBackupEntity config : activeBackups) {
@@ -54,7 +58,17 @@ public class DynamicSchedulerService implements SchedulingConfigurer {
 
     private void scheduleTask(ScheduledBackupEntity config) {
         if (config.getCronExpression() == null || config.getCronExpression().trim().isEmpty()) {
-            logger.error("Falha ao agendar '{}': Expressão Cron está vazia no banco.", config.getName());
+            logger.error("Falha ao agendar '{}': expressao cron vazia no banco.", config.getName());
+            return;
+        }
+
+        try {
+            backupRequestValidationService.validateSchedulableRequest(
+                    config.getSources(),
+                    config.getDestinations()
+            );
+        } catch (RuntimeException e) {
+            logger.warn("Agendamento '{}' ignorado por configuracao invalida: {}", config.getName(), e.getMessage());
             return;
         }
 
@@ -66,18 +80,18 @@ public class DynamicSchedulerService implements SchedulingConfigurer {
                 );
 
                 scheduledTasks.put(config.getId(), future);
-                logger.info("Agendamento '{}' registrado com expressão cron: {}",
+                logger.info("Agendamento '{}' registrado com expressao cron: {}",
                         config.getName(), config.getCronExpression());
 
             } catch (IllegalArgumentException e) {
-                logger.error("Expressão Cron inválida para o backup '{}': {}",
+                logger.error("Expressao cron invalida para o backup '{}': {}",
                         config.getName(), config.getCronExpression());
             }
         }
     }
 
     private void executeScheduledBackup(ScheduledBackupEntity config) {
-        logger.info("Iniciando execução agendada: {}", config.getName());
+        logger.info("Iniciando execucao agendada: {}", config.getName());
         try {
             com.backup_manager.application.dto.BackupRequest request =
                     new com.backup_manager.application.dto.BackupRequest();
@@ -86,13 +100,11 @@ public class DynamicSchedulerService implements SchedulingConfigurer {
 
             backupScheduler.executeBackupWithRequest(request, config.getName());
             updateLastExecution(config.getId());
-            logger.info("Execução agendada concluída: {}", config.getName());
+            logger.info("Execucao agendada concluida: {}", config.getName());
         } catch (Exception e) {
-            logger.error("Erro ao executar backup agendado '{}': {}",
-                    config.getName(), e.getMessage(), e);
+            logger.error("Erro ao executar backup agendado '{}': {}", config.getName(), e.getMessage(), e);
         }
     }
-
 
     private void updateLastExecution(Long configId) {
         try {
@@ -102,8 +114,7 @@ public class DynamicSchedulerService implements SchedulingConfigurer {
                 logger.debug("LastExecution atualizado para agendamento ID {}", configId);
             });
         } catch (Exception e) {
-            logger.error("Erro ao atualizar lastExecution para ID {}: {}",
-                    configId, e.getMessage());
+            logger.error("Erro ao atualizar lastExecution para ID {}: {}", configId, e.getMessage());
         }
     }
 }

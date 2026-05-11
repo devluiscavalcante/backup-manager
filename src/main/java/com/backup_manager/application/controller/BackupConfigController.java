@@ -4,6 +4,7 @@ import com.backup_manager.application.dto.CronTemplateResponse;
 import com.backup_manager.application.dto.CronValidationResponse;
 import com.backup_manager.application.dto.ScheduledBackupRequest;
 import com.backup_manager.application.dto.ScheduledBackupResponse;
+import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.CronValidationService;
 import com.backup_manager.application.service.DynamicSchedulerService;
 import com.backup_manager.domain.event.BackupScheduledEvent;
@@ -32,24 +33,27 @@ public class BackupConfigController {
     private final ApplicationEventPublisher eventPublisher;
     private final ScheduledBackupRepository repository;
     private final DynamicSchedulerService dynamicSchedulerService;
+    private final BackupRequestValidationService backupRequestValidationService;
     private final CronValidationService cronValidationService;
 
     public BackupConfigController(ApplicationEventPublisher eventPublisher, ScheduledBackupRepository repository,
                                   DynamicSchedulerService dynamicSchedulerService,
+                                  BackupRequestValidationService backupRequestValidationService,
                                   CronValidationService cronValidationService) {
         this.eventPublisher = eventPublisher;
         this.repository = repository;
         this.dynamicSchedulerService = dynamicSchedulerService;
+        this.backupRequestValidationService = backupRequestValidationService;
         this.cronValidationService = cronValidationService;
     }
 
     @PostMapping
     public ResponseEntity<?> createOrUpdate(@Valid @RequestBody ScheduledBackupRequest request) {
         try {
-            if (request.getSources().size() != request.getDestinations().size()) {
-                return errorResponse(HttpStatus.BAD_REQUEST,
-                        "O numero de origens deve ser igual ao numero de destinos.");
-            }
+            backupRequestValidationService.validateSchedulableRequest(
+                    request.getSources(),
+                    request.getDestinations()
+            );
 
             CronValidationResponse validation = cronValidationService.validateCronExpression(request.getCronExpression());
 

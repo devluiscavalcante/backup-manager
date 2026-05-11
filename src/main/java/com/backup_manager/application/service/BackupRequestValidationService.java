@@ -4,7 +4,6 @@ import com.backup_manager.domain.service.BackupManager;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -32,7 +31,7 @@ public class BackupRequestValidationService {
         }
     }
 
-    public void validateExecutableRequest(List<String> sources, List<String> destinations) throws IOException {
+    public void validateExecutableRequest(List<String> sources, List<String> destinations) {
         validateSchedulableRequest(sources, destinations);
 
         for (int i = 0; i < sources.size(); i++) {
@@ -63,7 +62,7 @@ public class BackupRequestValidationService {
         }
     }
 
-    private void validateAvailableSpace(File sourceFolder, Path destinationPath) throws IOException {
+    private void validateAvailableSpace(File sourceFolder, Path destinationPath) {
         File destinationRoot = destinationPath.getRoot().toFile();
         long requiredSpace = backupManager.calculateFolderSizeMB(sourceFolder).longValue() * 1024 * 1024;
         long availableSpace = destinationRoot.getUsableSpace();
@@ -75,7 +74,7 @@ public class BackupRequestValidationService {
                     requiredSpace / (1024 * 1024),
                     availableSpace / (1024 * 1024)
             );
-            throw new IOException(error);
+            throw new IllegalStateException(error);
         }
     }
 }

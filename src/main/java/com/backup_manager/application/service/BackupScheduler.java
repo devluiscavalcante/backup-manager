@@ -14,7 +14,11 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -23,19 +27,22 @@ public class BackupScheduler {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupScheduler.class);
 
+    private static final long MIN_INTERVAL_MINUTES = 5;
+
     private final BackupService backupService;
+    private final BackupRequestValidationService backupRequestValidationService;
     private final BackupSchedulerProperties schedulerProperties;
 
     private final Map<String, LocalDateTime> lastExecutionMap = new HashMap<>();
-    private static final long MIN_INTERVAL_MINUTES = 5;
-
     private final Map<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
     private final ScheduledExecutorService oneTimeScheduler = Executors.newScheduledThreadPool(3);
-
     private final AtomicLong taskIdCounter = new AtomicLong(1000);
 
-    public BackupScheduler(BackupService backupService, BackupSchedulerProperties schedulerProperties) {
+    public BackupScheduler(BackupService backupService,
+                           BackupRequestValidationService backupRequestValidationService,
+                           BackupSchedulerProperties schedulerProperties) {
         this.backupService = backupService;
+        this.backupRequestValidationService = backupRequestValidationService;
         this.schedulerProperties = schedulerProperties;
     }
 
@@ -45,7 +52,7 @@ public class BackupScheduler {
     public void executeScheduledBackups() {
         try {
             if (!schedulerProperties.isEnabled()) {
-                logger.debug("Agendamento de backups está desativado na configuração global");
+                logger.debug("Agendamento de backups esta desativado na configuracao global");
                 return;
             }
 
@@ -55,7 +62,7 @@ public class BackupScheduler {
                 return;
             }
 
-            logger.info("Iniciando execução de backups agendados. Total configurado: {}", backups.size());
+            logger.info("Iniciando execucao de backups agendados. Total configurado: {}", backups.size());
 
             AtomicInteger executedCount = new AtomicInteger(0);
             AtomicInteger skippedCount = new AtomicInteger(0);
@@ -72,26 +79,19 @@ public class BackupScheduler {
                 }
             });
 
-            logger.info("Execução de backups agendados concluída. Executados: {}, Ignorados: {}",
+            logger.info("Execucao de backups agendados concluida. Executados: {}, Ignorados: {}",
                     executedCount.get(),
                     skippedCount.get());
 
         } catch (Exception e) {
-            logger.error("Erro geral na execução de backups agendados: {}", e.getMessage(), e);
+            logger.error("Erro geral na execucao de backups agendados: {}", e.getMessage(), e);
         }
     }
 
     private boolean executeSingleScheduledBackup(ScheduledBackupConfig config) {
         try {
             if (!config.isEnabled()) {
-                logger.debug("Backup agendado '{}' está desativado", config.getName());
-                return false;
-            }
-
-            if (config.getSources() == null || config.getSources().isEmpty() ||
-                    config.getDestinations() == null ||
-                    config.getDestinations().isEmpty()) {
-                logger.warn("Configuração inválida para backup agendado '{}'", config.getName());
+                logger.debug("Backup agendado '{}' esta desativado", config.getName());
                 return false;
             }
 
@@ -100,7 +100,7 @@ public class BackupScheduler {
             LocalDateTime now = LocalDateTime.now();
 
             if (lastExecution != null && lastExecution.plusMinutes(MIN_INTERVAL_MINUTES).isAfter(now)) {
-                logger.debug("Backup '{}' executado recentemente, ignorando execução", config.getName());
+                logger.debug("Backup '{}' executado recentemente, ignorando execucao", config.getName());
                 return false;
             }
 
@@ -124,14 +124,16 @@ public class BackupScheduler {
             throw new IllegalArgumentException("Minutos devem ser maior que 0");
         }
 
+        backupRequestValidationService.validateExecutableRequest(request.getSources(), request.getDestination());
+
         Long taskId = taskIdCounter.incrementAndGet();
         LocalDateTime scheduledTime = LocalDateTime.now().plusMinutes(minutesFromNow);
 
-        logger.info("Agendando backup único ID {} para {}", taskId, scheduledTime);
+        logger.info("Agendando backup unico ID {} para {}", taskId, scheduledTime);
 
         ScheduledFuture<?> future = oneTimeScheduler.schedule(() -> {
             try {
-                logger.info("Executando backup único agendado ID {}: {}", taskId, backupName);
+                logger.info("Executando backup unico agendado ID {}: {}", taskId, backupName);
                 executeBackupWithRequest(request, backupName);
                 scheduledTasks.remove(taskId);
             } catch (Exception e) {
@@ -148,31 +150,21 @@ public class BackupScheduler {
         List<String> sources = request.getSources();
         List<String> destinations = request.getDestination();
 
-        if (sources == null || destinations == null || sources.isEmpty() || destinations.isEmpty()) {
-            throw new IllegalArgumentException("Fontes e destinos não podem estar vazios");
-        }
-
-        if (sources.size() != destinations.size()) {
-            throw new IllegalArgumentException("Número de origens deve ser igual ao número de destinos");
-        }
+        backupRequestValidationService.validateExecutableRequest(sources, destinations);
 
         for (int i = 0; i < sources.size(); i++) {
             String source = sources.get(i);
             String destination = destinations.get(i);
 
             try {
-                backupService.validateSafePath(source);
-                backupService.validateSafePath(destination);
-                backupService.validatePathAndDriveSpace(source, destination);
-
                 var activeTask = backupService.getActiveTask(source, destination);
                 if (activeTask.isPresent()) {
-                    logger.warn("Backup agendado '{}' ignorado: Já existe uma tarefa ativa para {} -> {}",
+                    logger.warn("Backup agendado '{}' ignorado: ja existe uma tarefa ativa para {} -> {}",
                             backupName, source, destination);
                     continue;
                 }
 
-                logger.info("Disparando execução agendada '{}': {} -> {}", backupName, source, destination);
+                logger.info("Disparando execucao agendada '{}': {} -> {}", backupName, source, destination);
                 backupService.runBackup(source, destination);
 
             } catch (Exception e) {
@@ -207,14 +199,18 @@ public class BackupScheduler {
     }
 
     private String formatRemainingTime(long seconds) {
-        if (seconds <= 0) return "Executando agora";
+        if (seconds <= 0) {
+            return "Executando agora";
+        }
         long minutes = seconds / 60;
         long remainingSeconds = seconds % 60;
-        if (minutes == 0) return remainingSeconds + " segundos";
+        if (minutes == 0) {
+            return remainingSeconds + " segundos";
+        }
         return minutes + " minutos e " + remainingSeconds + " segundos";
     }
 
-    @Scheduled(fixedDelay = 300000) // 5 minutos
+    @Scheduled(fixedDelay = 300000)
     public void cleanupCompletedTasks() {
         scheduledTasks.entrySet().removeIf(entry -> entry.getValue().isDone()
                 || entry.getValue().isCancelled());
