@@ -26,6 +26,17 @@ public class AppSecurityProperties {
     @NotBlank
     private String role = "ADMIN";
 
+    private boolean operatorEnabled = false;
+
+    @NotBlank
+    private String operatorUsername = "operator";
+
+    @NotBlank
+    private String operatorPassword = "change-me-operator";
+
+    @NotBlank
+    private String operatorRole = "OPERATOR";
+
     private boolean allowDefaultPassword = false;
 
     private List<String> allowedPathRoots = new ArrayList<>();

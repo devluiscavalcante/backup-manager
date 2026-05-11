@@ -17,6 +17,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Configuration
 public class SecurityConfig {
 
@@ -33,7 +36,14 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/health/application").permitAll()
                         .requestMatchers("/error").permitAll()
-                        .requestMatchers("/api/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/health/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/system/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/logs/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/backup/config/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/backup/scheduler/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/backup/notifications/**").hasRole(securityProperties.getRole())
+                        .requestMatchers("/api/backup/**", "/api/restore/**")
+                        .hasAnyRole(securityProperties.getRole(), securityProperties.getOperatorRole())
                         .anyRequest().authenticated()
                 )
                 .build();
@@ -42,25 +52,61 @@ public class SecurityConfig {
     @Bean
     public UserDetailsService userDetailsService(AppSecurityProperties securityProperties,
                                                  PasswordEncoder passwordEncoder) {
-        if ("change-me-now".equals(securityProperties.getPassword())) {
-            if (!securityProperties.isAllowDefaultPassword()) {
-                throw new IllegalStateException(
-                        "APP_SECURITY_PASSWORD precisa ser definido fora do valor default para subir a aplicacao neste ambiente."
-                );
-            }
-            logger.warn("Usando senha default de seguranca. Defina APP_SECURITY_PASSWORD no ambiente.");
-        }
+        validateDefaultPassword(
+                securityProperties.getPassword(),
+                securityProperties.isAllowDefaultPassword(),
+                "APP_SECURITY_PASSWORD",
+                "Usando senha default de seguranca para o usuario administrador."
+        );
+
+        List<UserDetails> users = new ArrayList<>();
 
         UserDetails adminUser = User.withUsername(securityProperties.getUsername())
                 .password(passwordEncoder.encode(securityProperties.getPassword()))
                 .roles(securityProperties.getRole())
                 .build();
+        users.add(adminUser);
 
-        return new InMemoryUserDetailsManager(adminUser);
+        if (securityProperties.isOperatorEnabled()) {
+            if (securityProperties.getUsername().equalsIgnoreCase(securityProperties.getOperatorUsername())) {
+                throw new IllegalStateException("APP_SECURITY_OPERATOR_USERNAME deve ser diferente do usuario administrador.");
+            }
+
+            validateDefaultPassword(
+                    securityProperties.getOperatorPassword(),
+                    securityProperties.isAllowDefaultPassword(),
+                    "APP_SECURITY_OPERATOR_PASSWORD",
+                    "Usando senha default de seguranca para o usuario operador."
+            );
+
+            UserDetails operatorUser = User.withUsername(securityProperties.getOperatorUsername())
+                    .password(passwordEncoder.encode(securityProperties.getOperatorPassword()))
+                    .roles(securityProperties.getOperatorRole())
+                    .build();
+            users.add(operatorUser);
+        }
+
+        return new InMemoryUserDetailsManager(users);
     }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
+    }
+
+    private void validateDefaultPassword(String configuredPassword,
+                                         boolean allowDefaultPassword,
+                                         String environmentVariable,
+                                         String warningMessage) {
+        if (!"change-me-now".equals(configuredPassword) && !"change-me-operator".equals(configuredPassword)) {
+            return;
+        }
+
+        if (!allowDefaultPassword) {
+            throw new IllegalStateException(environmentVariable
+                    + " precisa ser definido fora do valor default para subir a aplicacao neste ambiente.");
+        }
+
+        logger.warn("{} Defina {} no ambiente.", warningMessage, environmentVariable);
     }
 }
