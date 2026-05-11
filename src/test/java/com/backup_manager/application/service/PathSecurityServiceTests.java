@@ -1,9 +1,10 @@
 package com.backup_manager.application.service;
 
-import com.backup_manager.infrastructure.config.AppSecurityProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -18,41 +19,63 @@ class PathSecurityServiceTests {
 
     @Test
     void shouldAllowPathInsideConfiguredRoot() {
-        PathSecurityService service = createService(List.of(tempDir.toString()));
+        Object service = createService(List.of(tempDir.toString()));
         Path allowedFile = tempDir.resolve("documents").resolve("backup.zip");
 
-        assertDoesNotThrow(() -> service.validateManagedPath(allowedFile.toString(), "backup"));
+        assertDoesNotThrow(() -> validateManagedPath(service, allowedFile.toString(), "backup"));
     }
 
     @Test
     void shouldBlockPathOutsideConfiguredRoot() {
-        PathSecurityService service = createService(List.of(tempDir.toString()));
+        Object service = createService(List.of(tempDir.toString()));
         Path outsidePath = tempDir.getParent().resolve("fora-da-allowlist");
 
         assertThrows(SecurityException.class,
-                () -> service.validateManagedPath(outsidePath.toString(), "backup"));
+                () -> validateManagedPath(service, outsidePath.toString(), "backup"));
     }
 
     @Test
     void shouldBlockPathTraversalAttempt() {
-        PathSecurityService service = createService(List.of(tempDir.toString()));
+        Object service = createService(List.of(tempDir.toString()));
         String traversalPath = tempDir.resolve("docs").resolve("..").resolve("segredo").toString();
 
         assertThrows(SecurityException.class,
-                () -> service.validateManagedPath(traversalPath, "backup"));
+                () -> validateManagedPath(service, traversalPath, "backup"));
     }
 
     @Test
     void shouldFallbackToUserHomeWhenAllowlistIsEmpty() {
-        PathSecurityService service = createService(List.of());
+        Object service = createService(List.of());
         Path homePath = Paths.get(System.getProperty("user.home")).resolve("backup-test");
 
-        assertDoesNotThrow(() -> service.validateManagedPath(homePath.toString(), "backup"));
+        assertDoesNotThrow(() -> validateManagedPath(service, homePath.toString(), "backup"));
     }
 
-    private PathSecurityService createService(List<String> allowedRoots) {
-        AppSecurityProperties properties = new AppSecurityProperties();
-        properties.setAllowedPathRoots(allowedRoots);
-        return new PathSecurityService(properties);
+    private Object createService(List<String> allowedRoots) {
+        try {
+            Class<?> propertiesClass = Class.forName("com.backup_manager.infrastructure.config.AppSecurityProperties");
+            Object properties = propertiesClass.getDeclaredConstructor().newInstance();
+            Method setAllowedPathRoots = propertiesClass.getMethod("setAllowedPathRoots", List.class);
+            setAllowedPathRoots.invoke(properties, allowedRoots);
+
+            Class<?> serviceClass = Class.forName("com.backup_manager.application.service.PathSecurityService");
+            return serviceClass.getDeclaredConstructor(propertiesClass).newInstance(properties);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Nao foi possivel instanciar PathSecurityService para o teste.", e);
+        }
+    }
+
+    private void validateManagedPath(Object service, String path, String operationName) {
+        try {
+            Method validateManagedPath = service.getClass().getMethod("validateManagedPath", String.class, String.class);
+            validateManagedPath.invoke(service, path, operationName);
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof RuntimeException runtimeException) {
+                throw runtimeException;
+            }
+            throw new IllegalStateException("Falha inesperada ao executar validacao de caminho.", e.getCause());
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("Nao foi possivel executar validateManagedPath no teste.", e);
+        }
     }
 }
