@@ -6,6 +6,7 @@ import com.backup_manager.application.dto.BackupStatsResponse;
 import com.backup_manager.application.dto.BackupTaskSummaryResponse;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.application.service.BackupHistoryService;
+import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.BackupService;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
@@ -23,7 +24,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
 @RestController
@@ -33,13 +33,17 @@ public class BackupController {
     private static final Logger logger = LoggerFactory.getLogger(BackupController.class);
 
     private final BackupService backupService;
+    private final BackupRequestValidationService backupRequestValidationService;
     private final ProgressEmitter progressEmitter;
     private final BackupRepository backupRepository;
     private final BackupHistoryService historyService;
 
-    public BackupController(BackupService backupService, ProgressEmitter progressEmitter,
+    public BackupController(BackupService backupService,
+                            BackupRequestValidationService backupRequestValidationService,
+                            ProgressEmitter progressEmitter,
                             BackupRepository backupRepository, BackupHistoryService historyService) {
         this.backupService = backupService;
+        this.backupRequestValidationService = backupRequestValidationService;
         this.progressEmitter = progressEmitter;
         this.backupRepository = backupRepository;
         this.historyService = historyService;
@@ -51,21 +55,11 @@ public class BackupController {
             List<String> sources = request.getSources();
             List<String> destinations = request.getDestination();
 
-            if (sources == null || destinations == null || sources.isEmpty() || destinations.isEmpty()) {
-                return ResponseEntity.badRequest().body("As listas nao podem estar vazias");
-            }
-            if (sources.size() != destinations.size()) {
-                return ResponseEntity.badRequest().body("O numero de origens deve ser igual ao numero de destinos.");
-            }
+            backupRequestValidationService.validateExecutableRequest(sources, destinations);
 
             for (int i = 0; i < sources.size(); i++) {
                 String source = sources.get(i);
                 String destination = destinations.get(i);
-
-                backupService.validateSafePath(source);
-                backupService.validateSafePath(destination);
-
-                backupService.validatePathAndDriveSpace(source, destination);
 
                 Optional<BackupTask> activeTask = backupService.getActiveTask(source, destination);
                 if (activeTask.isPresent()) {
@@ -100,7 +94,7 @@ public class BackupController {
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca ao iniciar backup: {}", e.getMessage());
             return errorResponse(HttpStatus.FORBIDDEN, "Operacao de backup nao autorizada.");
-        } catch (IOException | IllegalArgumentException | IllegalStateException e) {
+        } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warn("Falha de validacao ao iniciar backup: {}", e.getMessage());
             return errorResponse(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de backup.");
         } catch (Exception e) {
