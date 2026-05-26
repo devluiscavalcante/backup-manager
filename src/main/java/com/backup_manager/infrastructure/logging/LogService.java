@@ -28,7 +28,7 @@ public class LogService {
         this.basePaths = parseBasePaths(configuredBasePaths);
     }
 
-    public String redLog(Path logPath) throws java.io.IOException {
+    public String readLog(Path logPath) throws java.io.IOException {
         if (!Files.exists(logPath)) {
             return "O arquivo log ainda não foi gerado em " + logPath;
         }
