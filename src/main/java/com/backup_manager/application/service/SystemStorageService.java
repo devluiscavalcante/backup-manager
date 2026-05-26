@@ -1,25 +1,22 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.application.dto.StorageDriveResponse;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 @Service
 public class SystemStorageService {
 
-    public List<Map<String, Object>> getStorageInfo() {
-        List<Map<String, Object>> drivesInfo = new ArrayList<>();
+    public List<StorageDriveResponse> getStorageInfo() {
+        List<StorageDriveResponse> drivesInfo = new ArrayList<>();
         File[] roots = File.listRoots();
 
         for (File root : roots) {
 
             if (root.getTotalSpace() == 0) continue;
-
-            Map<String, Object> drive = new HashMap<>();
 
             long totalSpace = root.getTotalSpace();
             long usableSpace = root.getUsableSpace();
@@ -27,14 +24,14 @@ public class SystemStorageService {
 
             double usagePercent = ((double) usedSpace / totalSpace) * 100;
 
-            drive.put("driveLetter", root.getAbsolutePath());
-            drive.put("totalSpaceGB", formatGB(totalSpace));
-            drive.put("freeSpaceGB", formatGB(usableSpace));
-            drive.put("usedSpaceGB", formatGB(usedSpace));
-            drive.put("usagePercent", Math.round(usagePercent));
-            drive.put("isCritical", usagePercent > 90);
-
-            drivesInfo.add(drive);
+            drivesInfo.add(new StorageDriveResponse(
+                    root.getAbsolutePath(),
+                    formatGB(totalSpace),
+                    formatGB(usableSpace),
+                    formatGB(usedSpace),
+                    Math.round(usagePercent),
+                    usagePercent > 90
+            ));
         }
         return drivesInfo;
     }
