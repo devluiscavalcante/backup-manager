@@ -111,25 +111,7 @@ public class BackupHistoryService {
     }
 
     private BackupResponse convertToResponse(BackupTask task) {
-        String duration = "";
-        if (task.getStartedAt() != null && task.getFinishedAt() != null) {
-            long seconds = Duration.between(task.getStartedAt(), task.getFinishedAt()).getSeconds();
-            duration = String.format("%02d:%02d:%02d",
-                    seconds / 3600, (seconds % 3600) / 60, seconds % 60);
-        }
-
-        return new BackupResponse(
-                task.getSourcePath(),
-                task.getDestinationPath(),
-                task.getStatus(),
-                task.getErrorMessage(),
-                task.getFileCount(),
-                task.getTotalSizeMB(),
-                task.getStartedAt(),
-                task.getFinishedAt(),
-                task.getPausedAt(),
-                duration
-        );
+        return BackupResponse.fromTask(task);
     }
 
     private BigDecimal calculateAverageDuration(List<BackupTask> tasks) {
