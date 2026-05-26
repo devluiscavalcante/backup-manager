@@ -1,9 +1,13 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.BackupRequest;
+import com.backup_manager.application.dto.BackupConflictResponse;
 import com.backup_manager.application.dto.BackupResponse;
+import com.backup_manager.application.dto.BackupStartResponse;
 import com.backup_manager.application.dto.BackupStatsResponse;
 import com.backup_manager.application.dto.BackupTaskSummaryResponse;
+import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupRequestValidationService;
@@ -25,7 +29,9 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 @RestController
 @RequestMapping("/api/backup")
 public class BackupController {
@@ -50,7 +56,7 @@ public class BackupController {
     }
 
     @PostMapping("/start")
-    public ResponseEntity<?> startBackup(@Valid @RequestBody BackupRequest request) {
+    public ResponseEntity<Object> startBackup(@Valid @RequestBody BackupRequest request) {
         try {
             List<String> sources = request.getSources();
             List<String> destinations = request.getDestination();
@@ -63,12 +69,14 @@ public class BackupController {
 
                 Optional<BackupTask> activeTask = backupService.getActiveTask(source, destination);
                 if (activeTask.isPresent()) {
-                    Map<String, Object> errorResponse = new HashMap<>();
-                    errorResponse.put("error", "Ja existe um backup ativo para este par origem/destino");
-                    errorResponse.put("source", source);
-                    errorResponse.put("destination", destination);
-                    errorResponse.put("taskId", activeTask.get().getId());
-                    return ResponseEntity.status(HttpStatus.CONFLICT).body(errorResponse);
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                            BackupConflictResponse.of(
+                                    "Ja existe um backup ativo para este par origem/destino",
+                                    source,
+                                    destination,
+                                    activeTask.get().getId()
+                            )
+                    );
                 }
             }
 
@@ -85,11 +93,12 @@ public class BackupController {
                 }
             }
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("message", "Verificacoes concluidas. Backup(s) iniciado(s) com sucesso");
-            response.put("taskIds", taskIds);
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(
+                    BackupStartResponse.of(
+                            "Verificacoes concluidas. Backup(s) iniciado(s) com sucesso",
+                            taskIds
+                    )
+            );
 
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca ao iniciar backup: {}", e.getMessage());
@@ -104,7 +113,7 @@ public class BackupController {
     }
 
     @GetMapping("/history")
-    public ResponseEntity<?> getBackupHistory() {
+    public ResponseEntity<Object> getBackupHistory() {
         try {
             List<BackupTask> tasks = backupService.getAllTasks();
             List<BackupResponse> responseList = new ArrayList<>();
@@ -142,7 +151,7 @@ public class BackupController {
     }
 
     @GetMapping("/history/search")
-    public ResponseEntity<?> searchHistory(
+    public ResponseEntity<Object> searchHistory(
             @RequestParam(required = false) Status status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate,
@@ -154,12 +163,12 @@ public class BackupController {
         try {
             if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Data inicial nao pode ser posterior a data final"));
+                        .body(ApiErrorResponse.of("Data inicial nao pode ser posterior a data final"));
             }
 
             if (size < 1 || size > 100) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Tamanho da pagina deve estar entre 1 e 100"));
+                        .body(ApiErrorResponse.of("Tamanho da pagina deve estar entre 1 e 100"));
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
@@ -170,30 +179,30 @@ public class BackupController {
         } catch (Exception e) {
             logger.error("Erro ao buscar historico", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao buscar historico."));
+                    .body(ApiErrorResponse.of("Erro interno ao buscar historico."));
         }
     }
 
     @GetMapping("/history/stats")
-    public ResponseEntity<?> getStatistics() {
+    public ResponseEntity<Object> getStatistics() {
         try {
             BackupStatsResponse stats = historyService.getStatistics();
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
             logger.error("Erro ao calcular estatisticas", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao calcular estatisticas."));
+                    .body(ApiErrorResponse.of("Erro interno ao calcular estatisticas."));
         }
     }
 
     @GetMapping("/history/recent")
-    public ResponseEntity<?> getRecentBackups(
+    public ResponseEntity<Object> getRecentBackups(
             @RequestParam(defaultValue = "5") int limit
     ) {
         try {
             if (limit < 1 || limit > 100) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Limite deve estar entre 1 e 100"));
+                        .body(ApiErrorResponse.of("Limite deve estar entre 1 e 100"));
             }
 
             List<BackupResponse> recent = historyService.getRecentBackups(limit);
@@ -202,7 +211,7 @@ public class BackupController {
         } catch (Exception e) {
             logger.error("Erro ao buscar backups recentes", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao buscar backups recentes."));
+                    .body(ApiErrorResponse.of("Erro interno ao buscar backups recentes."));
         }
     }
 
@@ -212,7 +221,7 @@ public class BackupController {
     }
 
     @PostMapping("/{taskId}/pause")
-    public ResponseEntity<Map<String, Object>> pauseBackup(@PathVariable Long taskId) {
+    public ResponseEntity<OperationResponse> pauseBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.pauseBackup(taskId);
             if (success) {
@@ -227,7 +236,7 @@ public class BackupController {
     }
 
     @PostMapping("/{taskId}/resume")
-    public ResponseEntity<Map<String, Object>> resumeBackup(@PathVariable Long taskId) {
+    public ResponseEntity<OperationResponse> resumeBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.resumeBackup(taskId);
             if (success) {
@@ -242,7 +251,7 @@ public class BackupController {
     }
 
     @PostMapping("/{taskId}/cancel")
-    public ResponseEntity<Map<String, Object>> cancelBackup(@PathVariable Long taskId) {
+    public ResponseEntity<OperationResponse> cancelBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.cancelBackup(taskId);
             if (success) {
@@ -267,7 +276,7 @@ public class BackupController {
     }
 
     @GetMapping("/active")
-    public ResponseEntity<?> getActiveTasks() {
+    public ResponseEntity<List<BackupTaskSummaryResponse>> getActiveTasks() {
         // Busca apenas os status operacionais necessarios para evitar filtrar tudo em memoria.
         List<BackupTaskSummaryResponse> activeTasks = backupRepository.findByStatusIn(List.of(Status.EM_ANDAMENTO, Status.PAUSADO))
                 .stream()
@@ -277,23 +286,15 @@ public class BackupController {
         return ResponseEntity.ok(activeTasks);
     }
 
-    private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String message) {
-        Map<String, Object> error = new HashMap<>();
-        error.put("error", message);
-        return ResponseEntity.status(status).body(error);
+    private ResponseEntity<Object> errorResponse(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(ApiErrorResponse.of(message));
     }
 
-    private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String message, Long taskId) {
-        Map<String, Object> error = new HashMap<>();
-        error.put("error", message);
-        error.put("taskId", taskId);
-        return ResponseEntity.status(status).body(error);
+    private ResponseEntity<OperationResponse> errorResponse(HttpStatus status, String message, Long taskId) {
+        return ResponseEntity.status(status).body(OperationResponse.error(message, taskId));
     }
 
-    private ResponseEntity<Map<String, Object>> successResponse(String message, Long taskId) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("message", message);
-        response.put("taskId", taskId);
-        return ResponseEntity.ok(response);
+    private ResponseEntity<OperationResponse> successResponse(String message, Long taskId) {
+        return ResponseEntity.ok(OperationResponse.success(message, taskId));
     }
 }
