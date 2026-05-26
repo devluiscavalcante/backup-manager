@@ -2,7 +2,7 @@ package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.FileTreeDTO;
-import com.backup_manager.application.dto.RestoreOperationResponse;
+import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.dto.RestoreTaskResponse;
 import com.backup_manager.application.dto.RestoreRequest;
 import com.backup_manager.application.dto.SelectiveRestoreRequest;
@@ -70,7 +70,7 @@ public class RestoreController {
 
             Long taskId = restoreService.startFullRestore(id, request);
 
-            return ResponseEntity.ok(RestoreOperationResponse.started(taskId, "Restauracao iniciada com sucesso"));
+            return ResponseEntity.ok(OperationResponse.restoreStarted(taskId, "Restauracao iniciada com sucesso"));
 
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca na restauracao: {}", e.getMessage());
@@ -100,7 +100,7 @@ public class RestoreController {
             Long taskId = restoreService.startSelectiveRestore(id, request);
 
             return ResponseEntity.ok(
-                    RestoreOperationResponse.selectiveStarted(
+                    OperationResponse.selectiveRestoreStarted(
                             taskId,
                             selectedFilesCount,
                             "Restauracao seletiva iniciada com sucesso"
@@ -133,7 +133,7 @@ public class RestoreController {
 
             if (success) {
                 return ResponseEntity.ok(
-                        RestoreOperationResponse.completed(taskId, "CANCELADO", "Restauracao cancelada com sucesso")
+                        OperationResponse.restoreCompleted(taskId, "CANCELADO", "Restauracao cancelada com sucesso")
                 );
             } else {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)

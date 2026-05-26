@@ -76,7 +76,7 @@ public class BackupSchedulerController {
 
             logger.info("Backup agendado ID {} para {}", taskId, scheduledTime);
 
-            return ResponseEntity.ok(OperationResponse.success(
+            return ResponseEntity.ok(OperationResponse.scheduled(
                     "Backup agendado com sucesso",
                     taskId,
                     backupName,
@@ -146,7 +146,7 @@ public class BackupSchedulerController {
 
             backupScheduler.executeBackupWithRequest(request, backupName);
 
-            return ResponseEntity.ok(OperationResponse.success("Backup executado com sucesso", backupName));
+            return ResponseEntity.ok(OperationResponse.namedSuccess("Backup executado com sucesso", backupName));
 
         } catch (Exception e) {
             logger.error("Erro ao executar backup imediato: {}", e.getMessage(), e);
