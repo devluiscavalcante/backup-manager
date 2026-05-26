@@ -1,5 +1,6 @@
 package com.backup_manager.application.dto;
 
+import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
@@ -7,9 +8,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
-import java.util.Objects;
 
 @Getter
 @Setter
@@ -30,6 +29,21 @@ public class BackupResponse {
 
 
     public void setTotalSizeMB(BigDecimal sizeMB) {
-        this.totalSizeMB = Objects.requireNonNullElse(sizeMB, BigDecimal.ZERO).setScale(2, RoundingMode.HALF_UP);
+        this.totalSizeMB = ResponseFormattingUtils.normalizeSize(sizeMB);
+    }
+
+    public static BackupResponse fromTask(BackupTask task) {
+        return new BackupResponse(
+                task.getSourcePath(),
+                task.getDestinationPath(),
+                task.getStatus(),
+                task.getErrorMessage(),
+                task.getFileCount(),
+                ResponseFormattingUtils.normalizeSize(task.getTotalSizeMB()),
+                task.getStartedAt(),
+                task.getFinishedAt(),
+                task.getPausedAt(),
+                ResponseFormattingUtils.formatDuration(task.getStartedAt(), task.getFinishedAt())
+        );
     }
 }

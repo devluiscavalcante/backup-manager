@@ -8,10 +8,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.Objects;
 
 @Getter
 @AllArgsConstructor
@@ -33,16 +30,6 @@ public class RestoreTaskResponse {
     private final String duration;
 
     public static RestoreTaskResponse fromTask(RestoreTask task) {
-        String duration = "";
-        if (task.getStartedAt() != null && task.getFinishedAt() != null) {
-            long seconds = Duration.between(task.getStartedAt(), task.getFinishedAt()).getSeconds();
-            duration = String.format("%02d:%02d:%02d",
-                    seconds / 3600, (seconds % 3600) / 60, seconds % 60);
-        }
-
-        BigDecimal totalSize = Objects.requireNonNullElse(task.getTotalSizeMB(), BigDecimal.ZERO)
-                .setScale(2, RoundingMode.HALF_UP);
-
         return new RestoreTaskResponse(
                 task.getId(),
                 task.getSourceBackup() != null ? task.getSourceBackup().getId() : null,
@@ -50,13 +37,13 @@ public class RestoreTaskResponse {
                 task.getRestoreType(),
                 task.getStatus(),
                 task.getFileCount(),
-                totalSize,
+                ResponseFormattingUtils.normalizeSize(task.getTotalSizeMB()),
                 task.getRestoredFiles(),
                 task.getStartedAt(),
                 task.getFinishedAt(),
                 task.getErrorMessage(),
                 task.getRestoreType() == RestoreType.SELECTIVE,
-                duration
+                ResponseFormattingUtils.formatDuration(task.getStartedAt(), task.getFinishedAt())
         );
     }
 }
