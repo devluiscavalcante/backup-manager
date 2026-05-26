@@ -1,6 +1,7 @@
 package com.backup_manager.application.service;
 
 import com.backup_manager.application.dto.BackupRequest;
+import com.backup_manager.application.dto.PendingScheduledBackupResponse;
 import com.backup_manager.application.dto.SchedulerStatus;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties.ScheduledBackupConfig;
@@ -186,16 +187,17 @@ public class BackupScheduler {
         return false;
     }
 
-    public Map<Long, Map<String, Object>> getPendingScheduledBackups() {
-        Map<Long, Map<String, Object>> pendingTasks = new HashMap<>();
+    public List<PendingScheduledBackupResponse> getPendingScheduledBackups() {
+        List<PendingScheduledBackupResponse> pendingTasks = new java.util.ArrayList<>();
         scheduledTasks.forEach((taskId, future) -> {
             if (!future.isDone() && !future.isCancelled()) {
                 long delaySeconds = future.getDelay(TimeUnit.SECONDS);
-                Map<String, Object> taskInfo = new HashMap<>();
-                taskInfo.put("status", "PENDENTE");
-                taskInfo.put("remainingTime", formatRemainingTime(delaySeconds));
-                taskInfo.put("cancelUrl", "/api/backup/scheduler/schedule/" + taskId + "/cancel");
-                pendingTasks.put(taskId, taskInfo);
+                pendingTasks.add(new PendingScheduledBackupResponse(
+                        taskId,
+                        "PENDENTE",
+                        formatRemainingTime(delaySeconds),
+                        "/api/backup/scheduler/schedule/" + taskId + "/cancel"
+                ));
             }
         });
         return pendingTasks;
