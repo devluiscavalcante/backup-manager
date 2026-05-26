@@ -1,0 +1,64 @@
+package com.backup_manager.domain.exception.handler;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest(properties = {
+        "app.security.allow-default-password=true",
+        "app.security.password=admin-secret",
+        "app.security.operator-enabled=true",
+        "app.security.operator-password=operator-secret"
+})
+@AutoConfigureMockMvc
+@ActiveProfiles("test")
+class GlobalExceptionHandlerIntegrationTests {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @Test
+    void shouldReturnStructuredValidationErrorBody() throws Exception {
+        mockMvc.perform(post("/api/backup/start")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.code").value("request_validation_failed"))
+                .andExpect(jsonPath("$.path").value("/api/backup/start"))
+                .andExpect(jsonPath("$.details.sources").value("A lista de origens nao pode estar vazia"))
+                .andExpect(jsonPath("$.details.destination").value("A lista de destinos nao pode estar vazia"));
+    }
+
+    @Test
+    void shouldReturnStructuredNotFoundBodyForSchedulerConfig() throws Exception {
+        mockMvc.perform(get("/api/backup/config/999999")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.code").value("scheduler_config_not_found"))
+                .andExpect(jsonPath("$.path").value("/api/backup/config/999999"));
+    }
+
+    private String basicAuth(String username, String password) {
+        String credentials = username + ":" + password;
+        String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+        return "Basic " + encoded;
+    }
+}

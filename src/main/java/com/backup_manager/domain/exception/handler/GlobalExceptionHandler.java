@@ -1,5 +1,6 @@
 package com.backup_manager.domain.exception.handler;
 
+import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.domain.exception.DestinationNotFoundException;
 import com.backup_manager.domain.exception.FolderEmptyException;
 import com.backup_manager.domain.exception.FolderNotFoundException;
@@ -14,7 +15,6 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.context.request.WebRequest;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,33 +24,39 @@ public class GlobalExceptionHandler {
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
     @ExceptionHandler({FolderNotFoundException.class, FolderEmptyException.class, DestinationNotFoundException.class})
-    public ResponseEntity<Map<String, Object>> handleBackupExceptions(RuntimeException ex) {
-        Map<String, Object> errorBody = new HashMap<>();
-        errorBody.put("status", HttpStatus.BAD_REQUEST.value());
-        errorBody.put("error", "Falha na validacao da operacao solicitada.");
-        errorBody.put("timestamp", LocalDateTime.now());
-
-        return new ResponseEntity<>(errorBody, HttpStatus.BAD_REQUEST);
+    public ResponseEntity<ApiErrorResponse> handleBackupExceptions(RuntimeException ex, WebRequest request) {
+        return ResponseEntity.badRequest().body(
+                ApiErrorResponse.of(
+                        HttpStatus.BAD_REQUEST,
+                        "Falha na validacao da operacao solicitada.",
+                        "operation_validation_failed",
+                        null,
+                        extractPath(request)
+                )
+        );
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+    public ResponseEntity<ApiErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex,
+                                                                       WebRequest request) {
         Map<String, Object> validationErrors = new HashMap<>();
         for (FieldError fieldError : ex.getBindingResult().getFieldErrors()) {
             validationErrors.put(fieldError.getField(), fieldError.getDefaultMessage());
         }
 
-        Map<String, Object> errorBody = new HashMap<>();
-        errorBody.put("status", HttpStatus.BAD_REQUEST.value());
-        errorBody.put("error", "Falha na validacao dos dados enviados.");
-        errorBody.put("details", validationErrors);
-        errorBody.put("timestamp", LocalDateTime.now());
-
-        return new ResponseEntity<>(errorBody, HttpStatus.BAD_REQUEST);
+        return ResponseEntity.badRequest().body(
+                ApiErrorResponse.of(
+                        HttpStatus.BAD_REQUEST,
+                        "Falha na validacao dos dados enviados.",
+                        "request_validation_failed",
+                        validationErrors,
+                        extractPath(request)
+                )
+        );
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleAllExceptions(Exception ex, WebRequest request) {
+    public ResponseEntity<ApiErrorResponse> handleAllExceptions(Exception ex, WebRequest request) {
         String requestPath = request.getDescription(false);
 
         if (requestPath != null && requestPath.contains("/api/backup/progress")) {
@@ -66,13 +72,25 @@ public class GlobalExceptionHandler {
             }
         }
 
-        Map<String, Object> errorBody = new HashMap<>();
-        errorBody.put("status", HttpStatus.INTERNAL_SERVER_ERROR.value());
-        errorBody.put("error", "Erro interno inesperado.");
-        errorBody.put("timestamp", LocalDateTime.now());
-
         logger.error("Erro nao tratado: {}", ex.getMessage(), ex);
 
-        return new ResponseEntity<>(errorBody, HttpStatus.INTERNAL_SERVER_ERROR);
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiErrorResponse.of(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Erro interno inesperado.",
+                        "unexpected_error",
+                        null,
+                        extractPath(request)
+                )
+        );
+    }
+
+    private String extractPath(WebRequest request) {
+        String description = request.getDescription(false);
+        if (description == null || !description.startsWith("uri=")) {
+            return null;
+        }
+
+        return description.substring(4);
     }
 }

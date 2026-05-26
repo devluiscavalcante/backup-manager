@@ -1,5 +1,6 @@
 package com.backup_manager.application.controller;
 
+import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.CronTemplateResponse;
 import com.backup_manager.application.dto.CronTemplatesResponse;
 import com.backup_manager.application.dto.CronValidationRequest;
@@ -49,7 +50,7 @@ public class BackupConfigController {
     }
 
     @PostMapping
-    public ResponseEntity<ScheduledBackupMutationResponse> createOrUpdate(@Valid @RequestBody ScheduledBackupRequest request) {
+    public ResponseEntity<Object> createOrUpdate(@Valid @RequestBody ScheduledBackupRequest request) {
         try {
             backupRequestValidationService.validateSchedulableRequest(
                     request.getSources(),
@@ -102,7 +103,7 @@ public class BackupConfigController {
     }
 
     @GetMapping
-    public ResponseEntity<List<ScheduledBackupResponse>> listAll() {
+    public ResponseEntity<Object> listAll() {
         try {
             List<ScheduledBackupEntity> configs = repository.findAll();
 
@@ -114,16 +115,26 @@ public class BackupConfigController {
 
         } catch (Exception e) {
             logger.error("Erro ao listar configuracoes", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return errorResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Nao foi possivel listar as configuracoes de backup.",
+                    "scheduler_config_list_failed",
+                    null
+            );
         }
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ScheduledBackupResponse> getById(@PathVariable Long id) {
+    public ResponseEntity<Object> getById(@PathVariable Long id) {
         Optional<ScheduledBackupEntity> config = repository.findById(id);
 
         if (config.isEmpty()) {
-            return ResponseEntity.notFound().build();
+            return errorResponse(
+                    HttpStatus.NOT_FOUND,
+                    "Configuracao de backup nao encontrada.",
+                    "scheduler_config_not_found",
+                    "/api/backup/config/" + id
+            );
         }
 
         return ResponseEntity.ok(toResponse(config.get()));
@@ -143,12 +154,17 @@ public class BackupConfigController {
     }
 
     @PatchMapping("/{id}/toggle")
-    public ResponseEntity<ScheduledBackupMutationResponse> toggleEnabled(@PathVariable Long id) {
+    public ResponseEntity<Object> toggleEnabled(@PathVariable Long id) {
         try {
             Optional<ScheduledBackupEntity> configOpt = repository.findById(id);
 
             if (configOpt.isEmpty()) {
-                return ResponseEntity.notFound().build();
+                return errorResponse(
+                        HttpStatus.NOT_FOUND,
+                        "Configuracao de backup nao encontrada.",
+                        "scheduler_config_not_found",
+                        "/api/backup/config/" + id + "/toggle"
+                );
             }
 
             ScheduledBackupEntity config = configOpt.get();
@@ -168,7 +184,12 @@ public class BackupConfigController {
 
         } catch (Exception e) {
             logger.error("Erro ao alternar status do agendamento {}", id, e);
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao atualizar o agendamento.");
+            return errorResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Erro interno ao atualizar o agendamento.",
+                    "scheduler_config_toggle_failed",
+                    "/api/backup/config/" + id + "/toggle"
+            );
         }
     }
 
@@ -196,8 +217,15 @@ public class BackupConfigController {
         return ResponseEntity.ok(new CronTemplatesResponse(cronValidationService.getCronTemplates()));
     }
 
-    private ResponseEntity<ScheduledBackupMutationResponse> errorResponse(HttpStatus status, String message) {
-        return ResponseEntity.status(status).body(ScheduledBackupMutationResponse.error(message));
+    private ResponseEntity<Object> errorResponse(HttpStatus status, String message) {
+        return errorResponse(status, message, null, null);
+    }
+
+    private ResponseEntity<Object> errorResponse(HttpStatus status,
+                                                 String message,
+                                                 String code,
+                                                 String path) {
+        return ResponseEntity.status(status).body(ApiErrorResponse.of(status, message, code, null, path));
     }
 
     private ScheduledBackupResponse toResponse(ScheduledBackupEntity entity) {
