@@ -143,12 +143,12 @@ public class BackupController {
         try {
             if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of("Data inicial nao pode ser posterior a data final"));
+                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Data inicial nao pode ser posterior a data final"));
             }
 
             if (size < 1 || size > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of("Tamanho da pagina deve estar entre 1 e 100"));
+                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Tamanho da pagina deve estar entre 1 e 100"));
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
@@ -159,7 +159,7 @@ public class BackupController {
         } catch (Exception e) {
             logger.error("Erro ao buscar historico", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao buscar historico."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar historico."));
         }
     }
 
@@ -171,7 +171,7 @@ public class BackupController {
         } catch (Exception e) {
             logger.error("Erro ao calcular estatisticas", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao calcular estatisticas."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao calcular estatisticas."));
         }
     }
 
@@ -182,7 +182,7 @@ public class BackupController {
         try {
             if (limit < 1 || limit > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of("Limite deve estar entre 1 e 100"));
+                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Limite deve estar entre 1 e 100"));
             }
 
             List<BackupResponse> recent = historyService.getRecentBackups(limit);
@@ -191,7 +191,7 @@ public class BackupController {
         } catch (Exception e) {
             logger.error("Erro ao buscar backups recentes", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao buscar backups recentes."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar backups recentes."));
         }
     }
 
@@ -246,12 +246,13 @@ public class BackupController {
     }
 
     @GetMapping("/{taskId}/status")
-    public ResponseEntity<?> getTaskStatus(@PathVariable Long taskId) {
+    public ResponseEntity<Object> getTaskStatus(@PathVariable Long taskId) {
         Optional<BackupTask> task = backupRepository.findById(taskId);
         if (task.isPresent()) {
             return ResponseEntity.ok(BackupTaskSummaryResponse.fromTask(task.get()));
         } else {
-            return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada", taskId);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(OperationResponse.error("Tarefa nao encontrada", taskId));
         }
     }
 
@@ -267,7 +268,7 @@ public class BackupController {
     }
 
     private ResponseEntity<Object> errorResponse(HttpStatus status, String message) {
-        return ResponseEntity.status(status).body(ApiErrorResponse.of(message));
+        return ResponseEntity.status(status).body(ApiErrorResponse.of(status, message));
     }
 
     private ResponseEntity<OperationResponse> errorResponse(HttpStatus status, String message, Long taskId) {

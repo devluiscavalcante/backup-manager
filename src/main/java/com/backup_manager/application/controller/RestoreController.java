@@ -47,17 +47,17 @@ public class RestoreController {
         } catch (IllegalArgumentException e) {
             logger.warn("Backup nao encontrado: {}", id);
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiErrorResponse.of("Backup nao encontrado para preview."));
+                    .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Backup nao encontrado para preview."));
 
         } catch (IllegalStateException e) {
             logger.warn("Backup invalido para preview: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiErrorResponse.of("Nao foi possivel gerar preview para o backup informado."));
+                    .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Nao foi possivel gerar preview para o backup informado."));
 
         } catch (Exception e) {
             logger.error("Erro ao gerar preview", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao gerar preview."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao gerar preview."));
         }
     }
 
@@ -75,17 +75,17 @@ public class RestoreController {
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca na restauracao: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiErrorResponse.of("Operacao de restauracao nao autorizada."));
+                    .body(ApiErrorResponse.of(HttpStatus.FORBIDDEN, "Operacao de restauracao nao autorizada."));
 
         } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warn("Erro de validacao na restauracao: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiErrorResponse.of("Falha na validacao da solicitacao de restauracao."));
+                    .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de restauracao."));
 
         } catch (Exception e) {
             logger.error("Erro ao iniciar restauracao", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao iniciar restauracao."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar restauracao."));
         }
     }
 
@@ -110,17 +110,17 @@ public class RestoreController {
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca na restauracao seletiva: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiErrorResponse.of("Operacao de restauracao seletiva nao autorizada."));
+                    .body(ApiErrorResponse.of(HttpStatus.FORBIDDEN, "Operacao de restauracao seletiva nao autorizada."));
 
         } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warn("Erro de validacao na restauracao seletiva: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiErrorResponse.of("Falha na validacao da solicitacao de restauracao seletiva."));
+                    .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de restauracao seletiva."));
 
         } catch (Exception e) {
             logger.error("Erro ao iniciar restauracao seletiva", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao iniciar restauracao seletiva."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar restauracao seletiva."));
         }
     }
 
@@ -137,13 +137,13 @@ public class RestoreController {
                 );
             } else {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiErrorResponse.of("Tarefa nao encontrada ou nao pode ser cancelada", taskId));
+                        .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser cancelada", taskId));
             }
 
         } catch (Exception e) {
             logger.error("Erro ao cancelar restauracao", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao cancelar restauracao.", taskId));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar restauracao.", taskId));
         }
     }
 
@@ -156,13 +156,13 @@ public class RestoreController {
                 return ResponseEntity.ok(RestoreTaskResponse.fromTask(task.get()));
             } else {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiErrorResponse.of("Tarefa de restauracao nao encontrada", taskId));
+                        .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Tarefa de restauracao nao encontrada", taskId));
             }
 
         } catch (Exception e) {
             logger.error("Erro ao buscar status da restauracao", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao buscar status da restauracao.", taskId));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar status da restauracao.", taskId));
         }
     }
 
@@ -175,7 +175,7 @@ public class RestoreController {
         try {
             if (size < 1 || size > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of("Tamanho da pagina deve estar entre 1 e 100"));
+                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Tamanho da pagina deve estar entre 1 e 100"));
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
@@ -187,7 +187,7 @@ public class RestoreController {
         } catch (Exception e) {
             logger.error("Erro ao buscar historico de restauracoes", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao buscar historico de restauracoes."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar historico de restauracoes."));
         }
     }
 
@@ -197,7 +197,7 @@ public class RestoreController {
         try {
             if (limit < 1 || limit > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of("Limite deve estar entre 1 e 100"));
+                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Limite deve estar entre 1 e 100"));
             }
 
             Pageable pageable = PageRequest.of(0, limit);
@@ -211,7 +211,7 @@ public class RestoreController {
         } catch (Exception e) {
             logger.error("Erro ao buscar restauracoes recentes", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao buscar restauracoes recentes."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar restauracoes recentes."));
         }
     }
 
@@ -227,7 +227,7 @@ public class RestoreController {
         } catch (Exception e) {
             logger.error("Erro ao buscar historico de restauracoes do backup {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of("Erro interno ao buscar historico de restauracoes do backup."));
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar historico de restauracoes do backup."));
         }
     }
 }
