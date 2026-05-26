@@ -1,6 +1,8 @@
 package com.backup_manager.application.controller;
 
+import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.FileTreeDTO;
+import com.backup_manager.application.dto.RestoreOperationResponse;
 import com.backup_manager.application.dto.RestoreTaskResponse;
 import com.backup_manager.application.dto.RestoreRequest;
 import com.backup_manager.application.dto.SelectiveRestoreRequest;
@@ -18,9 +20,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -38,7 +38,7 @@ public class RestoreController {
     }
 
     @GetMapping("/backup/{id}/restore/preview")
-    public ResponseEntity<?> previewBackupFiles(@PathVariable Long id) {
+    public ResponseEntity<Object> previewBackupFiles(@PathVariable Long id) {
         try {
             logger.info("Preview solicitado para backup ID={}", id);
             FileTreeDTO tree = restoreService.previewFiles(id);
@@ -47,56 +47,51 @@ public class RestoreController {
         } catch (IllegalArgumentException e) {
             logger.warn("Backup nao encontrado: {}", id);
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(Map.of("error", "Backup nao encontrado para preview."));
+                    .body(ApiErrorResponse.of("Backup nao encontrado para preview."));
 
         } catch (IllegalStateException e) {
             logger.warn("Backup invalido para preview: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "Nao foi possivel gerar preview para o backup informado."));
+                    .body(ApiErrorResponse.of("Nao foi possivel gerar preview para o backup informado."));
 
         } catch (Exception e) {
             logger.error("Erro ao gerar preview", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao gerar preview."));
+                    .body(ApiErrorResponse.of("Erro interno ao gerar preview."));
         }
     }
 
     @PostMapping("/backup/{id}/restore")
-    public ResponseEntity<?> startFullRestore(@PathVariable Long id,
-                                              @Valid @RequestBody RestoreRequest request) {
+    public ResponseEntity<Object> startFullRestore(@PathVariable Long id,
+                                                   @Valid @RequestBody RestoreRequest request) {
         try {
             logger.info("Restauracao completa solicitada: backupId={}, target={}",
                     id, request.getTargetPath());
 
             Long taskId = restoreService.startFullRestore(id, request);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("taskId", taskId);
-            response.put("status", "EM_ANDAMENTO");
-            response.put("message", "Restauracao iniciada com sucesso");
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(RestoreOperationResponse.started(taskId, "Restauracao iniciada com sucesso"));
 
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca na restauracao: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Operacao de restauracao nao autorizada."));
+                    .body(ApiErrorResponse.of("Operacao de restauracao nao autorizada."));
 
         } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warn("Erro de validacao na restauracao: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "Falha na validacao da solicitacao de restauracao."));
+                    .body(ApiErrorResponse.of("Falha na validacao da solicitacao de restauracao."));
 
         } catch (Exception e) {
             logger.error("Erro ao iniciar restauracao", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao iniciar restauracao."));
+                    .body(ApiErrorResponse.of("Erro interno ao iniciar restauracao."));
         }
     }
 
     @PostMapping("/backup/{id}/restore/selective")
-    public ResponseEntity<?> startSelectiveRestore(@PathVariable Long id,
-                                                   @Valid @RequestBody SelectiveRestoreRequest request) {
+    public ResponseEntity<Object> startSelectiveRestore(@PathVariable Long id,
+                                                        @Valid @RequestBody SelectiveRestoreRequest request) {
         try {
             int selectedFilesCount = request.getSelectedFiles() != null ? request.getSelectedFiles().size() : 0;
             logger.info("Restauracao seletiva solicitada: backupId={}, target={}, files={}",
@@ -104,54 +99,56 @@ public class RestoreController {
 
             Long taskId = restoreService.startSelectiveRestore(id, request);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("taskId", taskId);
-            response.put("status", "EM_ANDAMENTO");
-            response.put("filesCount", selectedFilesCount);
-            response.put("message", "Restauracao seletiva iniciada com sucesso");
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(
+                    RestoreOperationResponse.selectiveStarted(
+                            taskId,
+                            selectedFilesCount,
+                            "Restauracao seletiva iniciada com sucesso"
+                    )
+            );
 
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca na restauracao seletiva: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(Map.of("error", "Operacao de restauracao seletiva nao autorizada."));
+                    .body(ApiErrorResponse.of("Operacao de restauracao seletiva nao autorizada."));
 
         } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warn("Erro de validacao na restauracao seletiva: {}", e.getMessage());
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(Map.of("error", "Falha na validacao da solicitacao de restauracao seletiva."));
+                    .body(ApiErrorResponse.of("Falha na validacao da solicitacao de restauracao seletiva."));
 
         } catch (Exception e) {
             logger.error("Erro ao iniciar restauracao seletiva", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao iniciar restauracao seletiva."));
+                    .body(ApiErrorResponse.of("Erro interno ao iniciar restauracao seletiva."));
         }
     }
 
     @PostMapping("/restore/{taskId}/cancel")
-    public ResponseEntity<?> cancelRestore(@PathVariable Long taskId) {
+    public ResponseEntity<Object> cancelRestore(@PathVariable Long taskId) {
         try {
             logger.info("Cancelamento de restauracao solicitado: taskId={}", taskId);
 
             boolean success = restoreService.cancelRestore(taskId);
 
             if (success) {
-                return ResponseEntity.ok(Map.of("message", "Restauracao cancelada com sucesso"));
+                return ResponseEntity.ok(
+                        RestoreOperationResponse.completed(taskId, "CANCELADO", "Restauracao cancelada com sucesso")
+                );
             } else {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("error", "Tarefa nao encontrada ou nao pode ser cancelada"));
+                        .body(ApiErrorResponse.of("Tarefa nao encontrada ou nao pode ser cancelada", taskId));
             }
 
         } catch (Exception e) {
             logger.error("Erro ao cancelar restauracao", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao cancelar restauracao."));
+                    .body(ApiErrorResponse.of("Erro interno ao cancelar restauracao.", taskId));
         }
     }
 
     @GetMapping("/restore/{taskId}/status")
-    public ResponseEntity<?> getRestoreStatus(@PathVariable Long taskId) {
+    public ResponseEntity<Object> getRestoreStatus(@PathVariable Long taskId) {
         try {
             Optional<RestoreTask> task = restoreRepository.findById(taskId);
 
@@ -159,18 +156,18 @@ public class RestoreController {
                 return ResponseEntity.ok(RestoreTaskResponse.fromTask(task.get()));
             } else {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("error", "Tarefa de restauracao nao encontrada"));
+                        .body(ApiErrorResponse.of("Tarefa de restauracao nao encontrada", taskId));
             }
 
         } catch (Exception e) {
             logger.error("Erro ao buscar status da restauracao", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao buscar status da restauracao."));
+                    .body(ApiErrorResponse.of("Erro interno ao buscar status da restauracao.", taskId));
         }
     }
 
     @GetMapping("/restore/history")
-    public ResponseEntity<?> getRestoreHistory(
+    public ResponseEntity<Object> getRestoreHistory(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(defaultValue = "startedAt") String sortBy,
@@ -178,7 +175,7 @@ public class RestoreController {
         try {
             if (size < 1 || size > 100) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Tamanho da pagina deve estar entre 1 e 100"));
+                        .body(ApiErrorResponse.of("Tamanho da pagina deve estar entre 1 e 100"));
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
@@ -190,17 +187,17 @@ public class RestoreController {
         } catch (Exception e) {
             logger.error("Erro ao buscar historico de restauracoes", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao buscar historico de restauracoes."));
+                    .body(ApiErrorResponse.of("Erro interno ao buscar historico de restauracoes."));
         }
     }
 
     @GetMapping("/restore/recent")
-    public ResponseEntity<?> getRecentRestores(
+    public ResponseEntity<Object> getRecentRestores(
             @RequestParam(defaultValue = "5") int limit) {
         try {
             if (limit < 1 || limit > 100) {
                 return ResponseEntity.badRequest()
-                        .body(Map.of("error", "Limite deve estar entre 1 e 100"));
+                        .body(ApiErrorResponse.of("Limite deve estar entre 1 e 100"));
             }
 
             Pageable pageable = PageRequest.of(0, limit);
@@ -214,12 +211,12 @@ public class RestoreController {
         } catch (Exception e) {
             logger.error("Erro ao buscar restauracoes recentes", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao buscar restauracoes recentes."));
+                    .body(ApiErrorResponse.of("Erro interno ao buscar restauracoes recentes."));
         }
     }
 
     @GetMapping("/backup/{id}/restore/history")
-    public ResponseEntity<?> getBackupRestoreHistory(@PathVariable Long id) {
+    public ResponseEntity<Object> getBackupRestoreHistory(@PathVariable Long id) {
         try {
             List<RestoreTaskResponse> history = restoreRepository.findByBackupId(id)
                     .stream()
@@ -230,7 +227,7 @@ public class RestoreController {
         } catch (Exception e) {
             logger.error("Erro ao buscar historico de restauracoes do backup {}", id, e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("error", "Erro interno ao buscar historico de restauracoes do backup."));
+                    .body(ApiErrorResponse.of("Erro interno ao buscar historico de restauracoes do backup."));
         }
     }
 }
