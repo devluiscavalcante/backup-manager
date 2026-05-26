@@ -3,7 +3,6 @@ package com.backup_manager.application.controller;
 import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.BackupConflictResponse;
 import com.backup_manager.application.dto.BackupResponse;
-import com.backup_manager.application.dto.BackupStartResponse;
 import com.backup_manager.application.dto.BackupStatsResponse;
 import com.backup_manager.application.dto.BackupTaskSummaryResponse;
 import com.backup_manager.application.dto.ApiErrorResponse;
@@ -94,7 +93,7 @@ public class BackupController {
             }
 
             return ResponseEntity.ok(
-                    BackupStartResponse.of(
+                    OperationResponse.backupStarted(
                             "Verificacoes concluidas. Backup(s) iniciado(s) com sucesso",
                             taskIds
                     )
