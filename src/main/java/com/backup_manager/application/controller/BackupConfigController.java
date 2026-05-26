@@ -5,8 +5,8 @@ import com.backup_manager.application.dto.CronTemplateResponse;
 import com.backup_manager.application.dto.CronTemplatesResponse;
 import com.backup_manager.application.dto.CronValidationRequest;
 import com.backup_manager.application.dto.CronValidationResponse;
+import com.backup_manager.application.dto.MutationResponse;
 import com.backup_manager.application.dto.ScheduledBackupRequest;
-import com.backup_manager.application.dto.ScheduledBackupMutationResponse;
 import com.backup_manager.application.dto.ScheduledBackupResponse;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.CronValidationService;
@@ -61,9 +61,12 @@ public class BackupConfigController {
 
             if (!validation.isValid()) {
                 return ResponseEntity.badRequest().body(
-                        ScheduledBackupMutationResponse.error(
+                        ApiErrorResponse.of(
+                                HttpStatus.BAD_REQUEST,
                                 "Expressao cron invalida",
-                                validation.getErrorMessage()
+                                "invalid_cron_expression",
+                                validation.getErrorMessage(),
+                                "/api/backup/config"
                         )
                 );
             }
@@ -86,7 +89,7 @@ public class BackupConfigController {
 
             logger.info("Configuracao de backup salva e agendada: {}", saved.getName());
             return ResponseEntity.ok(
-                    ScheduledBackupMutationResponse.success(
+                    MutationResponse.success(
                             response,
                             "Configuracao de backup salva com sucesso",
                             validation.getDescription()
@@ -176,7 +179,7 @@ public class BackupConfigController {
             logger.info("Agendamento ID {} {}", id, saved.isEnabled() ? "ativado" : "desativado");
 
             return ResponseEntity.ok(
-                    ScheduledBackupMutationResponse.success(
+                    MutationResponse.success(
                             toResponse(saved),
                             saved.isEnabled() ? "Agendamento ativado" : "Agendamento desativado"
                     )
