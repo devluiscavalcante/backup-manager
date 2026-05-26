@@ -1,8 +1,10 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.FileTreeDTO;
 import com.backup_manager.application.dto.OperationResponse;
+import com.backup_manager.application.dto.PageResponse;
 import com.backup_manager.application.dto.RestoreTaskResponse;
 import com.backup_manager.application.dto.RestoreRequest;
 import com.backup_manager.application.dto.SelectiveRestoreRequest;
@@ -182,7 +184,7 @@ public class RestoreController {
             Page<RestoreTaskResponse> history = restoreRepository.findAllOrderByStartedAtDesc(pageable)
                     .map(RestoreTaskResponse::fromTask);
 
-            return ResponseEntity.ok(history);
+            return ResponseEntity.ok(PageResponse.from(history));
 
         } catch (Exception e) {
             logger.error("Erro ao buscar historico de restauracoes", e);
@@ -206,7 +208,7 @@ public class RestoreController {
                     .map(RestoreTaskResponse::fromTask)
                     .toList();
 
-            return ResponseEntity.ok(recent);
+            return ResponseEntity.ok(CollectionResponse.of(recent));
 
         } catch (Exception e) {
             logger.error("Erro ao buscar restauracoes recentes", e);
@@ -222,7 +224,7 @@ public class RestoreController {
                     .stream()
                     .map(RestoreTaskResponse::fromTask)
                     .toList();
-            return ResponseEntity.ok(history);
+            return ResponseEntity.ok(CollectionResponse.of(history));
 
         } catch (Exception e) {
             logger.error("Erro ao buscar historico de restauracoes do backup {}", id, e);

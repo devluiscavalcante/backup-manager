@@ -5,7 +5,9 @@ import com.backup_manager.application.dto.BackupResponse;
 import com.backup_manager.application.dto.BackupStatsResponse;
 import com.backup_manager.application.dto.BackupTaskSummaryResponse;
 import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.OperationResponse;
+import com.backup_manager.application.dto.PageResponse;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupRequestValidationService;
@@ -122,7 +124,7 @@ public class BackupController {
                 responseList.add(BackupResponse.fromTask(task));
             }
 
-            return ResponseEntity.ok(responseList);
+            return ResponseEntity.ok(CollectionResponse.of(responseList));
 
         } catch (Exception e) {
             logger.error("Erro ao listar historico de backups", e);
@@ -154,7 +156,7 @@ public class BackupController {
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
             Page<BackupResponse> result = historyService.searchHistory(status, startDate, endDate, pageable);
 
-            return ResponseEntity.ok(result);
+            return ResponseEntity.ok(PageResponse.from(result));
 
         } catch (Exception e) {
             logger.error("Erro ao buscar historico", e);
@@ -186,7 +188,7 @@ public class BackupController {
             }
 
             List<BackupResponse> recent = historyService.getRecentBackups(limit);
-            return ResponseEntity.ok(recent);
+            return ResponseEntity.ok(CollectionResponse.of(recent));
 
         } catch (Exception e) {
             logger.error("Erro ao buscar backups recentes", e);
@@ -257,14 +259,14 @@ public class BackupController {
     }
 
     @GetMapping("/active")
-    public ResponseEntity<List<BackupTaskSummaryResponse>> getActiveTasks() {
+    public ResponseEntity<CollectionResponse<BackupTaskSummaryResponse>> getActiveTasks() {
         // Busca apenas os status operacionais necessarios para evitar filtrar tudo em memoria.
         List<BackupTaskSummaryResponse> activeTasks = backupRepository.findByStatusIn(List.of(Status.EM_ANDAMENTO, Status.PAUSADO))
                 .stream()
                 .map(BackupTaskSummaryResponse::fromTask)
                 .toList();
 
-        return ResponseEntity.ok(activeTasks);
+        return ResponseEntity.ok(CollectionResponse.of(activeTasks));
     }
 
     private ResponseEntity<Object> errorResponse(HttpStatus status, String message) {

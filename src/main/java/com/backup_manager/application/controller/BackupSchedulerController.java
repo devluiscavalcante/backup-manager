@@ -1,9 +1,9 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.BackupRequest;
+import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.dto.PendingScheduledBackupResponse;
-import com.backup_manager.application.dto.PendingScheduledBackupsResponse;
 import com.backup_manager.application.dto.SchedulerHealthResponse;
 import com.backup_manager.application.dto.SchedulerInfoResponse;
 import com.backup_manager.application.dto.SchedulerStatus;
@@ -114,27 +114,15 @@ public class BackupSchedulerController {
     }
 
     @GetMapping("/schedule/pending")
-    public ResponseEntity<PendingScheduledBackupsResponse> getPendingScheduledBackups() {
+    public ResponseEntity<CollectionResponse<PendingScheduledBackupResponse>> getPendingScheduledBackups() {
         try {
             List<PendingScheduledBackupResponse> pendingTasks = backupScheduler.getPendingScheduledBackups();
 
-            return ResponseEntity.ok(new PendingScheduledBackupsResponse(
-                    true,
-                    pendingTasks.size(),
-                    pendingTasks,
-                    null,
-                    LocalDateTime.now()
-            ));
+            return ResponseEntity.ok(CollectionResponse.of(pendingTasks));
         } catch (Exception e) {
             logger.error("Erro ao listar backups pendentes: {}", e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(new PendingScheduledBackupsResponse(
-                            false,
-                            0,
-                            List.of(),
-                            "Erro interno ao listar backups pendentes.",
-                            LocalDateTime.now()
-                    ));
+                    .body(CollectionResponse.empty("Erro interno ao listar backups pendentes."));
         }
     }
 
