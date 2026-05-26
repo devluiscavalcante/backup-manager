@@ -1,6 +1,7 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.NotificationSettingsResponse;
+import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.service.EmailNotificationService;
 import com.backup_manager.infrastructure.config.NotificationProperties;
 import org.springframework.http.ResponseEntity;
@@ -8,8 +9,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.Map;
 
 @RestController
 @RequestMapping("/api/backup/notifications")
@@ -25,7 +24,7 @@ public class NotificationController {
     }
 
     @GetMapping("/settings")
-    public ResponseEntity<?> getSettings() {
+    public ResponseEntity<NotificationSettingsResponse> getSettings() {
         NotificationProperties.Email email = properties.getEmail();
         return ResponseEntity.ok(new NotificationSettingsResponse(
                 properties.isEnabled(),
@@ -41,19 +40,13 @@ public class NotificationController {
     }
 
     @PostMapping("/test")
-    public ResponseEntity<?> sendTestEmail() {
+    public ResponseEntity<OperationResponse> sendTestEmail() {
         boolean success = emailService.sendTestEmail();
 
         if (success) {
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "message", "Email de teste enviado"
-            ));
+            return ResponseEntity.ok(OperationResponse.success("Email de teste enviado"));
         }
 
-        return ResponseEntity.status(500).body(Map.of(
-                "success", false,
-                "error", "Falha ao enviar email de teste."
-        ));
+        return ResponseEntity.status(500).body(OperationResponse.error("Falha ao enviar email de teste."));
     }
 }

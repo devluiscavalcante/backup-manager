@@ -1,6 +1,11 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.BackupRequest;
+import com.backup_manager.application.dto.OperationResponse;
+import com.backup_manager.application.dto.PendingScheduledBackupResponse;
+import com.backup_manager.application.dto.PendingScheduledBackupsResponse;
+import com.backup_manager.application.dto.SchedulerHealthResponse;
+import com.backup_manager.application.dto.SchedulerInfoResponse;
 import com.backup_manager.application.dto.SchedulerStatus;
 import com.backup_manager.application.service.BackupScheduler;
 import jakarta.annotation.PreDestroy;
@@ -19,8 +24,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/backup/scheduler")
@@ -41,33 +45,28 @@ public class BackupSchedulerController {
     }
 
     @GetMapping("/info")
-    public ResponseEntity<String> getSchedulerInfo() {
+    public ResponseEntity<SchedulerInfoResponse> getSchedulerInfo() {
         SchedulerStatus status = backupScheduler.getSchedulerStatus();
 
-        String info = String.format(
-                "Agendamento de Backups%nStatus: %s%nExpressao Cron: %s%nFuso Horario: %s%nConfiguracoes: %d total, %d ativas%nExecucoes recentes: %d",
+        return ResponseEntity.ok(new SchedulerInfoResponse(
                 status.isEnabled() ? "ATIVO" : "INATIVO",
+                status.isEnabled(),
                 status.getCronExpression(),
                 status.getTimeZone(),
                 status.getTotalConfigurations(),
                 status.getEnabledConfigurations(),
                 status.getRecentExecutions()
-        );
-
-        return ResponseEntity.ok(info);
+        ));
     }
 
     @PostMapping("/schedule-once")
-    public ResponseEntity<Map<String, Object>> scheduleOneTimeBackup(
+    public ResponseEntity<OperationResponse> scheduleOneTimeBackup(
             @RequestParam int minutesFromNow,
             @Valid @RequestBody BackupRequest request) {
 
         try {
             if (minutesFromNow <= 0) {
-                Map<String, Object> error = new HashMap<>();
-                error.put("error", "Minutos devem ser maior que 0");
-                error.put("success", false);
-                return ResponseEntity.badRequest().body(error);
+                return ResponseEntity.badRequest().body(OperationResponse.error("Minutos devem ser maior que 0"));
             }
 
             String backupName = "Backup Agendado";
@@ -77,15 +76,13 @@ public class BackupSchedulerController {
 
             logger.info("Backup agendado ID {} para {}", taskId, scheduledTime);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "Backup agendado com sucesso");
-            response.put("taskId", taskId);
-            response.put("scheduledTime", scheduledTime.toString());
-            response.put("backupName", backupName);
-            response.put("cancelUrl", "/api/backup/scheduler/schedule/" + taskId + "/cancel");
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(OperationResponse.success(
+                    "Backup agendado com sucesso",
+                    taskId,
+                    backupName,
+                    scheduledTime,
+                    "/api/backup/scheduler/schedule/" + taskId + "/cancel"
+            ));
 
         } catch (IllegalArgumentException e) {
             logger.warn("Falha de validacao ao agendar backup: {}", e.getMessage());
@@ -98,28 +95,18 @@ public class BackupSchedulerController {
     }
 
     @DeleteMapping("/schedule/{taskId}/cancel")
-    public ResponseEntity<Map<String, Object>> cancelScheduledBackup(@PathVariable Long taskId) {
+    public ResponseEntity<OperationResponse> cancelScheduledBackup(@PathVariable Long taskId) {
         try {
             boolean cancelled = backupScheduler.cancelScheduledBackup(taskId);
 
             if (cancelled) {
-                Map<String, Object> response = new HashMap<>();
-                response.put("success", true);
-                response.put("message", "Backup agendado cancelado com sucesso");
-                response.put("taskId", taskId);
-                response.put("timestamp", LocalDateTime.now().toString());
-
                 logger.info("Backup ID {} cancelado pelo usuario", taskId);
-                return ResponseEntity.ok(response);
+                return ResponseEntity.ok(OperationResponse.success("Backup agendado cancelado com sucesso", taskId));
             }
 
-            Map<String, Object> error = new HashMap<>();
-            error.put("success", false);
-            error.put("error", "Tarefa nao encontrada ou ja executada/cancelada");
-            error.put("taskId", taskId);
-
             logger.warn("Tentativa de cancelar tarefa inexistente: {}", taskId);
-            return ResponseEntity.status(404).body(error);
+            return ResponseEntity.status(404)
+                    .body(OperationResponse.error("Tarefa nao encontrada ou ja executada/cancelada", taskId));
         } catch (Exception e) {
             logger.error("Erro ao cancelar backup {}: {}", taskId, e.getMessage(), e);
             return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar backup.");
@@ -127,38 +114,39 @@ public class BackupSchedulerController {
     }
 
     @GetMapping("/schedule/pending")
-    public ResponseEntity<Map<String, Object>> getPendingScheduledBackups() {
+    public ResponseEntity<PendingScheduledBackupsResponse> getPendingScheduledBackups() {
         try {
-            Map<Long, Map<String, Object>> pendingTasks = backupScheduler.getPendingScheduledBackups();
+            List<PendingScheduledBackupResponse> pendingTasks = backupScheduler.getPendingScheduledBackups();
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("count", pendingTasks.size());
-            response.put("pendingTasks", pendingTasks);
-            response.put("timestamp", LocalDateTime.now().toString());
-            response.put("success", true);
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(new PendingScheduledBackupsResponse(
+                    true,
+                    pendingTasks.size(),
+                    pendingTasks,
+                    null,
+                    LocalDateTime.now()
+            ));
         } catch (Exception e) {
             logger.error("Erro ao listar backups pendentes: {}", e.getMessage(), e);
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao listar backups pendentes.");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new PendingScheduledBackupsResponse(
+                            false,
+                            0,
+                            List.of(),
+                            "Erro interno ao listar backups pendentes.",
+                            LocalDateTime.now()
+                    ));
         }
     }
 
     @PostMapping("/execute-now")
-    public ResponseEntity<Map<String, Object>> executeNow(@Valid @RequestBody BackupRequest request) {
+    public ResponseEntity<OperationResponse> executeNow(@Valid @RequestBody BackupRequest request) {
         try {
             String backupName = "Backup Imediato " + LocalDateTime.now();
             logger.info("Executando backup imediato: {}", backupName);
 
             backupScheduler.executeBackupWithRequest(request, backupName);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("message", "Backup executado com sucesso");
-            response.put("backupName", backupName);
-            response.put("timestamp", LocalDateTime.now().toString());
-
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(OperationResponse.success("Backup executado com sucesso", backupName));
 
         } catch (Exception e) {
             logger.error("Erro ao executar backup imediato: {}", e.getMessage(), e);
@@ -167,26 +155,27 @@ public class BackupSchedulerController {
     }
 
     @GetMapping("/health")
-    public ResponseEntity<Map<String, Object>> healthCheck() {
+    public ResponseEntity<SchedulerHealthResponse> healthCheck() {
         try {
             SchedulerStatus status = backupScheduler.getSchedulerStatus();
 
-            Map<String, Object> health = new HashMap<>();
-            health.put("status", "UP");
-            health.put("timestamp", LocalDateTime.now().toString());
-            health.put("schedulerEnabled", status.isEnabled());
-            health.put("service", "backup-scheduler");
-
-            return ResponseEntity.ok(health);
+            return ResponseEntity.ok(new SchedulerHealthResponse(
+                    "UP",
+                    LocalDateTime.now(),
+                    status.isEnabled(),
+                    "backup-scheduler",
+                    null
+            ));
         } catch (Exception e) {
             logger.error("Health check failed: {}", e.getMessage());
 
-            Map<String, Object> error = new HashMap<>();
-            error.put("status", "DOWN");
-            error.put("error", "Falha na verificacao do scheduler.");
-            error.put("timestamp", LocalDateTime.now().toString());
-
-            return ResponseEntity.status(503).body(error);
+            return ResponseEntity.status(503).body(new SchedulerHealthResponse(
+                    "DOWN",
+                    LocalDateTime.now(),
+                    false,
+                    "backup-scheduler",
+                    "Falha na verificacao do scheduler."
+            ));
         }
     }
 
@@ -195,10 +184,7 @@ public class BackupSchedulerController {
         logger.info("Desligando controller do scheduler...");
     }
 
-    private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String message) {
-        Map<String, Object> error = new HashMap<>();
-        error.put("success", false);
-        error.put("error", message);
-        return ResponseEntity.status(status).body(error);
+    private ResponseEntity<OperationResponse> errorResponse(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(OperationResponse.error(message));
     }
 }
