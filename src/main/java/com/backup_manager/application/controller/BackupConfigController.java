@@ -1,6 +1,7 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.CronTemplateResponse;
 import com.backup_manager.application.dto.CronTemplatesResponse;
 import com.backup_manager.application.dto.CronValidationRequest;
@@ -114,7 +115,7 @@ public class BackupConfigController {
                     .map(this::toResponse)
                     .toList();
 
-            return ResponseEntity.ok(enrichedConfigs);
+            return ResponseEntity.ok(CollectionResponse.of(enrichedConfigs));
 
         } catch (Exception e) {
             logger.error("Erro ao listar configuracoes", e);
