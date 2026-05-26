@@ -1,7 +1,6 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.BackupRequest;
-import com.backup_manager.application.dto.BackupConflictResponse;
 import com.backup_manager.application.dto.BackupResponse;
 import com.backup_manager.application.dto.BackupStatsResponse;
 import com.backup_manager.application.dto.BackupTaskSummaryResponse;
@@ -69,10 +68,12 @@ public class BackupController {
                 Optional<BackupTask> activeTask = backupService.getActiveTask(source, destination);
                 if (activeTask.isPresent()) {
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(
-                            BackupConflictResponse.of(
+                            ApiErrorResponse.of(
+                                    HttpStatus.CONFLICT,
                                     "Ja existe um backup ativo para este par origem/destino",
-                                    source,
-                                    destination,
+                                    "active_backup_conflict",
+                                    conflictDetails(source, destination, activeTask.get().getId()),
+                                    "/api/backup/start",
                                     activeTask.get().getId()
                             )
                     );
@@ -276,5 +277,12 @@ public class BackupController {
 
     private ResponseEntity<OperationResponse> successResponse(String message, Long taskId) {
         return ResponseEntity.ok(OperationResponse.success(message, taskId));
+    }
+
+    private ConflictDetails conflictDetails(String source, String destination, Long taskId) {
+        return new ConflictDetails(source, destination, taskId);
+    }
+
+    private record ConflictDetails(String source, String destination, Long taskId) {
     }
 }
