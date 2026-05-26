@@ -1,8 +1,11 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.CronTemplateResponse;
+import com.backup_manager.application.dto.CronTemplatesResponse;
+import com.backup_manager.application.dto.CronValidationRequest;
 import com.backup_manager.application.dto.CronValidationResponse;
 import com.backup_manager.application.dto.ScheduledBackupRequest;
+import com.backup_manager.application.dto.ScheduledBackupMutationResponse;
 import com.backup_manager.application.dto.ScheduledBackupResponse;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.CronValidationService;
@@ -19,9 +22,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -48,7 +49,7 @@ public class BackupConfigController {
     }
 
     @PostMapping
-    public ResponseEntity<?> createOrUpdate(@Valid @RequestBody ScheduledBackupRequest request) {
+    public ResponseEntity<ScheduledBackupMutationResponse> createOrUpdate(@Valid @RequestBody ScheduledBackupRequest request) {
         try {
             backupRequestValidationService.validateSchedulableRequest(
                     request.getSources(),
@@ -58,11 +59,12 @@ public class BackupConfigController {
             CronValidationResponse validation = cronValidationService.validateCronExpression(request.getCronExpression());
 
             if (!validation.isValid()) {
-                Map<String, Object> error = new HashMap<>();
-                error.put("error", "Expressao cron invalida");
-                error.put("message", validation.getErrorMessage());
-                error.put("cronExpression", request.getCronExpression());
-                return ResponseEntity.badRequest().body(error);
+                return ResponseEntity.badRequest().body(
+                        ScheduledBackupMutationResponse.error(
+                                "Expressao cron invalida",
+                                validation.getErrorMessage()
+                        )
+                );
             }
 
             ScheduledBackupEntity config = resolveEntityForSave(request);
@@ -79,12 +81,16 @@ public class BackupConfigController {
                     saved.getCronExpression()
             ));
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("config", ScheduledBackupResponse.fromEntity(saved, nextExecution));
-            response.put("cronDescription", validation.getDescription());
+            ScheduledBackupResponse response = ScheduledBackupResponse.fromEntity(saved, nextExecution);
 
             logger.info("Configuracao de backup salva e agendada: {}", saved.getName());
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(
+                    ScheduledBackupMutationResponse.success(
+                            response,
+                            "Configuracao de backup salva com sucesso",
+                            validation.getDescription()
+                    )
+            );
 
         } catch (IllegalArgumentException e) {
             logger.warn("Falha de validacao ao salvar configuracao: {}", e.getMessage());
@@ -96,7 +102,7 @@ public class BackupConfigController {
     }
 
     @GetMapping
-    public ResponseEntity<?> listAll() {
+    public ResponseEntity<List<ScheduledBackupResponse>> listAll() {
         try {
             List<ScheduledBackupEntity> configs = repository.findAll();
 
@@ -108,12 +114,12 @@ public class BackupConfigController {
 
         } catch (Exception e) {
             logger.error("Erro ao listar configuracoes", e);
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao listar configuracoes de backup.");
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<?> getById(@PathVariable Long id) {
+    public ResponseEntity<ScheduledBackupResponse> getById(@PathVariable Long id) {
         Optional<ScheduledBackupEntity> config = repository.findById(id);
 
         if (config.isEmpty()) {
@@ -124,7 +130,7 @@ public class BackupConfigController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<?> delete(@PathVariable Long id) {
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
         if (!repository.existsById(id)) {
             return ResponseEntity.notFound().build();
         }
@@ -137,7 +143,7 @@ public class BackupConfigController {
     }
 
     @PatchMapping("/{id}/toggle")
-    public ResponseEntity<?> toggleEnabled(@PathVariable Long id) {
+    public ResponseEntity<ScheduledBackupMutationResponse> toggleEnabled(@PathVariable Long id) {
         try {
             Optional<ScheduledBackupEntity> configOpt = repository.findById(id);
 
@@ -151,13 +157,14 @@ public class BackupConfigController {
             ScheduledBackupEntity saved = repository.save(config);
             dynamicSchedulerService.refreshAllTasks();
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("config", toResponse(saved));
-            response.put("message", saved.isEnabled() ? "Agendamento ativado" : "Agendamento desativado");
-
             logger.info("Agendamento ID {} {}", id, saved.isEnabled() ? "ativado" : "desativado");
 
-            return ResponseEntity.ok(response);
+            return ResponseEntity.ok(
+                    ScheduledBackupMutationResponse.success(
+                            toResponse(saved),
+                            saved.isEnabled() ? "Agendamento ativado" : "Agendamento desativado"
+                    )
+            );
 
         } catch (Exception e) {
             logger.error("Erro ao alternar status do agendamento {}", id, e);
@@ -166,8 +173,8 @@ public class BackupConfigController {
     }
 
     @PostMapping("/validate-cron")
-    public ResponseEntity<CronValidationResponse> validateCron(@RequestBody Map<String, String> request) {
-        String cronExpression = request.get("cronExpression");
+    public ResponseEntity<CronValidationResponse> validateCron(@Valid @RequestBody CronValidationRequest request) {
+        String cronExpression = request.getCronExpression();
 
         if (cronExpression == null || cronExpression.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(
@@ -185,15 +192,12 @@ public class BackupConfigController {
     }
 
     @GetMapping("/cron-templates")
-    public ResponseEntity<Map<String, CronTemplateResponse>> getCronTemplates() {
-        Map<String, CronTemplateResponse> templates = cronValidationService.getCronTemplates();
-        return ResponseEntity.ok(templates);
+    public ResponseEntity<CronTemplatesResponse> getCronTemplates() {
+        return ResponseEntity.ok(new CronTemplatesResponse(cronValidationService.getCronTemplates()));
     }
 
-    private ResponseEntity<Map<String, Object>> errorResponse(HttpStatus status, String message) {
-        Map<String, Object> error = new HashMap<>();
-        error.put("error", message);
-        return ResponseEntity.status(status).body(error);
+    private ResponseEntity<ScheduledBackupMutationResponse> errorResponse(HttpStatus status, String message) {
+        return ResponseEntity.status(status).body(ScheduledBackupMutationResponse.error(message));
     }
 
     private ScheduledBackupResponse toResponse(ScheduledBackupEntity entity) {
