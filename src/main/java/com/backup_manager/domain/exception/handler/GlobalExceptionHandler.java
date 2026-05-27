@@ -11,25 +11,96 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 
 import java.util.HashMap;
 import java.util.Map;
 
-@ControllerAdvice
+@RestControllerAdvice
 public class GlobalExceptionHandler {
 
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler({FolderNotFoundException.class, FolderEmptyException.class, DestinationNotFoundException.class})
-    public ResponseEntity<ApiErrorResponse> handleBackupExceptions(RuntimeException ex, WebRequest request) {
+    @ExceptionHandler(FolderNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleFolderNotFoundException(FolderNotFoundException ex,
+                                                                          WebRequest request) {
         return ResponseEntity.badRequest().body(
                 ApiErrorResponse.of(
                         HttpStatus.BAD_REQUEST,
-                        "Falha na validacao da operacao solicitada.",
+                        ex.getMessage(),
+                        "source_folder_not_found",
+                        Map.of("source", ex.getPath()),
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(FolderEmptyException.class)
+    public ResponseEntity<ApiErrorResponse> handleFolderEmptyException(FolderEmptyException ex,
+                                                                       WebRequest request) {
+        return ResponseEntity.badRequest().body(
+                ApiErrorResponse.of(
+                        HttpStatus.BAD_REQUEST,
+                        ex.getMessage(),
+                        "source_folder_empty",
+                        Map.of("source", ex.getPath()),
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(DestinationNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleDestinationNotFoundException(DestinationNotFoundException ex,
+                                                                               WebRequest request) {
+        return ResponseEntity.badRequest().body(
+                ApiErrorResponse.of(
+                        HttpStatus.BAD_REQUEST,
+                        ex.getMessage(),
+                        "destination_folder_not_found",
+                        destinationDetails(ex),
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiErrorResponse> handleIllegalArgumentException(IllegalArgumentException ex,
+                                                                           WebRequest request) {
+        return ResponseEntity.badRequest().body(
+                ApiErrorResponse.of(
+                        HttpStatus.BAD_REQUEST,
+                        ex.getMessage(),
                         "operation_validation_failed",
+                        null,
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(IllegalStateException.class)
+    public ResponseEntity<ApiErrorResponse> handleIllegalStateException(IllegalStateException ex,
+                                                                        WebRequest request) {
+        return ResponseEntity.badRequest().body(
+                ApiErrorResponse.of(
+                        HttpStatus.BAD_REQUEST,
+                        ex.getMessage(),
+                        "operation_precondition_failed",
+                        null,
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(SecurityException.class)
+    public ResponseEntity<ApiErrorResponse> handleSecurityException(SecurityException ex,
+                                                                    WebRequest request) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(
+                ApiErrorResponse.of(
+                        HttpStatus.FORBIDDEN,
+                        ex.getMessage(),
+                        "operation_not_allowed",
                         null,
                         extractPath(request)
                 )
@@ -92,5 +163,13 @@ public class GlobalExceptionHandler {
         }
 
         return description.substring(4);
+    }
+
+    private Map<String, Object> destinationDetails(DestinationNotFoundException ex) {
+        if (ex.getPath() == null) {
+            return null;
+        }
+
+        return Map.of("destination", ex.getPath());
     }
 }
