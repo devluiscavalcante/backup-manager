@@ -1,6 +1,11 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.domain.model.AuditOutcome;
+import com.backup_manager.domain.model.SecurityAuditEvent;
+import com.backup_manager.infrastructure.persistence.SecurityAuditEventRepository;
 import com.backup_manager.infrastructure.web.RequestTracingContext;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -16,12 +21,23 @@ import java.util.StringJoiner;
 public class SecurityAuditService {
 
     private static final Logger logger = LoggerFactory.getLogger("SECURITY_AUDIT");
+    private static final Logger persistenceLogger = LoggerFactory.getLogger(SecurityAuditService.class);
+
+    private final SecurityAuditEventRepository repository;
+    private final ObjectMapper objectMapper;
+
+    public SecurityAuditService(SecurityAuditEventRepository repository, ObjectMapper objectMapper) {
+        this.repository = repository;
+        this.objectMapper = objectMapper;
+    }
 
     public void recordSuccess(String action, String resource, Map<String, ?> details) {
+        persistEvent(AuditOutcome.SUCCESS, action, resource, null, details);
         logger.info(buildMessage("SUCCESS", action, resource, null, details));
     }
 
     public void recordFailure(String action, String resource, String reason, Map<String, ?> details) {
+        persistEvent(AuditOutcome.FAILURE, action, resource, reason, details);
         logger.warn(buildMessage("FAILURE", action, resource, reason, details));
     }
 
@@ -80,6 +96,38 @@ public class SecurityAuditService {
 
     private String escape(String value) {
         return value.replace("\\", "\\\\").replace("\"", "\\\"");
+    }
+
+    private void persistEvent(AuditOutcome outcome,
+                              String action,
+                              String resource,
+                              String reason,
+                              Map<String, ?> details) {
+        try {
+            AuditActor actor = resolveActor();
+
+            SecurityAuditEvent event = new SecurityAuditEvent();
+            event.setOutcome(outcome);
+            event.setAction(action);
+            event.setActor(actor.username());
+            event.setRoles(actor.roles());
+            event.setResource(resource);
+            event.setReason(reason);
+            event.setRequestId(RequestTracingContext.currentRequestId());
+            event.setDetailsJson(serializeDetails(details));
+
+            repository.save(event);
+        } catch (Exception e) {
+            persistenceLogger.error("Falha ao persistir evento de auditoria de seguranca", e);
+        }
+    }
+
+    private String serializeDetails(Map<String, ?> details) throws JsonProcessingException {
+        if (details == null || details.isEmpty()) {
+            return null;
+        }
+
+        return objectMapper.writeValueAsString(details);
     }
 
     private record AuditActor(String username, String roles) {
