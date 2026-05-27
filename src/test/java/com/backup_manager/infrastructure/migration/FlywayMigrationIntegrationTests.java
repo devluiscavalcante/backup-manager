@@ -1,0 +1,175 @@
+package com.backup_manager.infrastructure.migration;
+
+import org.flywaydb.core.Flyway;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest(properties = {
+        "app.security.allow-default-password=true",
+        "app.security.password=admin-secret",
+        "app.security.operator-enabled=true",
+        "app.security.operator-password=operator-secret"
+})
+@ActiveProfiles("test")
+class FlywayMigrationIntegrationTests {
+
+    @Value("${spring.datasource.url}")
+    private String jdbcUrl;
+
+    @Value("${spring.datasource.username}")
+    private String username;
+
+    @Value("${spring.datasource.password:}")
+    private String password;
+
+    private String schemaName;
+
+    @Test
+    void shouldBuildRequiredTablesOnCleanSchema() throws Exception {
+        schemaName = "migration_test_" + UUID.randomUUID().toString().replace("-", "");
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement statement = connection.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schemaName);
+        }
+
+        Flyway flyway = Flyway.configure()
+                .dataSource(jdbcUrl, username, password)
+                .locations("classpath:db/migration")
+                .schemas(schemaName)
+                .defaultSchema(schemaName)
+                .outOfOrder(true)
+                .load();
+
+        flyway.migrate();
+
+        Set<String> tables = existingTables(jdbcUrl, username, password, schemaName);
+
+        assertThat(tables).contains(
+                "backup_tasks",
+                "scheduled_backups",
+                "scheduled_backup_sources",
+                "scheduled_backup_destinations",
+                "restore_tasks",
+                "security_audit_events"
+        );
+    }
+
+    @Test
+    void shouldMigrateLegacySchemaWithoutFlywayHistory() throws Exception {
+        schemaName = "legacy_migration_test_" + UUID.randomUUID().toString().replace("-", "");
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement statement = connection.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schemaName);
+            statement.execute("CREATE TABLE " + schemaName + ".notification_settings (" +
+                    "id BIGSERIAL PRIMARY KEY, " +
+                    "enabled BOOLEAN NOT NULL)");
+            statement.execute("CREATE TABLE " + schemaName + ".scheduled_backup_entity_sources (" +
+                    "scheduled_backup_entity_id BIGINT NOT NULL, " +
+                    "source_path VARCHAR(1000))");
+            statement.execute("CREATE TABLE " + schemaName + ".scheduled_backup_entity_destinations (" +
+                    "scheduled_backup_entity_id BIGINT NOT NULL, " +
+                    "destination_path VARCHAR(1000))");
+        }
+
+        Flyway flyway = Flyway.configure()
+                .dataSource(jdbcUrl, username, password)
+                .locations("classpath:db/migration")
+                .schemas(schemaName)
+                .defaultSchema(schemaName)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
+                .outOfOrder(true)
+                .load();
+
+        flyway.migrate();
+
+        Set<String> tables = existingTables(jdbcUrl, username, password, schemaName);
+
+        assertThat(tables).contains(
+                "backup_tasks",
+                "scheduled_backups",
+                "scheduled_backup_sources",
+                "scheduled_backup_destinations",
+                "restore_tasks",
+                "security_audit_events",
+                "flyway_schema_history"
+        );
+
+        assertThat(appliedVersionDescriptions(jdbcUrl, username, password, schemaName)).contains(
+                "0|<< Flyway Baseline >>",
+                "1|create backup tasks table",
+                "1.1|create scheduled backups base",
+                "2|add scheduled backups timestamps",
+                "4|create restore tasks table",
+                "5|create security audit events table"
+        );
+    }
+
+    @AfterEach
+    void cleanupSchema() throws Exception {
+        if (schemaName == null) {
+            return;
+        }
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP SCHEMA IF EXISTS " + schemaName + " CASCADE");
+        }
+    }
+
+    private Set<String> existingTables(String jdbcUrl, String username, String password, String schemaName) throws Exception {
+        Set<String> tables = new HashSet<>();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT table_name
+                     FROM information_schema.tables
+                     WHERE table_schema = ?
+                     """)) {
+            statement.setString(1, schemaName);
+
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    tables.add(resultSet.getString("table_name"));
+                }
+            }
+        }
+
+        return tables;
+    }
+
+    private Set<String> appliedVersionDescriptions(String jdbcUrl, String username, String password, String schemaName) throws Exception {
+        Set<String> appliedMigrations = new HashSet<>();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT version, description
+                     FROM %s.flyway_schema_history
+                     WHERE success = true
+                     """.formatted(schemaName))) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    appliedMigrations.add(resultSet.getString("version") + "|" + resultSet.getString("description"));
+                }
+            }
+        }
+
+        return appliedMigrations;
+    }
+}
