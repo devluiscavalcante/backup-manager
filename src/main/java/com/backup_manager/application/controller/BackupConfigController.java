@@ -3,7 +3,6 @@ package com.backup_manager.application.controller;
 import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.CronTemplateResponse;
-import com.backup_manager.application.dto.CronTemplatesResponse;
 import com.backup_manager.application.dto.CronValidationRequest;
 import com.backup_manager.application.dto.CronValidationResponse;
 import com.backup_manager.application.dto.MutationResponse;
@@ -207,7 +206,8 @@ public class BackupConfigController {
                             false,
                             null,
                             "Expressao cron nao pode estar vazia",
-                            null
+                            null,
+                            LocalDateTime.now()
                     )
             );
         }
@@ -217,8 +217,10 @@ public class BackupConfigController {
     }
 
     @GetMapping("/cron-templates")
-    public ResponseEntity<CronTemplatesResponse> getCronTemplates() {
-        return ResponseEntity.ok(new CronTemplatesResponse(cronValidationService.getCronTemplates()));
+    public ResponseEntity<CollectionResponse<CronTemplateResponse>> getCronTemplates() {
+        return ResponseEntity.ok(
+                CollectionResponse.of(cronValidationService.getCronTemplates().values().stream().toList())
+        );
     }
 
     private ResponseEntity<Object> errorResponse(HttpStatus status, String message) {

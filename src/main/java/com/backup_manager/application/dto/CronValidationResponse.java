@@ -15,4 +15,5 @@ public class CronValidationResponse {
     private String description;
     private String errorMessage;
     private List<LocalDateTime> nextExecutions;
+    private LocalDateTime timestamp;
 }
