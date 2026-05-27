@@ -17,6 +17,7 @@ import java.time.LocalDateTime;
 import java.util.Base64;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -64,7 +65,34 @@ class SecurityAuditControllerIntegrationTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void adminShouldCleanupExpiredAuditEvents() throws Exception {
+        repository.save(createEvent("backup.start", "admin", "trace-old", AuditOutcome.SUCCESS, LocalDateTime.now().minusDays(120)));
+        repository.save(createEvent("restore.cancel", "admin", "trace-new", AuditOutcome.FAILURE, LocalDateTime.now().minusDays(5)));
+
+        mockMvc.perform(post("/api/system/audit/cleanup")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.deletedCount").value(1))
+                .andExpect(jsonPath("$.data.retentionDays").value(90))
+                .andExpect(jsonPath("$.data.automatic").value(false));
+
+        mockMvc.perform(get("/api/system/audit")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].requestId").value("trace-new"));
+    }
+
     private SecurityAuditEvent createEvent(String action, String actor, String requestId, AuditOutcome outcome) {
+        return createEvent(action, actor, requestId, outcome, LocalDateTime.now());
+    }
+
+    private SecurityAuditEvent createEvent(String action,
+                                           String actor,
+                                           String requestId,
+                                           AuditOutcome outcome,
+                                           LocalDateTime createdAt) {
         SecurityAuditEvent event = new SecurityAuditEvent();
         event.setAction(action);
         event.setActor(actor);
@@ -73,7 +101,7 @@ class SecurityAuditControllerIntegrationTests {
         event.setResource("backup_request");
         event.setRequestId(requestId);
         event.setDetailsJson("{\"taskId\":15}");
-        event.setCreatedAt(LocalDateTime.now());
+        event.setCreatedAt(createdAt);
         return event;
     }
 
