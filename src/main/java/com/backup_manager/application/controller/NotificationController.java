@@ -3,6 +3,7 @@ package com.backup_manager.application.controller;
 import com.backup_manager.application.dto.NotificationSettingsResponse;
 import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.service.EmailNotificationService;
+import com.backup_manager.application.service.SecurityAuditService;
 import com.backup_manager.infrastructure.config.NotificationProperties;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -10,17 +11,22 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 @RestController
 @RequestMapping("/api/backup/notifications")
 public class NotificationController {
 
     private final NotificationProperties properties;
     private final EmailNotificationService emailService;
+    private final SecurityAuditService securityAuditService;
 
     public NotificationController(NotificationProperties properties,
-                                  EmailNotificationService emailService) {
+                                  EmailNotificationService emailService,
+                                  SecurityAuditService securityAuditService) {
         this.properties = properties;
         this.emailService = emailService;
+        this.securityAuditService = securityAuditService;
     }
 
     @GetMapping("/settings")
@@ -44,9 +50,11 @@ public class NotificationController {
         boolean success = emailService.sendTestEmail();
 
         if (success) {
+            securityAuditService.recordSuccess("notifications.test_email", "email_notification", Map.of());
             return ResponseEntity.ok(OperationResponse.success("Email de teste enviado"));
         }
 
+        securityAuditService.recordFailure("notifications.test_email", "email_notification", "delivery_failed", Map.of());
         return ResponseEntity.status(500).body(OperationResponse.error("Falha ao enviar email de teste."));
     }
 }

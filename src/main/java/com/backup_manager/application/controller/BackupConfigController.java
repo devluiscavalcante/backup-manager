@@ -11,6 +11,7 @@ import com.backup_manager.application.dto.ScheduledBackupResponse;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.CronValidationService;
 import com.backup_manager.application.service.DynamicSchedulerService;
+import com.backup_manager.application.service.SecurityAuditService;
 import com.backup_manager.domain.event.BackupScheduledEvent;
 import com.backup_manager.domain.model.ScheduledBackupEntity;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -37,16 +39,19 @@ public class BackupConfigController {
     private final DynamicSchedulerService dynamicSchedulerService;
     private final BackupRequestValidationService backupRequestValidationService;
     private final CronValidationService cronValidationService;
+    private final SecurityAuditService securityAuditService;
 
     public BackupConfigController(ApplicationEventPublisher eventPublisher, ScheduledBackupRepository repository,
                                   DynamicSchedulerService dynamicSchedulerService,
                                   BackupRequestValidationService backupRequestValidationService,
-                                  CronValidationService cronValidationService) {
+                                  CronValidationService cronValidationService,
+                                  SecurityAuditService securityAuditService) {
         this.eventPublisher = eventPublisher;
         this.repository = repository;
         this.dynamicSchedulerService = dynamicSchedulerService;
         this.backupRequestValidationService = backupRequestValidationService;
         this.cronValidationService = cronValidationService;
+        this.securityAuditService = securityAuditService;
     }
 
     @PostMapping
@@ -60,6 +65,12 @@ public class BackupConfigController {
             CronValidationResponse validation = cronValidationService.validateCronExpression(request.getCronExpression());
 
             if (!validation.isValid()) {
+                securityAuditService.recordFailure(
+                        request.getId() == null ? "scheduler.config.create" : "scheduler.config.update",
+                        "scheduled_backup_config",
+                        "invalid_cron_expression",
+                        auditConfigDetails(request.getId(), request.getName())
+                );
                 return ResponseEntity.badRequest().body(
                         ApiErrorResponse.of(
                                 HttpStatus.BAD_REQUEST,
@@ -88,6 +99,11 @@ public class BackupConfigController {
             ScheduledBackupResponse response = ScheduledBackupResponse.fromEntity(saved, nextExecution);
 
             logger.info("Configuracao de backup salva e agendada: {}", saved.getName());
+            securityAuditService.recordSuccess(
+                    request.getId() == null ? "scheduler.config.create" : "scheduler.config.update",
+                    "scheduled_backup_config",
+                    Map.of("configId", saved.getId(), "enabled", saved.isEnabled(), "name", saved.getName())
+            );
             return ResponseEntity.ok(
                     MutationResponse.success(
                             response,
@@ -98,9 +114,21 @@ public class BackupConfigController {
 
         } catch (IllegalArgumentException e) {
             logger.warn("Falha de validacao ao salvar configuracao: {}", e.getMessage());
+            securityAuditService.recordFailure(
+                    request.getId() == null ? "scheduler.config.create" : "scheduler.config.update",
+                    "scheduled_backup_config",
+                    "validation_failed",
+                    auditConfigDetails(request.getId(), request.getName())
+            );
             return errorResponse(HttpStatus.BAD_REQUEST, e.getMessage());
         } catch (Exception e) {
             logger.error("Erro ao salvar configuracao", e);
+            securityAuditService.recordFailure(
+                    request.getId() == null ? "scheduler.config.create" : "scheduler.config.update",
+                    "scheduled_backup_config",
+                    "internal_error",
+                    auditConfigDetails(request.getId(), request.getName())
+            );
             return errorResponse(HttpStatus.BAD_REQUEST, "Nao foi possivel salvar a configuracao de backup.");
         }
     }
@@ -147,6 +175,12 @@ public class BackupConfigController {
     public ResponseEntity<Object> delete(@PathVariable Long id) {
         try {
             if (!repository.existsById(id)) {
+                securityAuditService.recordFailure(
+                        "scheduler.config.delete",
+                        "scheduled_backup_config",
+                        "config_not_found",
+                        Map.of("configId", id)
+                );
                 return errorResponse(
                         HttpStatus.NOT_FOUND,
                         "Configuracao de backup nao encontrada.",
@@ -159,9 +193,16 @@ public class BackupConfigController {
             dynamicSchedulerService.refreshAllTasks();
 
             logger.info("Configuracao de backup ID {} removida", id);
+            securityAuditService.recordSuccess("scheduler.config.delete", "scheduled_backup_config", Map.of("configId", id));
             return ResponseEntity.ok(MutationResponse.success(null, "Configuracao de backup removida com sucesso"));
         } catch (Exception e) {
             logger.error("Erro ao remover configuracao de backup {}", id, e);
+            securityAuditService.recordFailure(
+                    "scheduler.config.delete",
+                    "scheduled_backup_config",
+                    "internal_error",
+                    Map.of("configId", id)
+            );
             return errorResponse(
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     "Nao foi possivel remover a configuracao de backup.",
@@ -177,6 +218,12 @@ public class BackupConfigController {
             Optional<ScheduledBackupEntity> configOpt = repository.findById(id);
 
             if (configOpt.isEmpty()) {
+                securityAuditService.recordFailure(
+                        "scheduler.config.toggle",
+                        "scheduled_backup_config",
+                        "config_not_found",
+                        Map.of("configId", id)
+                );
                 return errorResponse(
                         HttpStatus.NOT_FOUND,
                         "Configuracao de backup nao encontrada.",
@@ -192,6 +239,11 @@ public class BackupConfigController {
             dynamicSchedulerService.refreshAllTasks();
 
             logger.info("Agendamento ID {} {}", id, saved.isEnabled() ? "ativado" : "desativado");
+            securityAuditService.recordSuccess(
+                    "scheduler.config.toggle",
+                    "scheduled_backup_config",
+                    Map.of("configId", id, "enabled", saved.isEnabled())
+            );
 
             return ResponseEntity.ok(
                     MutationResponse.success(
@@ -202,6 +254,12 @@ public class BackupConfigController {
 
         } catch (Exception e) {
             logger.error("Erro ao alternar status do agendamento {}", id, e);
+            securityAuditService.recordFailure(
+                    "scheduler.config.toggle",
+                    "scheduled_backup_config",
+                    "internal_error",
+                    Map.of("configId", id)
+            );
             return errorResponse(
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     "Erro interno ao atualizar o agendamento.",
@@ -252,6 +310,13 @@ public class BackupConfigController {
     private ScheduledBackupResponse toResponse(ScheduledBackupEntity entity) {
         LocalDateTime nextExecution = cronValidationService.calculateNextExecution(entity.getCronExpression());
         return ScheduledBackupResponse.fromEntity(entity, nextExecution);
+    }
+
+    private Map<String, Object> auditConfigDetails(Long configId, String name) {
+        return Map.of(
+                "configId", configId == null ? "new" : configId,
+                "name", name == null ? "unnamed" : name
+        );
     }
 
     private ScheduledBackupEntity resolveEntityForSave(ScheduledBackupRequest request) {

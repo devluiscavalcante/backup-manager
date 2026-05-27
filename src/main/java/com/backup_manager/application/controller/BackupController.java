@@ -12,6 +12,7 @@ import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.BackupService;
+import com.backup_manager.application.service.SecurityAuditService;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
@@ -31,6 +32,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 @RestController
 @RequestMapping("/api/backup")
@@ -43,24 +45,27 @@ public class BackupController {
     private final ProgressEmitter progressEmitter;
     private final BackupRepository backupRepository;
     private final BackupHistoryService historyService;
+    private final SecurityAuditService securityAuditService;
 
     public BackupController(BackupService backupService,
                             BackupRequestValidationService backupRequestValidationService,
                             ProgressEmitter progressEmitter,
-                            BackupRepository backupRepository, BackupHistoryService historyService) {
+                            BackupRepository backupRepository,
+                            BackupHistoryService historyService,
+                            SecurityAuditService securityAuditService) {
         this.backupService = backupService;
         this.backupRequestValidationService = backupRequestValidationService;
         this.progressEmitter = progressEmitter;
         this.backupRepository = backupRepository;
         this.historyService = historyService;
+        this.securityAuditService = securityAuditService;
     }
 
     @PostMapping("/start")
     public ResponseEntity<Object> startBackup(@Valid @RequestBody BackupRequest request) {
+        List<String> sources = request.getSources() == null ? List.of() : request.getSources();
+        List<String> destinations = request.getDestination() == null ? List.of() : request.getDestination();
         try {
-            List<String> sources = request.getSources();
-            List<String> destinations = request.getDestination();
-
             backupRequestValidationService.validateExecutableRequest(sources, destinations);
 
             for (int i = 0; i < sources.size(); i++) {
@@ -69,6 +74,16 @@ public class BackupController {
 
                 Optional<BackupTask> activeTask = backupService.getActiveTask(source, destination);
                 if (activeTask.isPresent()) {
+                    securityAuditService.recordFailure(
+                            "backup.start",
+                            "backup_request",
+                            "active_backup_conflict",
+                            Map.of(
+                                    "conflictingTaskId", activeTask.get().getId(),
+                                    "sourceCount", sources.size(),
+                                    "destinationCount", destinations.size()
+                            )
+                    );
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(
                             ApiErrorResponse.of(
                                     HttpStatus.CONFLICT,
@@ -95,6 +110,14 @@ public class BackupController {
                 }
             }
 
+            securityAuditService.recordSuccess(
+                    "backup.start",
+                    "backup_request",
+                    Map.of(
+                            "taskCount", taskIds.size(),
+                            "taskIds", taskIds
+                    )
+            );
             return ResponseEntity.ok(
                     OperationResponse.backupStarted(
                             "Verificacoes concluidas. Backup(s) iniciado(s) com sucesso",
@@ -104,12 +127,18 @@ public class BackupController {
 
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca ao iniciar backup: {}", e.getMessage());
+            securityAuditService.recordFailure("backup.start", "backup_request", "security_denied",
+                    Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()));
             return errorResponse(HttpStatus.FORBIDDEN, "Operacao de backup nao autorizada.");
         } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warn("Falha de validacao ao iniciar backup: {}", e.getMessage());
+            securityAuditService.recordFailure("backup.start", "backup_request", "validation_failed",
+                    Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()));
             return errorResponse(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de backup.");
         } catch (Exception e) {
             logger.error("Erro inesperado ao iniciar backup", e);
+            securityAuditService.recordFailure("backup.start", "backup_request", "internal_error",
+                    Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()));
             return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar backup.");
         }
     }
@@ -207,12 +236,16 @@ public class BackupController {
         try {
             boolean success = backupService.pauseBackup(taskId);
             if (success) {
+                securityAuditService.recordSuccess("backup.pause", "backup_task", Map.of("taskId", taskId));
                 return successResponse("Backup pausado com sucesso", taskId);
             } else {
+                securityAuditService.recordFailure("backup.pause", "backup_task", "task_not_found_or_invalid",
+                        Map.of("taskId", taskId));
                 return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser pausada", taskId);
             }
         } catch (Exception e) {
             logger.error("Erro ao pausar backup {}", taskId, e);
+            securityAuditService.recordFailure("backup.pause", "backup_task", "internal_error", Map.of("taskId", taskId));
             return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao pausar backup.", taskId);
         }
     }
@@ -222,12 +255,16 @@ public class BackupController {
         try {
             boolean success = backupService.resumeBackup(taskId);
             if (success) {
+                securityAuditService.recordSuccess("backup.resume", "backup_task", Map.of("taskId", taskId));
                 return successResponse("Backup retomado com sucesso", taskId);
             } else {
+                securityAuditService.recordFailure("backup.resume", "backup_task", "task_not_found_or_invalid",
+                        Map.of("taskId", taskId));
                 return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser retomada", taskId);
             }
         } catch (Exception e) {
             logger.error("Erro ao retomar backup {}", taskId, e);
+            securityAuditService.recordFailure("backup.resume", "backup_task", "internal_error", Map.of("taskId", taskId));
             return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao retomar backup.", taskId);
         }
     }
@@ -237,12 +274,16 @@ public class BackupController {
         try {
             boolean success = backupService.cancelBackup(taskId);
             if (success) {
+                securityAuditService.recordSuccess("backup.cancel", "backup_task", Map.of("taskId", taskId));
                 return successResponse("Backup cancelado com sucesso", taskId);
             } else {
+                securityAuditService.recordFailure("backup.cancel", "backup_task", "task_not_found_or_invalid",
+                        Map.of("taskId", taskId));
                 return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser cancelada", taskId);
             }
         } catch (Exception e) {
             logger.error("Erro ao cancelar backup {}", taskId, e);
+            securityAuditService.recordFailure("backup.cancel", "backup_task", "internal_error", Map.of("taskId", taskId));
             return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar backup.", taskId);
         }
     }
