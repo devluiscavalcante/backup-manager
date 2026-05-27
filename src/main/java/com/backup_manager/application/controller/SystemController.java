@@ -1,13 +1,12 @@
 package com.backup_manager.application.controller;
 
+import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.StorageDriveResponse;
 import com.backup_manager.application.service.SystemStorageService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/system")
@@ -20,7 +19,7 @@ public class SystemController {
     }
 
     @GetMapping("/storage")
-    public ResponseEntity<List<StorageDriveResponse>> getStorageStats(){
-        return ResponseEntity.ok(storageService.getStorageInfo());
+    public ResponseEntity<CollectionResponse<StorageDriveResponse>> getStorageStats(){
+        return ResponseEntity.ok(CollectionResponse.of(storageService.getStorageInfo()));
     }
 }

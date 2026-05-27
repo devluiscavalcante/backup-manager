@@ -8,7 +8,12 @@ import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class CronValidationService {
@@ -17,14 +22,15 @@ public class CronValidationService {
     private static final int DEFAULT_NEXT_EXECUTIONS_COUNT = 5;
 
     public CronValidationResponse validateCronExpression(String cronExpression) {
-        logger.debug("Validando expressão cron: {}", cronExpression);
+        logger.debug("Validando expressao cron: {}", cronExpression);
 
         if (cronExpression == null || cronExpression.trim().isEmpty()) {
             return new CronValidationResponse(
                     false,
                     null,
-                    "Expressão cron não pode estar vazia",
-                    null
+                    "Expressao cron nao pode estar vazia",
+                    null,
+                    LocalDateTime.now()
             );
         }
 
@@ -32,26 +38,27 @@ public class CronValidationService {
             CronExpression cron = CronExpression.parse(cronExpression);
 
             List<LocalDateTime> nextExecutions = calculateNextExecutions(cron, DEFAULT_NEXT_EXECUTIONS_COUNT);
-
             String description = generateDescription(cronExpression);
 
-            logger.info("Expressão cron válida: {} - {}", cronExpression, description);
+            logger.info("Expressao cron valida: {} - {}", cronExpression, description);
 
             return new CronValidationResponse(
                     true,
                     description,
                     null,
-                    nextExecutions
+                    nextExecutions,
+                    LocalDateTime.now()
             );
 
         } catch (IllegalArgumentException e) {
-            logger.warn("Expressão cron inválida: {} - Erro: {}", cronExpression, e.getMessage());
+            logger.warn("Expressao cron invalida: {} - Erro: {}", cronExpression, e.getMessage());
 
             return new CronValidationResponse(
                     false,
                     null,
-                    "Expressão cron inválida: " + e.getMessage(),
-                    null
+                    "Expressao cron invalida: " + e.getMessage(),
+                    null,
+                    LocalDateTime.now()
             );
         }
     }
@@ -61,7 +68,7 @@ public class CronValidationService {
             CronExpression cron = CronExpression.parse(cronExpression);
             return calculateNextExecutions(cron, count);
         } catch (IllegalArgumentException e) {
-            logger.error("Erro ao calcular próximas execuções: {}", e.getMessage());
+            logger.error("Erro ao calcular proximas execucoes: {}", e.getMessage());
             return Collections.emptyList();
         }
     }
@@ -77,56 +84,56 @@ public class CronValidationService {
         templates.put("daily_2am", new CronTemplateResponse(
                 "daily_2am",
                 "0 0 2 * * *",
-                "Todos os dias às 2:00 AM",
-                "Diário"
+                "Todos os dias as 2:00 AM",
+                "Diario"
         ));
 
         templates.put("daily_midnight", new CronTemplateResponse(
                 "daily_midnight",
                 "0 0 0 * * *",
-                "Todos os dias à meia-noite",
-                "Diário"
+                "Todos os dias a meia-noite",
+                "Diario"
         ));
 
         templates.put("daily_noon", new CronTemplateResponse(
                 "daily_noon",
                 "0 0 12 * * *",
                 "Todos os dias ao meio-dia",
-                "Diário"
+                "Diario"
         ));
 
         templates.put("weekly_sunday_3am", new CronTemplateResponse(
                 "weekly_sunday_3am",
                 "0 0 3 ? * SUN",
-                "Toda semana aos domingos às 3:00 AM",
+                "Toda semana aos domingos as 3:00 AM",
                 "Semanal"
         ));
 
         templates.put("weekly_monday_2am", new CronTemplateResponse(
                 "weekly_monday_2am",
                 "0 0 2 ? * MON",
-                "Toda semana às segundas-feiras às 2:00 AM",
+                "Toda semana as segundas-feiras as 2:00 AM",
                 "Semanal"
         ));
 
         templates.put("weekly_friday_6pm", new CronTemplateResponse(
                 "weekly_friday_6pm",
                 "0 0 18 ? * FRI",
-                "Toda semana às sextas-feiras às 18:00",
+                "Toda semana as sextas-feiras as 18:00",
                 "Semanal"
         ));
 
         templates.put("monthly_first_midnight", new CronTemplateResponse(
                 "monthly_first_midnight",
                 "0 0 0 1 * *",
-                "Primeiro dia de cada mês à meia-noite",
+                "Primeiro dia de cada mes a meia-noite",
                 "Mensal"
         ));
 
         templates.put("monthly_last_11pm", new CronTemplateResponse(
                 "monthly_last_11pm",
                 "0 0 23 L * *",
-                "Último dia de cada mês às 23:00",
+                "Ultimo dia de cada mes as 23:00",
                 "Mensal"
         ));
 
@@ -171,14 +178,14 @@ public class CronValidationService {
 
     private String generateDescription(String cronExpression) {
         Map<String, String> commonPatterns = new HashMap<>();
-        commonPatterns.put("0 0 0 * * *", "Todos os dias à meia-noite");
-        commonPatterns.put("0 0 2 * * *", "Todos os dias às 2:00 AM");
+        commonPatterns.put("0 0 0 * * *", "Todos os dias a meia-noite");
+        commonPatterns.put("0 0 2 * * *", "Todos os dias as 2:00 AM");
         commonPatterns.put("0 0 12 * * *", "Todos os dias ao meio-dia");
-        commonPatterns.put("0 0 3 ? * SUN", "Toda semana aos domingos às 3:00 AM");
-        commonPatterns.put("0 0 2 ? * MON", "Toda semana às segundas-feiras às 2:00 AM");
-        commonPatterns.put("0 0 18 ? * FRI", "Toda semana às sextas-feiras às 18:00");
-        commonPatterns.put("0 0 0 1 * *", "Primeiro dia de cada mês à meia-noite");
-        commonPatterns.put("0 0 23 L * *", "Último dia de cada mês às 23:00");
+        commonPatterns.put("0 0 3 ? * SUN", "Toda semana aos domingos as 3:00 AM");
+        commonPatterns.put("0 0 2 ? * MON", "Toda semana as segundas-feiras as 2:00 AM");
+        commonPatterns.put("0 0 18 ? * FRI", "Toda semana as sextas-feiras as 18:00");
+        commonPatterns.put("0 0 0 1 * *", "Primeiro dia de cada mes a meia-noite");
+        commonPatterns.put("0 0 23 L * *", "Ultimo dia de cada mes as 23:00");
         commonPatterns.put("0 0 */6 * * *", "A cada 6 horas");
         commonPatterns.put("0 0 */12 * * *", "A cada 12 horas");
         commonPatterns.put("0 0 * * * *", "A cada hora");
@@ -187,7 +194,7 @@ public class CronValidationService {
             return commonPatterns.get(cronExpression);
         }
 
-        return "Expressão cron customizada: " + cronExpression;
+        return "Expressao cron customizada: " + cronExpression;
     }
 
     public String getExpressionByTemplateKey(String templateKey) {
