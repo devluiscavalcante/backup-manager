@@ -69,6 +69,58 @@ class FlywayMigrationIntegrationTests {
         );
     }
 
+    @Test
+    void shouldMigrateLegacySchemaWithoutFlywayHistory() throws Exception {
+        schemaName = "legacy_migration_test_" + UUID.randomUUID().toString().replace("-", "");
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement statement = connection.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schemaName);
+            statement.execute("CREATE TABLE " + schemaName + ".notification_settings (" +
+                    "id BIGSERIAL PRIMARY KEY, " +
+                    "enabled BOOLEAN NOT NULL)");
+            statement.execute("CREATE TABLE " + schemaName + ".scheduled_backup_entity_sources (" +
+                    "scheduled_backup_entity_id BIGINT NOT NULL, " +
+                    "source_path VARCHAR(1000))");
+            statement.execute("CREATE TABLE " + schemaName + ".scheduled_backup_entity_destinations (" +
+                    "scheduled_backup_entity_id BIGINT NOT NULL, " +
+                    "destination_path VARCHAR(1000))");
+        }
+
+        Flyway flyway = Flyway.configure()
+                .dataSource(jdbcUrl, username, password)
+                .locations("classpath:db/migration")
+                .schemas(schemaName)
+                .defaultSchema(schemaName)
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
+                .outOfOrder(true)
+                .load();
+
+        flyway.migrate();
+
+        Set<String> tables = existingTables(jdbcUrl, username, password, schemaName);
+
+        assertThat(tables).contains(
+                "backup_tasks",
+                "scheduled_backups",
+                "scheduled_backup_sources",
+                "scheduled_backup_destinations",
+                "restore_tasks",
+                "security_audit_events",
+                "flyway_schema_history"
+        );
+
+        assertThat(appliedVersionDescriptions(jdbcUrl, username, password, schemaName)).contains(
+                "0|<< Flyway Baseline >>",
+                "1|create backup tasks table",
+                "1.1|create scheduled backups base",
+                "2|add scheduled backups timestamps",
+                "4|create restore tasks table",
+                "5|create security audit events table"
+        );
+    }
+
     @AfterEach
     void cleanupSchema() throws Exception {
         if (schemaName == null) {
@@ -100,5 +152,24 @@ class FlywayMigrationIntegrationTests {
         }
 
         return tables;
+    }
+
+    private Set<String> appliedVersionDescriptions(String jdbcUrl, String username, String password, String schemaName) throws Exception {
+        Set<String> appliedMigrations = new HashSet<>();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             PreparedStatement statement = connection.prepareStatement("""
+                     SELECT version, description
+                     FROM %s.flyway_schema_history
+                     WHERE success = true
+                     """.formatted(schemaName))) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    appliedMigrations.add(resultSet.getString("version") + "|" + resultSet.getString("description"));
+                }
+            }
+        }
+
+        return appliedMigrations;
     }
 }
