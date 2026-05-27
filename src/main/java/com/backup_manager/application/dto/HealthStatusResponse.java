@@ -7,10 +7,11 @@ import java.time.LocalDateTime;
 
 @Getter
 @AllArgsConstructor
-public class ApplicationHealthResponse {
+public class HealthStatusResponse {
 
     private final String status;
     private final String service;
-    private final LocalDateTime timestamp;
     private final String version;
+    private final String message;
+    private final LocalDateTime timestamp;
 }

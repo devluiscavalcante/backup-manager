@@ -1,7 +1,6 @@
 package com.backup_manager.application.controller;
 
-import com.backup_manager.application.dto.ApplicationHealthResponse;
-import com.backup_manager.application.dto.DatabaseHealthResponse;
+import com.backup_manager.application.dto.HealthStatusResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -21,22 +20,24 @@ public class HealthController {
     }
 
     @GetMapping("/database")
-    public ResponseEntity<DatabaseHealthResponse> checkDatabase() {
+    public ResponseEntity<HealthStatusResponse> checkDatabase() {
         try {
             // Mantemos o health de banco minimo para evitar fingerprinting do ambiente.
             jdbcTemplate.queryForObject("SELECT 1", Integer.class);
 
-            return ResponseEntity.ok(new DatabaseHealthResponse(
+            return ResponseEntity.ok(new HealthStatusResponse(
                     "UP",
                     "PostgreSQL",
+                    null,
                     null,
                     LocalDateTime.now()
             ));
 
         } catch (Exception e) {
-            return ResponseEntity.status(503).body(new DatabaseHealthResponse(
+            return ResponseEntity.status(503).body(new HealthStatusResponse(
                     "DOWN",
                     "PostgreSQL",
+                    null,
                     "Falha na verificacao de conectividade.",
                     LocalDateTime.now()
             ));
@@ -44,12 +45,13 @@ public class HealthController {
     }
 
     @GetMapping("/application")
-    public ResponseEntity<ApplicationHealthResponse> checkApplication() {
-        return ResponseEntity.ok(new ApplicationHealthResponse(
+    public ResponseEntity<HealthStatusResponse> checkApplication() {
+        return ResponseEntity.ok(new HealthStatusResponse(
                 "UP",
                 "Backup Manager",
-                LocalDateTime.now(),
-                "1.0.0"
+                "1.0.0",
+                null,
+                LocalDateTime.now()
         ));
     }
 }
