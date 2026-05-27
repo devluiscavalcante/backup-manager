@@ -144,16 +144,31 @@ public class BackupConfigController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable Long id) {
-        if (!repository.existsById(id)) {
-            return ResponseEntity.notFound().build();
+    public ResponseEntity<Object> delete(@PathVariable Long id) {
+        try {
+            if (!repository.existsById(id)) {
+                return errorResponse(
+                        HttpStatus.NOT_FOUND,
+                        "Configuracao de backup nao encontrada.",
+                        "scheduler_config_not_found",
+                        "/api/backup/config/" + id
+                );
+            }
+
+            repository.deleteById(id);
+            dynamicSchedulerService.refreshAllTasks();
+
+            logger.info("Configuracao de backup ID {} removida", id);
+            return ResponseEntity.ok(MutationResponse.success(null, "Configuracao de backup removida com sucesso"));
+        } catch (Exception e) {
+            logger.error("Erro ao remover configuracao de backup {}", id, e);
+            return errorResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Nao foi possivel remover a configuracao de backup.",
+                    "scheduler_config_delete_failed",
+                    "/api/backup/config/" + id
+            );
         }
-
-        repository.deleteById(id);
-        dynamicSchedulerService.refreshAllTasks();
-
-        logger.info("Configuracao de backup ID {} removida", id);
-        return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/{id}/toggle")
