@@ -1,9 +1,12 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.application.dto.AuditCleanupResponse;
+import com.backup_manager.application.dto.MutationResponse;
 import com.backup_manager.application.dto.PageResponse;
 import com.backup_manager.application.dto.SecurityAuditEventResponse;
 import com.backup_manager.application.service.SecurityAuditQueryService;
+import com.backup_manager.application.service.SecurityAuditRetentionService;
 import com.backup_manager.domain.model.AuditOutcome;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +17,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -27,9 +31,12 @@ public class SecurityAuditController {
     private static final Logger logger = LoggerFactory.getLogger(SecurityAuditController.class);
 
     private final SecurityAuditQueryService securityAuditQueryService;
+    private final SecurityAuditRetentionService securityAuditRetentionService;
 
-    public SecurityAuditController(SecurityAuditQueryService securityAuditQueryService) {
+    public SecurityAuditController(SecurityAuditQueryService securityAuditQueryService,
+                                   SecurityAuditRetentionService securityAuditRetentionService) {
         this.securityAuditQueryService = securityAuditQueryService;
+        this.securityAuditRetentionService = securityAuditRetentionService;
     }
 
     @GetMapping
@@ -70,6 +77,23 @@ public class SecurityAuditController {
             logger.error("Erro ao consultar auditoria de seguranca", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao consultar auditoria de seguranca."));
+        }
+    }
+
+    @PostMapping("/cleanup")
+    public ResponseEntity<Object> cleanupExpiredAuditEvents() {
+        try {
+            AuditCleanupResponse result = securityAuditRetentionService.purgeExpiredEvents(false);
+            return ResponseEntity.ok(
+                    MutationResponse.success(
+                            result,
+                            "Expurgo da auditoria executado com sucesso"
+                    )
+            );
+        } catch (Exception e) {
+            logger.error("Erro ao executar expurgo da auditoria de seguranca", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao executar expurgo da auditoria."));
         }
     }
 }
