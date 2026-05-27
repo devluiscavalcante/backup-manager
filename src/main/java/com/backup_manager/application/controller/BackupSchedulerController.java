@@ -8,6 +8,7 @@ import com.backup_manager.application.dto.SchedulerHealthResponse;
 import com.backup_manager.application.dto.SchedulerInfoResponse;
 import com.backup_manager.application.dto.SchedulerStatus;
 import com.backup_manager.application.service.BackupScheduler;
+import com.backup_manager.application.service.SecurityAuditService;
 import jakarta.annotation.PreDestroy;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/backup/scheduler")
@@ -33,9 +35,12 @@ public class BackupSchedulerController {
     private static final Logger logger = LoggerFactory.getLogger(BackupSchedulerController.class);
 
     private final BackupScheduler backupScheduler;
+    private final SecurityAuditService securityAuditService;
 
-    public BackupSchedulerController(BackupScheduler backupScheduler) {
+    public BackupSchedulerController(BackupScheduler backupScheduler,
+                                     SecurityAuditService securityAuditService) {
         this.backupScheduler = backupScheduler;
+        this.securityAuditService = securityAuditService;
     }
 
     @GetMapping("/status")
@@ -75,6 +80,11 @@ public class BackupSchedulerController {
             LocalDateTime scheduledTime = LocalDateTime.now().plusMinutes(minutesFromNow);
 
             logger.info("Backup agendado ID {} para {}", taskId, scheduledTime);
+            securityAuditService.recordSuccess(
+                    "scheduler.schedule_once",
+                    "scheduled_backup_task",
+                    Map.of("taskId", taskId, "minutesFromNow", minutesFromNow, "backupName", backupName)
+            );
 
             return ResponseEntity.ok(OperationResponse.scheduled(
                     "Backup agendado com sucesso",
@@ -86,10 +96,22 @@ public class BackupSchedulerController {
 
         } catch (IllegalArgumentException e) {
             logger.warn("Falha de validacao ao agendar backup: {}", e.getMessage());
+            securityAuditService.recordFailure(
+                    "scheduler.schedule_once",
+                    "scheduled_backup_task",
+                    "validation_failed",
+                    Map.of("minutesFromNow", minutesFromNow)
+            );
             return errorResponse(HttpStatus.BAD_REQUEST, "Nao foi possivel agendar o backup com os dados informados.");
 
         } catch (Exception e) {
             logger.error("Erro ao agendar backup: {}", e.getMessage(), e);
+            securityAuditService.recordFailure(
+                    "scheduler.schedule_once",
+                    "scheduled_backup_task",
+                    "internal_error",
+                    Map.of("minutesFromNow", minutesFromNow)
+            );
             return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao agendar backup.");
         }
     }
@@ -101,14 +123,19 @@ public class BackupSchedulerController {
 
             if (cancelled) {
                 logger.info("Backup ID {} cancelado pelo usuario", taskId);
+                securityAuditService.recordSuccess("scheduler.cancel", "scheduled_backup_task", Map.of("taskId", taskId));
                 return ResponseEntity.ok(OperationResponse.success("Backup agendado cancelado com sucesso", taskId));
             }
 
             logger.warn("Tentativa de cancelar tarefa inexistente: {}", taskId);
+            securityAuditService.recordFailure("scheduler.cancel", "scheduled_backup_task", "task_not_found_or_completed",
+                    Map.of("taskId", taskId));
             return ResponseEntity.status(404)
                     .body(OperationResponse.error("Tarefa nao encontrada ou ja executada/cancelada", taskId));
         } catch (Exception e) {
             logger.error("Erro ao cancelar backup {}: {}", taskId, e.getMessage(), e);
+            securityAuditService.recordFailure("scheduler.cancel", "scheduled_backup_task", "internal_error",
+                    Map.of("taskId", taskId));
             return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar backup.");
         }
     }
@@ -133,11 +160,13 @@ public class BackupSchedulerController {
             logger.info("Executando backup imediato: {}", backupName);
 
             backupScheduler.executeBackupWithRequest(request, backupName);
+            securityAuditService.recordSuccess("scheduler.execute_now", "backup_request", Map.of("backupName", backupName));
 
             return ResponseEntity.ok(OperationResponse.namedSuccess("Backup executado com sucesso", backupName));
 
         } catch (Exception e) {
             logger.error("Erro ao executar backup imediato: {}", e.getMessage(), e);
+            securityAuditService.recordFailure("scheduler.execute_now", "backup_request", "execution_failed", Map.of());
             return errorResponse(HttpStatus.BAD_REQUEST, "Falha ao executar backup imediato.");
         }
     }
