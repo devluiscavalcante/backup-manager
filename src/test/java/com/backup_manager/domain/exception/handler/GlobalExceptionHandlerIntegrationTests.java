@@ -1,6 +1,7 @@
 package com.backup_manager.domain.exception.handler;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -10,6 +11,8 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Base64;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -29,6 +32,9 @@ class GlobalExceptionHandlerIntegrationTests {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @TempDir
+    Path tempDir;
 
     @Test
     void shouldReturnStructuredValidationErrorBody() throws Exception {
@@ -56,9 +62,38 @@ class GlobalExceptionHandlerIntegrationTests {
                 .andExpect(jsonPath("$.path").value("/api/backup/config/999999"));
     }
 
+    @Test
+    void shouldReturnStructuredFolderEmptyBodyForBackupStart() throws Exception {
+        Path emptySource = Files.createDirectory(tempDir.resolve("empty-source"));
+        Path destination = Files.createDirectory(tempDir.resolve("backup-destination"));
+
+        String payload = """
+                {
+                  "sources": ["%s"],
+                  "destination": ["%s"]
+                }
+                """.formatted(escapePath(emptySource), escapePath(destination));
+
+        mockMvc.perform(post("/api/backup/start")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("A pasta de origem esta vazia."))
+                .andExpect(jsonPath("$.code").value("source_folder_empty"))
+                .andExpect(jsonPath("$.path").value("/api/backup/start"))
+                .andExpect(jsonPath("$.details.source").value(emptySource.toString()));
+    }
+
     private String basicAuth(String username, String password) {
         String credentials = username + ":" + password;
         String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
         return "Basic " + encoded;
+    }
+
+    private String escapePath(Path path) {
+        return path.toString().replace("\\", "\\\\");
     }
 }

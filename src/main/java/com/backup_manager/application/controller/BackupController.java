@@ -13,6 +13,9 @@ import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.BackupService;
 import com.backup_manager.application.service.SecurityAuditService;
+import com.backup_manager.domain.exception.DestinationNotFoundException;
+import com.backup_manager.domain.exception.FolderEmptyException;
+import com.backup_manager.domain.exception.FolderNotFoundException;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
@@ -129,12 +132,13 @@ public class BackupController {
             logger.warn("Bloqueio de seguranca ao iniciar backup: {}", e.getMessage());
             securityAuditService.recordFailure("backup.start", "backup_request", "security_denied",
                     Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()));
-            return errorResponse(HttpStatus.FORBIDDEN, "Operacao de backup nao autorizada.");
-        } catch (IllegalArgumentException | IllegalStateException e) {
+            throw e;
+        } catch (FolderNotFoundException | FolderEmptyException | DestinationNotFoundException
+                 | IllegalArgumentException | IllegalStateException e) {
             logger.warn("Falha de validacao ao iniciar backup: {}", e.getMessage());
             securityAuditService.recordFailure("backup.start", "backup_request", "validation_failed",
                     Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()));
-            return errorResponse(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de backup.");
+            throw e;
         } catch (Exception e) {
             logger.error("Erro inesperado ao iniciar backup", e);
             securityAuditService.recordFailure("backup.start", "backup_request", "internal_error",
