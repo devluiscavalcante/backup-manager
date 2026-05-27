@@ -17,6 +17,7 @@ class HealthStatusResponseTests {
                 "Backup Manager",
                 "1.0.0",
                 null,
+                null,
                 timestamp
         );
 
@@ -24,6 +25,7 @@ class HealthStatusResponseTests {
         assertEquals("Backup Manager", response.getService());
         assertEquals("1.0.0", response.getVersion());
         assertNull(response.getMessage());
+        assertNull(response.getRequestId());
         assertEquals(timestamp, response.getTimestamp());
     }
 }

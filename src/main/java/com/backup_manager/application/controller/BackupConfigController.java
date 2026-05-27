@@ -275,12 +275,11 @@ public class BackupConfigController {
 
         if (cronExpression == null || cronExpression.trim().isEmpty()) {
             return ResponseEntity.badRequest().body(
-                    new CronValidationResponse(
+                    CronValidationResponse.of(
                             false,
                             null,
                             "Expressao cron nao pode estar vazia",
-                            null,
-                            LocalDateTime.now()
+                            null
                     )
             );
         }

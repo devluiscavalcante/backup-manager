@@ -176,23 +176,14 @@ public class BackupSchedulerController {
         try {
             SchedulerStatus status = backupScheduler.getSchedulerStatus();
 
-            return ResponseEntity.ok(new SchedulerHealthResponse(
-                    "UP",
-                    LocalDateTime.now(),
-                    status.isEnabled(),
-                    "backup-scheduler",
-                    null
-            ));
+            return ResponseEntity.ok(
+                    SchedulerHealthResponse.of("UP", status.isEnabled(), "backup-scheduler", null)
+            );
         } catch (Exception e) {
             logger.error("Health check failed: {}", e.getMessage());
 
-            return ResponseEntity.status(503).body(new SchedulerHealthResponse(
-                    "DOWN",
-                    LocalDateTime.now(),
-                    false,
-                    "backup-scheduler",
-                    "Falha na verificacao do scheduler."
-            ));
+            return ResponseEntity.status(503)
+                    .body(SchedulerHealthResponse.of("DOWN", false, "backup-scheduler", "Falha na verificacao do scheduler."));
         }
     }
 

@@ -7,8 +7,6 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.LocalDateTime;
-
 @RestController
 @RequestMapping("/api/health")
 public class HealthController {
@@ -25,33 +23,16 @@ public class HealthController {
             // Mantemos o health de banco minimo para evitar fingerprinting do ambiente.
             jdbcTemplate.queryForObject("SELECT 1", Integer.class);
 
-            return ResponseEntity.ok(new HealthStatusResponse(
-                    "UP",
-                    "PostgreSQL",
-                    null,
-                    null,
-                    LocalDateTime.now()
-            ));
+            return ResponseEntity.ok(HealthStatusResponse.of("UP", "PostgreSQL", null, null));
 
         } catch (Exception e) {
-            return ResponseEntity.status(503).body(new HealthStatusResponse(
-                    "DOWN",
-                    "PostgreSQL",
-                    null,
-                    "Falha na verificacao de conectividade.",
-                    LocalDateTime.now()
-            ));
+            return ResponseEntity.status(503)
+                    .body(HealthStatusResponse.of("DOWN", "PostgreSQL", null, "Falha na verificacao de conectividade."));
         }
     }
 
     @GetMapping("/application")
     public ResponseEntity<HealthStatusResponse> checkApplication() {
-        return ResponseEntity.ok(new HealthStatusResponse(
-                "UP",
-                "Backup Manager",
-                "1.0.0",
-                null,
-                LocalDateTime.now()
-        ));
+        return ResponseEntity.ok(HealthStatusResponse.of("UP", "Backup Manager", "1.0.0", null));
     }
 }
