@@ -9,6 +9,7 @@ import com.backup_manager.application.dto.RestoreTaskResponse;
 import com.backup_manager.application.dto.RestoreRequest;
 import com.backup_manager.application.dto.SelectiveRestoreRequest;
 import com.backup_manager.application.service.RestoreService;
+import com.backup_manager.application.service.SecurityAuditService;
 import com.backup_manager.domain.model.RestoreTask;
 import com.backup_manager.infrastructure.persistence.RestoreRepository;
 import jakarta.validation.Valid;
@@ -23,6 +24,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -33,10 +35,14 @@ public class RestoreController {
 
     private final RestoreService restoreService;
     private final RestoreRepository restoreRepository;
+    private final SecurityAuditService securityAuditService;
 
-    public RestoreController(RestoreService restoreService, RestoreRepository restoreRepository) {
+    public RestoreController(RestoreService restoreService,
+                             RestoreRepository restoreRepository,
+                             SecurityAuditService securityAuditService) {
         this.restoreService = restoreService;
         this.restoreRepository = restoreRepository;
+        this.securityAuditService = securityAuditService;
     }
 
     @GetMapping("/backup/{id}/restore/preview")
@@ -71,21 +77,32 @@ public class RestoreController {
                     id, request.getTargetPath());
 
             Long taskId = restoreService.startFullRestore(id, request);
+            securityAuditService.recordSuccess(
+                    "restore.start_full",
+                    "backup_restore_request",
+                    Map.of("backupId", id, "taskId", taskId)
+            );
 
             return ResponseEntity.ok(OperationResponse.restoreStarted(taskId, "Restauracao iniciada com sucesso"));
 
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca na restauracao: {}", e.getMessage());
+            securityAuditService.recordFailure("restore.start_full", "backup_restore_request", "security_denied",
+                    Map.of("backupId", id));
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of(HttpStatus.FORBIDDEN, "Operacao de restauracao nao autorizada."));
 
         } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warn("Erro de validacao na restauracao: {}", e.getMessage());
+            securityAuditService.recordFailure("restore.start_full", "backup_restore_request", "validation_failed",
+                    Map.of("backupId", id));
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de restauracao."));
 
         } catch (Exception e) {
             logger.error("Erro ao iniciar restauracao", e);
+            securityAuditService.recordFailure("restore.start_full", "backup_restore_request", "internal_error",
+                    Map.of("backupId", id));
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar restauracao."));
         }
@@ -94,12 +111,17 @@ public class RestoreController {
     @PostMapping("/backup/{id}/restore/selective")
     public ResponseEntity<Object> startSelectiveRestore(@PathVariable Long id,
                                                         @Valid @RequestBody SelectiveRestoreRequest request) {
+        int selectedFilesCount = request.getSelectedFiles() != null ? request.getSelectedFiles().size() : 0;
         try {
-            int selectedFilesCount = request.getSelectedFiles() != null ? request.getSelectedFiles().size() : 0;
             logger.info("Restauracao seletiva solicitada: backupId={}, target={}, files={}",
                     id, request.getTargetPath(), selectedFilesCount);
 
             Long taskId = restoreService.startSelectiveRestore(id, request);
+            securityAuditService.recordSuccess(
+                    "restore.start_selective",
+                    "backup_restore_request",
+                    Map.of("backupId", id, "taskId", taskId, "selectedFilesCount", selectedFilesCount)
+            );
 
             return ResponseEntity.ok(
                     OperationResponse.selectiveRestoreStarted(
@@ -111,16 +133,22 @@ public class RestoreController {
 
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca na restauracao seletiva: {}", e.getMessage());
+            securityAuditService.recordFailure("restore.start_selective", "backup_restore_request", "security_denied",
+                    Map.of("backupId", id, "selectedFilesCount", selectedFilesCount));
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(ApiErrorResponse.of(HttpStatus.FORBIDDEN, "Operacao de restauracao seletiva nao autorizada."));
 
         } catch (IllegalArgumentException | IllegalStateException e) {
             logger.warn("Erro de validacao na restauracao seletiva: {}", e.getMessage());
+            securityAuditService.recordFailure("restore.start_selective", "backup_restore_request", "validation_failed",
+                    Map.of("backupId", id, "selectedFilesCount", selectedFilesCount));
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de restauracao seletiva."));
 
         } catch (Exception e) {
             logger.error("Erro ao iniciar restauracao seletiva", e);
+            securityAuditService.recordFailure("restore.start_selective", "backup_restore_request", "internal_error",
+                    Map.of("backupId", id, "selectedFilesCount", selectedFilesCount));
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar restauracao seletiva."));
         }
@@ -134,16 +162,20 @@ public class RestoreController {
             boolean success = restoreService.cancelRestore(taskId);
 
             if (success) {
+                securityAuditService.recordSuccess("restore.cancel", "restore_task", Map.of("taskId", taskId));
                 return ResponseEntity.ok(
                         OperationResponse.restoreCompleted(taskId, "CANCELADO", "Restauracao cancelada com sucesso")
                 );
             } else {
+                securityAuditService.recordFailure("restore.cancel", "restore_task", "task_not_found_or_invalid",
+                        Map.of("taskId", taskId));
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
                         .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser cancelada", taskId));
             }
 
         } catch (Exception e) {
             logger.error("Erro ao cancelar restauracao", e);
+            securityAuditService.recordFailure("restore.cancel", "restore_task", "internal_error", Map.of("taskId", taskId));
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar restauracao.", taskId));
         }
