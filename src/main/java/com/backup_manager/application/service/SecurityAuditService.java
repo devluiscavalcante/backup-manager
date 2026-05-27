@@ -1,5 +1,6 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.infrastructure.web.RequestTracingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -36,6 +37,10 @@ public class SecurityAuditService {
         joiner.add("actor=" + sanitize(actor.username()));
         joiner.add("roles=" + sanitize(actor.roles()));
         joiner.add("resource=" + sanitize(resource));
+        String requestId = RequestTracingContext.currentRequestId();
+        if (requestId != null) {
+            joiner.add("requestId=" + sanitize(requestId));
+        }
 
         if (reason != null && !reason.isBlank()) {
             joiner.add("reason=\"" + escape(reason) + "\"");

@@ -25,12 +25,11 @@ public class CronValidationService {
         logger.debug("Validando expressao cron: {}", cronExpression);
 
         if (cronExpression == null || cronExpression.trim().isEmpty()) {
-            return new CronValidationResponse(
+            return CronValidationResponse.of(
                     false,
                     null,
                     "Expressao cron nao pode estar vazia",
-                    null,
-                    LocalDateTime.now()
+                    null
             );
         }
 
@@ -42,23 +41,21 @@ public class CronValidationService {
 
             logger.info("Expressao cron valida: {} - {}", cronExpression, description);
 
-            return new CronValidationResponse(
+            return CronValidationResponse.of(
                     true,
                     description,
                     null,
-                    nextExecutions,
-                    LocalDateTime.now()
+                    nextExecutions
             );
 
         } catch (IllegalArgumentException e) {
             logger.warn("Expressao cron invalida: {} - Erro: {}", cronExpression, e.getMessage());
 
-            return new CronValidationResponse(
+            return CronValidationResponse.of(
                     false,
                     null,
                     "Expressao cron invalida: " + e.getMessage(),
-                    null,
-                    LocalDateTime.now()
+                    null
             );
         }
     }
