@@ -30,11 +30,11 @@ public class LogService {
 
     public String readLog(Path logPath) throws java.io.IOException {
         if (!Files.exists(logPath)) {
-            return "O arquivo log ainda não foi gerado em " + logPath;
+            return "O arquivo log ainda nao foi gerado em " + logPath;
         }
         String content = Files.readString(logPath);
         return content.isBlank()
-                ? "Nenhum alerta encontrado - Backup concluído"
+                ? "Nenhum alerta encontrado - Backup concluido"
                 : content;
     }
 
