@@ -1,6 +1,8 @@
 package com.backup_manager.domain.exception.handler;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.domain.exception.BackupResourceNotFoundException;
+import com.backup_manager.domain.exception.BackupStorageNotFoundException;
 import com.backup_manager.domain.exception.DestinationNotFoundException;
 import com.backup_manager.domain.exception.FolderEmptyException;
 import com.backup_manager.domain.exception.FolderNotFoundException;
@@ -60,6 +62,34 @@ public class GlobalExceptionHandler {
                         ex.getMessage(),
                         "destination_folder_not_found",
                         destinationDetails(ex),
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(BackupResourceNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleBackupResourceNotFoundException(BackupResourceNotFoundException ex,
+                                                                                  WebRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                ApiErrorResponse.of(
+                        HttpStatus.NOT_FOUND,
+                        ex.getMessage(),
+                        "backup_not_found",
+                        Map.of("backupId", ex.getBackupId()),
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(BackupStorageNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleBackupStorageNotFoundException(BackupStorageNotFoundException ex,
+                                                                                 WebRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                ApiErrorResponse.of(
+                        HttpStatus.CONFLICT,
+                        ex.getMessage(),
+                        "backup_storage_not_found",
+                        Map.of("backupId", ex.getBackupId(), "backupPath", ex.getBackupPath()),
                         extractPath(request)
                 )
         );
