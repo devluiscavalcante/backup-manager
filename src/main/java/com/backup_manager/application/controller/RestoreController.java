@@ -10,6 +10,8 @@ import com.backup_manager.application.dto.RestoreRequest;
 import com.backup_manager.application.dto.SelectiveRestoreRequest;
 import com.backup_manager.application.service.RestoreService;
 import com.backup_manager.application.service.SecurityAuditService;
+import com.backup_manager.domain.exception.BackupResourceNotFoundException;
+import com.backup_manager.domain.exception.BackupStorageNotFoundException;
 import com.backup_manager.domain.model.RestoreTask;
 import com.backup_manager.infrastructure.persistence.RestoreRepository;
 import jakarta.validation.Valid;
@@ -52,15 +54,10 @@ public class RestoreController {
             FileTreeDTO tree = restoreService.previewFiles(id);
             return ResponseEntity.ok(tree);
 
-        } catch (IllegalArgumentException e) {
-            logger.warn("Backup nao encontrado: {}", id);
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Backup nao encontrado para preview."));
-
-        } catch (IllegalStateException e) {
-            logger.warn("Backup invalido para preview: {}", e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Nao foi possivel gerar preview para o backup informado."));
+        } catch (BackupResourceNotFoundException | BackupStorageNotFoundException
+                 | IllegalArgumentException | IllegalStateException | SecurityException e) {
+            logger.warn("Falha ao gerar preview do backup {}: {}", id, e.getMessage());
+            throw e;
 
         } catch (Exception e) {
             logger.error("Erro ao gerar preview", e);
@@ -89,15 +86,14 @@ public class RestoreController {
             logger.warn("Bloqueio de seguranca na restauracao: {}", e.getMessage());
             securityAuditService.recordFailure("restore.start_full", "backup_restore_request", "security_denied",
                     Map.of("backupId", id));
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiErrorResponse.of(HttpStatus.FORBIDDEN, "Operacao de restauracao nao autorizada."));
+            throw e;
 
-        } catch (IllegalArgumentException | IllegalStateException e) {
+        } catch (BackupResourceNotFoundException | BackupStorageNotFoundException
+                 | IllegalArgumentException | IllegalStateException e) {
             logger.warn("Erro de validacao na restauracao: {}", e.getMessage());
             securityAuditService.recordFailure("restore.start_full", "backup_restore_request", "validation_failed",
                     Map.of("backupId", id));
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de restauracao."));
+            throw e;
 
         } catch (Exception e) {
             logger.error("Erro ao iniciar restauracao", e);
@@ -135,15 +131,14 @@ public class RestoreController {
             logger.warn("Bloqueio de seguranca na restauracao seletiva: {}", e.getMessage());
             securityAuditService.recordFailure("restore.start_selective", "backup_restore_request", "security_denied",
                     Map.of("backupId", id, "selectedFilesCount", selectedFilesCount));
-            return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(ApiErrorResponse.of(HttpStatus.FORBIDDEN, "Operacao de restauracao seletiva nao autorizada."));
+            throw e;
 
-        } catch (IllegalArgumentException | IllegalStateException e) {
+        } catch (BackupResourceNotFoundException | BackupStorageNotFoundException
+                 | IllegalArgumentException | IllegalStateException e) {
             logger.warn("Erro de validacao na restauracao seletiva: {}", e.getMessage());
             securityAuditService.recordFailure("restore.start_selective", "backup_restore_request", "validation_failed",
                     Map.of("backupId", id, "selectedFilesCount", selectedFilesCount));
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Falha na validacao da solicitacao de restauracao seletiva."));
+            throw e;
 
         } catch (Exception e) {
             logger.error("Erro ao iniciar restauracao seletiva", e);
