@@ -29,6 +29,33 @@ class BackupSchedulerControllerIntegrationTests {
     private MockMvc mockMvc;
 
     @Test
+    void adminShouldInspectSchedulerStatusWithEnvelope() throws Exception {
+        mockMvc.perform(get("/api/backup/scheduler/status")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Status do scheduler carregado com sucesso"))
+                .andExpect(jsonPath("$.data.enabled").isBoolean())
+                .andExpect(jsonPath("$.data.cronExpression").isString())
+                .andExpect(jsonPath("$.data.timeZone").isString())
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
+    @Test
+    void adminShouldInspectSchedulerInfoWithEnvelope() throws Exception {
+        mockMvc.perform(get("/api/backup/scheduler/info")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.message").value("Resumo do scheduler carregado com sucesso"))
+                .andExpect(jsonPath("$.data.status").isString())
+                .andExpect(jsonPath("$.data.enabled").isBoolean())
+                .andExpect(jsonPath("$.data.cronExpression").isString())
+                .andExpect(jsonPath("$.data.timeZone").isString())
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
+    @Test
     void adminShouldInspectSchedulerHealthWithDetails() throws Exception {
         mockMvc.perform(get("/api/backup/scheduler/health")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
@@ -47,6 +74,13 @@ class BackupSchedulerControllerIntegrationTests {
     @Test
     void operatorShouldNotInspectSchedulerHealth() throws Exception {
         mockMvc.perform(get("/api/backup/scheduler/health")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void operatorShouldNotInspectSchedulerStatus() throws Exception {
+        mockMvc.perform(get("/api/backup/scheduler/status")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
                 .andExpect(status().isForbidden());
     }

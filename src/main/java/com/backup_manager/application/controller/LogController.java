@@ -3,6 +3,7 @@ package com.backup_manager.application.controller;
 import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.LogContentResponse;
 import com.backup_manager.application.dto.LogStatusResponse;
+import com.backup_manager.application.dto.MutationResponse;
 import com.backup_manager.infrastructure.logging.LogService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -23,14 +24,20 @@ public class LogController {
     }
 
     @GetMapping
-    public ResponseEntity<LogStatusResponse> getLogStatus() {
+    public ResponseEntity<MutationResponse<LogStatusResponse>> getLogStatus() {
         try {
             logService.resolveLatestWarningsLog();
         } catch (IOException e) {
-            return ResponseEntity.ok(LogStatusResponse.unavailable("No backups executed yet in this session."));
+            return ResponseEntity.ok(MutationResponse.success(
+                    LogStatusResponse.unavailable("No backups executed yet in this session."),
+                    "Status dos logs carregado com sucesso"
+            ));
         }
 
-        return ResponseEntity.ok(LogStatusResponse.available("/warnings"));
+        return ResponseEntity.ok(MutationResponse.success(
+                LogStatusResponse.available("/warnings"),
+                "Status dos logs carregado com sucesso"
+        ));
     }
 
     @GetMapping("/warnings")
@@ -38,10 +45,16 @@ public class LogController {
         try {
             String content = logService.readLog(logService.resolveLatestWarningsLog());
             if (content.isBlank()) {
-                return ResponseEntity.ok(LogContentResponse.message("warnings", "Nenhum alerta encontrado."));
+                return ResponseEntity.ok(MutationResponse.success(
+                        LogContentResponse.message("warnings", "Nenhum alerta encontrado."),
+                        "Conteudo de log carregado com sucesso"
+                ));
             }
 
-            return ResponseEntity.ok(LogContentResponse.content("warnings", content));
+            return ResponseEntity.ok(MutationResponse.success(
+                    LogContentResponse.content("warnings", content),
+                    "Conteudo de log carregado com sucesso"
+            ));
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
                     .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Nenhum warnings.log disponivel para consulta."));
