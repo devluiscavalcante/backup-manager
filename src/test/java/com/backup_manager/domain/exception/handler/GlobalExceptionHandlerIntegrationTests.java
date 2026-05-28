@@ -63,6 +63,19 @@ class GlobalExceptionHandlerIntegrationTests {
     }
 
     @Test
+    void shouldReturnStructuredBackupNotFoundBodyForRestorePreview() throws Exception {
+        mockMvc.perform(get("/api/backup/999999/restore/preview")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Backup nao encontrado."))
+                .andExpect(jsonPath("$.code").value("backup_not_found"))
+                .andExpect(jsonPath("$.path").value("/api/backup/999999/restore/preview"))
+                .andExpect(jsonPath("$.details.backupId").value(999999));
+    }
+
+    @Test
     void shouldReturnStructuredFolderEmptyBodyForBackupStart() throws Exception {
         Path emptySource = Files.createDirectory(tempDir.resolve("empty-source"));
         Path destination = Files.createDirectory(tempDir.resolve("backup-destination"));

@@ -7,6 +7,8 @@ import com.backup_manager.application.dto.SelectiveRestoreRequest;
 import com.backup_manager.domain.event.RestoreCompletedEvent;
 import com.backup_manager.domain.event.RestoreFailedEvent;
 import com.backup_manager.domain.event.RestoreStartedEvent;
+import com.backup_manager.domain.exception.BackupResourceNotFoundException;
+import com.backup_manager.domain.exception.BackupStorageNotFoundException;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.RestoreStatus;
 import com.backup_manager.domain.model.RestoreTask;
@@ -63,7 +65,6 @@ public class RestoreService {
         this.taskManager = taskManager;
         this.restoreOps = restoreOps;
         this.eventPublisher = eventPublisher;
-        // Reutiliza a configuracao global do Spring para manter a serializacao consistente.
         this.objectMapper = objectMapper;
         this.pathSecurityService = pathSecurityService;
         this.self = self;
@@ -73,15 +74,14 @@ public class RestoreService {
         logger.info("Gerando preview de arquivos para backup ID={}", backupId);
 
         BackupTask backup = backupRepository.findById(backupId)
-                .orElseThrow(() -> new IllegalArgumentException("Backup não encontrado: " + backupId));
+                .orElseThrow(() -> new BackupResourceNotFoundException(backupId));
 
         Path backupPath = Paths.get(backup.getDestinationPath());
 
         if (!Files.exists(backupPath)) {
-            throw new IllegalStateException("Backup não encontrado no disco: " + backupPath);
+            throw new BackupStorageNotFoundException(backupId, backupPath.toString());
         }
 
-        // Materializa a listagem uma vez dentro do try-with-resources para evitar handles abertos.
         List<Path> backupEntries;
         try (Stream<Path> stream = Files.list(backupPath)) {
             backupEntries = stream.toList();
@@ -162,7 +162,7 @@ public class RestoreService {
             node.setFileCount(count[0]);
             node.setSizeMB(BigDecimal.valueOf(size[0])
                     .divide(BigDecimal.valueOf(1024 * 1024), 2, RoundingMode.HALF_UP));
-            node.setChildren(null); // Não carregar subárvore completa para performance
+            node.setChildren(null);
         } else {
             node.setType("file");
             node.setSizeMB(BigDecimal.valueOf(attrs.size())
@@ -175,33 +175,30 @@ public class RestoreService {
     }
 
     public Long startFullRestore(Long backupId, RestoreRequest request) throws IOException {
-        logger.info("Iniciando restauração completa: backupId={}, target={}",
+        logger.info("Iniciando restauracao completa: backupId={}, target={}",
                 backupId, request.getTargetPath());
 
         BackupTask backup = validateBackup(backupId);
-        // Reaproveita a allowlist compartilhada para impedir restauracoes fora das raizes aprovadas.
         pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
 
         RestoreTask task = createRestoreTask(backup, request.getTargetPath(),
                 RestoreType.FULL, null);
         task = restoreRepository.save(task);
 
-        final Long taskId = task.getId();
-        // Usa o proxy Spring para que @Async seja realmente aplicado.
+        Long taskId = task.getId();
         self.processRestoreAsync(task, request.isOverwriteExisting(), null);
 
         return taskId;
     }
 
     public Long startSelectiveRestore(Long backupId, SelectiveRestoreRequest request) throws IOException {
-        logger.info("Iniciando restauração seletiva: backupId={}, target={}, selectedFiles={}",
+        logger.info("Iniciando restauracao seletiva: backupId={}, target={}, selectedFiles={}",
                 backupId, request.getTargetPath(),
                 request.getSelectedFiles() != null ? request.getSelectedFiles().size() : 0);
 
         BackupTask backup = validateBackup(backupId);
         Path backupRoot = Paths.get(backup.getDestinationPath());
 
-        // Reaproveita a allowlist compartilhada para impedir restauracoes fora das raizes aprovadas.
         pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
         validateSelectedFiles(request.getSelectedFiles(), backupRoot);
 
@@ -213,7 +210,6 @@ public class RestoreService {
         );
         task = restoreRepository.save(task);
 
-        // Usa o proxy Spring para que @Async seja realmente aplicado.
         self.processRestoreAsync(task, request.isOverwriteExisting(), request.getSelectedFiles());
         return task.getId();
     }
@@ -222,7 +218,7 @@ public class RestoreService {
     public void processRestoreAsync(RestoreTask task, boolean overwriteExisting,
                                     List<String> selectedFiles) {
         try {
-            logger.info("Iniciando processamento de restauração: ID={}", task.getId());
+            logger.info("Iniciando processamento de restauracao: ID={}", task.getId());
 
             taskManager.registerTask(task.getId(), task);
             eventPublisher.publishEvent(new RestoreStartedEvent(task));
@@ -246,7 +242,7 @@ public class RestoreService {
 
                 if (memoryTask != null &&
                         (memoryTask.isCancelled() || memoryTask.getStatus() == RestoreStatus.CANCELADO)) {
-                    logger.info("Restauração {} cancelada durante execução", task.getId());
+                    logger.info("Restauracao {} cancelada durante execucao", task.getId());
                 } else {
                     finalizeRestore(task, result);
                 }
@@ -256,7 +252,7 @@ public class RestoreService {
 
                 if (memoryTask != null &&
                         (memoryTask.isCancelled() || memoryTask.getStatus() == RestoreStatus.CANCELADO)) {
-                    logger.info("Restauração {} cancelada (exception capturada)", task.getId());
+                    logger.info("Restauracao {} cancelada (exception capturada)", task.getId());
                 } else {
                     handleRestoreFailure(task, e);
                 }
@@ -265,7 +261,7 @@ public class RestoreService {
 
                 if (memoryTask != null &&
                         (memoryTask.isCancelled() || memoryTask.getStatus() == RestoreStatus.CANCELADO)) {
-                    logger.info("Finally: Restauração {} cancelada, não sobrescreve estado", task.getId());
+                    logger.info("Finally: Restauracao {} cancelada, nao sobrescreve estado", task.getId());
                     taskManager.unregisterTask(task.getId());
                     return;
                 }
@@ -281,7 +277,7 @@ public class RestoreService {
             }
 
         } catch (Exception e) {
-            logger.error("Erro crítico no processamento da restauração {}: {}",
+            logger.error("Erro critico no processamento da restauracao {}: {}",
                     task.getId(), e.getMessage(), e);
         }
     }
@@ -293,7 +289,7 @@ public class RestoreService {
 
             @Override
             public void onWarning(String message, Path path) {
-                logger.warn("Restauração {}: {} - {}", taskId, message, path);
+                logger.warn("Restauracao {}: {} - {}", taskId, message, path);
             }
 
             @Override
@@ -310,10 +306,9 @@ public class RestoreService {
     }
 
     private void finalizeRestore(RestoreTask task, FileRestoreOperations.RestoreResult result) {
-        logger.info("Finalizando restauração {}: {} arquivos restaurados",
+        logger.info("Finalizando restauracao {}: {} arquivos restaurados",
                 task.getId(), result.getFilesRestored());
 
-        // Define o timestamp antes do cálculo para não publicar duração zerada nos eventos.
         task.setFinishedAt(LocalDateTime.now());
         long durationSeconds = calculateDuration(task);
 
@@ -324,7 +319,7 @@ public class RestoreService {
         task.setStatus(RestoreStatus.CONCLUIDO);
 
         if (result.getWarnings() > 0) {
-            task.setErrorMessage("Concluído com " + result.getWarnings() + " avisos");
+            task.setErrorMessage("Concluido com " + result.getWarnings() + " avisos");
         }
 
         restoreRepository.save(task);
@@ -332,7 +327,7 @@ public class RestoreService {
     }
 
     private void handleRestoreFailure(RestoreTask task, Exception e) {
-        logger.error("Falha na restauração {}: {}", task.getId(), e.getMessage());
+        logger.error("Falha na restauracao {}: {}", task.getId(), e.getMessage());
 
         task.setStatus(RestoreStatus.FALHA);
         task.setErrorMessage(e.getMessage());
@@ -342,52 +337,9 @@ public class RestoreService {
         eventPublisher.publishEvent(new RestoreFailedEvent(task, e.getMessage()));
     }
 
-    private BackupTask validateBackup(Long backupId) {
-        BackupTask backup = backupRepository.findById(backupId)
-                .orElseThrow(() -> new IllegalArgumentException("Backup não encontrado: " + backupId));
-
-        Path backupPath = Paths.get(backup.getDestinationPath());
-        if (!Files.exists(backupPath)) {
-            throw new IllegalStateException("Backup não encontrado no disco: " + backupPath);
-        }
-
-        return backup;
-    }
-
-    private void validateRestorePath(String targetPath) {
-        if (targetPath == null || targetPath.isBlank()) {
-            throw new IllegalArgumentException("Caminho de destino não pode estar vazio");
-        }
-
-        Path normalized = Paths.get(targetPath).normalize().toAbsolutePath();
-
-        if (targetPath.contains("..")) {
-            throw new SecurityException("Path traversal detectado: " + targetPath);
-        }
-
-        String normalizedPath = normalized.toString().toLowerCase();
-        String rootDir = System.getenv("SystemRoot");
-        String windowsDir = (rootDir != null) ? rootDir.toLowerCase() : "c:\\windows";
-
-        boolean isForbidden = normalizedPath.startsWith(windowsDir) ||
-                normalizedPath.contains("system32") ||
-                normalizedPath.contains("syswow64") ||
-                normalizedPath.contains("program files") ||
-                normalizedPath.matches("^[a-z]:\\\\$");
-
-        if (isForbidden) {
-            throw new SecurityException("Restauração em pasta do sistema não permitida: " + targetPath);
-        }
-
-        Path parent = normalized.getParent();
-        if (parent != null && Files.exists(parent) && !Files.isWritable(parent)) {
-            throw new SecurityException("Sem permissão de escrita no destino: " + targetPath);
-        }
-    }
-
     private void validateSelectedFiles(List<String> selectedFiles, Path backupRoot) {
         if (selectedFiles == null || selectedFiles.isEmpty()) {
-            throw new IllegalArgumentException("Lista de arquivos selecionados não pode estar vazia");
+            throw new IllegalArgumentException("Lista de arquivos selecionados nao pode estar vazia");
         }
 
         for (String file : selectedFiles) {
@@ -427,6 +379,18 @@ public class RestoreService {
             );
         }
         return 0;
+    }
+
+    private BackupTask validateBackup(Long backupId) {
+        BackupTask backup = backupRepository.findById(backupId)
+                .orElseThrow(() -> new BackupResourceNotFoundException(backupId));
+
+        Path backupPath = Paths.get(backup.getDestinationPath());
+        if (!Files.exists(backupPath)) {
+            throw new BackupStorageNotFoundException(backupId, backupPath.toString());
+        }
+
+        return backup;
     }
 
     public boolean cancelRestore(Long taskId) {
