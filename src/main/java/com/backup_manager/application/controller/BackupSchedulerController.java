@@ -2,9 +2,10 @@ package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.CollectionResponse;
+import com.backup_manager.application.dto.HealthStatusResponse;
 import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.dto.PendingScheduledBackupResponse;
-import com.backup_manager.application.dto.SchedulerHealthResponse;
+import com.backup_manager.application.dto.SchedulerHealthSummary;
 import com.backup_manager.application.dto.SchedulerInfoResponse;
 import com.backup_manager.application.dto.SchedulerStatus;
 import com.backup_manager.application.service.BackupScheduler;
@@ -172,18 +173,30 @@ public class BackupSchedulerController {
     }
 
     @GetMapping("/health")
-    public ResponseEntity<SchedulerHealthResponse> healthCheck() {
+    public ResponseEntity<HealthStatusResponse> healthCheck() {
         try {
             SchedulerStatus status = backupScheduler.getSchedulerStatus();
 
             return ResponseEntity.ok(
-                    SchedulerHealthResponse.of("UP", status.isEnabled(), "backup-scheduler", null)
+                    HealthStatusResponse.of(
+                            "UP",
+                            "backup-scheduler",
+                            null,
+                            null,
+                            SchedulerHealthSummary.from(status)
+                    )
             );
         } catch (Exception e) {
             logger.error("Health check failed: {}", e.getMessage());
 
             return ResponseEntity.status(503)
-                    .body(SchedulerHealthResponse.of("DOWN", false, "backup-scheduler", "Falha na verificacao do scheduler."));
+                    .body(HealthStatusResponse.of(
+                            "DOWN",
+                            "backup-scheduler",
+                            null,
+                            "Falha na verificacao do scheduler.",
+                            SchedulerHealthSummary.down()
+                    ));
         }
     }
 
