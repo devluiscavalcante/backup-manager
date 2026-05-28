@@ -1,6 +1,7 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.NotificationSettingsResponse;
+import com.backup_manager.application.dto.MutationResponse;
 import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.service.EmailNotificationService;
 import com.backup_manager.application.service.SecurityAuditService;
@@ -30,18 +31,21 @@ public class NotificationController {
     }
 
     @GetMapping("/settings")
-    public ResponseEntity<NotificationSettingsResponse> getSettings() {
+    public ResponseEntity<MutationResponse<NotificationSettingsResponse>> getSettings() {
         NotificationProperties.Email email = properties.getEmail();
-        return ResponseEntity.ok(new NotificationSettingsResponse(
-                properties.isEnabled(),
-                email.isEnabled(),
-                email.getFrom(),
-                email.getRecipients() != null ? email.getRecipients().size() : 0,
-                email.isNotifyOnSuccess(),
-                email.isNotifyOnFailure(),
-                email.isNotifyOnCancellation(),
-                email.isNotifyOnStarted(),
-                email.isNotifyOnScheduled()
+        return ResponseEntity.ok(MutationResponse.success(
+                new NotificationSettingsResponse(
+                        properties.isEnabled(),
+                        email.isEnabled(),
+                        email.getFrom(),
+                        email.getRecipients() != null ? email.getRecipients().size() : 0,
+                        email.isNotifyOnSuccess(),
+                        email.isNotifyOnFailure(),
+                        email.isNotifyOnCancellation(),
+                        email.isNotifyOnStarted(),
+                        email.isNotifyOnScheduled()
+                ),
+                "Configuracoes de notificacao carregadas com sucesso"
         ));
     }
 

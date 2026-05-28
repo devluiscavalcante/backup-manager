@@ -3,6 +3,7 @@ package com.backup_manager.application.controller;
 import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.HealthStatusResponse;
+import com.backup_manager.application.dto.MutationResponse;
 import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.dto.PendingScheduledBackupResponse;
 import com.backup_manager.application.dto.SchedulerHealthSummary;
@@ -45,23 +46,26 @@ public class BackupSchedulerController {
     }
 
     @GetMapping("/status")
-    public ResponseEntity<SchedulerStatus> getSchedulerStatus() {
+    public ResponseEntity<MutationResponse<SchedulerStatus>> getSchedulerStatus() {
         SchedulerStatus status = backupScheduler.getSchedulerStatus();
-        return ResponseEntity.ok(status);
+        return ResponseEntity.ok(MutationResponse.success(status, "Status do scheduler carregado com sucesso"));
     }
 
     @GetMapping("/info")
-    public ResponseEntity<SchedulerInfoResponse> getSchedulerInfo() {
+    public ResponseEntity<MutationResponse<SchedulerInfoResponse>> getSchedulerInfo() {
         SchedulerStatus status = backupScheduler.getSchedulerStatus();
 
-        return ResponseEntity.ok(new SchedulerInfoResponse(
-                status.isEnabled() ? "ATIVO" : "INATIVO",
-                status.isEnabled(),
-                status.getCronExpression(),
-                status.getTimeZone(),
-                status.getTotalConfigurations(),
-                status.getEnabledConfigurations(),
-                status.getRecentExecutions()
+        return ResponseEntity.ok(MutationResponse.success(
+                new SchedulerInfoResponse(
+                        status.isEnabled() ? "ATIVO" : "INATIVO",
+                        status.isEnabled(),
+                        status.getCronExpression(),
+                        status.getTimeZone(),
+                        status.getTotalConfigurations(),
+                        status.getEnabledConfigurations(),
+                        status.getRecentExecutions()
+                ),
+                "Resumo do scheduler carregado com sucesso"
         ));
     }
 
