@@ -1,5 +1,6 @@
 package com.backup_manager.application.controller;
 
+import com.backup_manager.application.dto.ApplicationHealthSummary;
 import com.backup_manager.application.dto.HealthStatusResponse;
 import com.backup_manager.application.dto.SchemaHealthSummary;
 import com.backup_manager.application.dto.SchemaStatusResponse;
@@ -50,6 +51,12 @@ public class HealthController {
 
     @GetMapping("/application")
     public ResponseEntity<HealthStatusResponse> checkApplication() {
-        return ResponseEntity.ok(HealthStatusResponse.of("UP", "Backup Manager", "1.0.0", null));
+        return ResponseEntity.ok(HealthStatusResponse.of(
+                "UP",
+                "Backup Manager",
+                "1.0.0",
+                null,
+                ApplicationHealthSummary.current()
+        ));
     }
 }
