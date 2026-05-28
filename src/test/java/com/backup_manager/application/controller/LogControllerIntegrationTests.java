@@ -47,6 +47,19 @@ class LogControllerIntegrationTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void adminShouldReceiveStructuredNotFoundForWarningsLog() throws Exception {
+        mockMvc.perform(get("/api/logs/warnings")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Nenhum warnings.log disponivel para consulta."))
+                .andExpect(jsonPath("$.code").value("warnings_log_not_found"))
+                .andExpect(jsonPath("$.path").value("/api/logs/warnings"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
     private String basicAuth(String username, String password) {
         String credentials = username + ":" + password;
         String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
