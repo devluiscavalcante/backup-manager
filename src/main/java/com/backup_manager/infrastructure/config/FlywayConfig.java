@@ -17,6 +17,7 @@ import org.springframework.core.env.Environment;
 import javax.sql.DataSource;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -75,6 +76,7 @@ public class FlywayConfig {
         repairOrphanedFlywayHistory(dataSource, targetSchema, targetHistoryTable);
         // Spring Boot 4.0.1 in this runtime does not auto-run Flyway, so we migrate explicitly.
         flyway.migrate();
+        validateManagedTables(dataSource, targetSchema, targetHistoryTable);
         return flyway;
     }
 
@@ -122,6 +124,26 @@ public class FlywayConfig {
             }
         } catch (Exception e) {
             throw new IllegalStateException("Failed to inspect Flyway schema state before migration.", e);
+        }
+    }
+
+    private void validateManagedTables(DataSource dataSource, String schema, String historyTable) {
+        try (Connection connection = dataSource.getConnection()) {
+            Set<String> tables = existingTables(connection, schema, historyTable);
+            Set<String> missingTables = new LinkedHashSet<>(MANAGED_TABLES);
+            missingTables.removeAll(tables);
+
+            if (!missingTables.isEmpty()) {
+                throw new IllegalStateException(
+                        ("Flyway migration completed, but schema '%s' is still missing managed tables: %s. " +
+                                "Recreate the schema or restore the missing tables before starting the application.")
+                                        .formatted(schema, missingTables)
+                );
+            }
+        } catch (IllegalStateException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to validate managed Flyway tables after migration.", e);
         }
     }
 
