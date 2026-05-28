@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @SpringBootTest(properties = {
         "app.security.allow-default-password=true",
@@ -88,6 +89,42 @@ class FlywayConfigIntegrationTests {
                 "security_audit_events",
                 "flyway_schema_history"
         );
+    }
+
+    @Test
+    void shouldFailWithClearMessageWhenManagedTablesAreMissingAfterMigration() throws Exception {
+        schemaName = "broken_flyway_schema_" + UUID.randomUUID().toString().replace("-", "");
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement statement = connection.createStatement()) {
+            statement.execute("CREATE SCHEMA " + schemaName);
+        }
+
+        Flyway.configure()
+                .dataSource(jdbcUrl, username, password)
+                .locations("classpath:db/migration")
+                .schemas(schemaName)
+                .defaultSchema(schemaName)
+                .outOfOrder(true)
+                .load()
+                .migrate();
+
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement statement = connection.createStatement()) {
+            statement.execute("DROP TABLE " + schemaName + ".backup_tasks CASCADE");
+        }
+
+        DriverManagerDataSource dataSource = new DriverManagerDataSource(jdbcUrl, username, password);
+        MockEnvironment environment = new MockEnvironment()
+                .withProperty("spring.flyway.locations", "classpath:db/migration")
+                .withProperty("spring.flyway.schemas", schemaName)
+                .withProperty("spring.flyway.default-schema", schemaName)
+                .withProperty("spring.flyway.out-of-order", "true");
+
+        assertThatThrownBy(() -> new FlywayConfig().flyway(dataSource, environment))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("schema '" + schemaName + "' is still missing managed tables")
+                .hasMessageContaining("backup_tasks");
     }
 
     @AfterEach
