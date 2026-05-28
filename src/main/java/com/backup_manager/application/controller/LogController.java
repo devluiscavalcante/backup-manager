@@ -57,7 +57,13 @@ public class LogController {
             ));
         } catch (IOException e) {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Nenhum warnings.log disponivel para consulta."));
+                    .body(ApiErrorResponse.of(
+                            HttpStatus.NOT_FOUND,
+                            "Nenhum warnings.log disponivel para consulta.",
+                            "warnings_log_not_found",
+                            null,
+                            "/api/logs/warnings"
+                    ));
         }
     }
 }
