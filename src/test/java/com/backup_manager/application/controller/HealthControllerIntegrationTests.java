@@ -51,6 +51,19 @@ class HealthControllerIntegrationTests {
                 .andExpect(status().isForbidden());
     }
 
+    @Test
+    void applicationHealthShouldExposeMinimalPublicRuntimeDetails() throws Exception {
+        mockMvc.perform(get("/api/health/application"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("UP"))
+                .andExpect(jsonPath("$.service").value("Backup Manager"))
+                .andExpect(jsonPath("$.version").value("1.0.0"))
+                .andExpect(jsonPath("$.details.publicEndpoint").value(true))
+                .andExpect(jsonPath("$.details.defaultTimeZone").isString())
+                .andExpect(jsonPath("$.details.requestTracingHeader").value("X-Request-Id"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
     private String basicAuth(String username, String password) {
         String credentials = username + ":" + password;
         String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
