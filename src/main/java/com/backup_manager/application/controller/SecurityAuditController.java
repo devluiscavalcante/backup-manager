@@ -23,12 +23,15 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/system/audit")
 public class SecurityAuditController {
 
     private static final Logger logger = LoggerFactory.getLogger(SecurityAuditController.class);
+    private static final String AUDIT_PATH = "/api/system/audit";
+    private static final String AUDIT_CLEANUP_PATH = "/api/system/audit/cleanup";
 
     private final SecurityAuditQueryService securityAuditQueryService;
     private final SecurityAuditRetentionService securityAuditRetentionService;
@@ -53,12 +56,18 @@ public class SecurityAuditController {
         try {
             if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Data inicial nao pode ser posterior a data final"));
+                        .body(ApiErrorResponse.of(
+                                HttpStatus.BAD_REQUEST,
+                                "Data inicial nao pode ser posterior a data final.",
+                                "invalid_date_range",
+                                Map.of("startDate", startDate, "endDate", endDate),
+                                AUDIT_PATH
+                        ));
             }
 
             if (size < 1 || size > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Tamanho da pagina deve estar entre 1 e 100"));
+                        .body(invalidRangeResponse("size", size, AUDIT_PATH));
             }
 
             PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
@@ -76,7 +85,13 @@ public class SecurityAuditController {
         } catch (Exception e) {
             logger.error("Erro ao consultar auditoria de seguranca", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao consultar auditoria de seguranca."));
+                    .body(ApiErrorResponse.of(
+                            HttpStatus.INTERNAL_SERVER_ERROR,
+                            "Erro interno ao consultar auditoria de seguranca.",
+                            "security_audit_query_failed",
+                            null,
+                            AUDIT_PATH
+                    ));
         }
     }
 
@@ -93,7 +108,23 @@ public class SecurityAuditController {
         } catch (Exception e) {
             logger.error("Erro ao executar expurgo da auditoria de seguranca", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao executar expurgo da auditoria."));
+                    .body(ApiErrorResponse.of(
+                            HttpStatus.INTERNAL_SERVER_ERROR,
+                            "Erro interno ao executar expurgo da auditoria.",
+                            "security_audit_cleanup_failed",
+                            null,
+                            AUDIT_CLEANUP_PATH
+                    ));
         }
+    }
+
+    private ApiErrorResponse invalidRangeResponse(String field, int value, String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.BAD_REQUEST,
+                "Tamanho da pagina deve estar entre 1 e 100.",
+                "page_size_out_of_range",
+                Map.of(field, value, "min", 1, "max", 100),
+                path
+        );
     }
 }
