@@ -24,7 +24,9 @@ public class PathSecurityService {
 
     public Path validateManagedPath(String rawPath, String operationName) {
         if (rawPath == null || rawPath.isBlank()) {
-            throw new IllegalArgumentException("Caminho nao pode estar vazio para " + operationName);
+            throw new IllegalArgumentException(
+                    "O caminho informado nao pode estar vazio para a operacao de " + operationName + "."
+            );
         }
 
         Path normalizedPath = Paths.get(rawPath).toAbsolutePath().normalize();
@@ -39,7 +41,9 @@ public class PathSecurityService {
         Path parent = normalizedPath.getParent();
 
         if (parent != null && Files.exists(parent) && !Files.isWritable(parent)) {
-            throw new SecurityException("Sem permissao de escrita no destino informado para " + operationName + ".");
+            throw new SecurityException(
+                    "Sem permissao de escrita no destino informado para a operacao de " + operationName + "."
+            );
         }
 
         return normalizedPath;
@@ -65,7 +69,10 @@ public class PathSecurityService {
 
         if (isForbidden) {
             logger.warn("Caminho protegido bloqueado em {}: {}", operationName, normalizedPath);
-            throw new SecurityException("O caminho informado pertence a uma area protegida do sistema.");
+            throw new SecurityException(
+                    "O caminho informado para a operacao de " + operationName
+                            + " pertence a uma area protegida do sistema."
+            );
         }
     }
 
@@ -75,7 +82,10 @@ public class PathSecurityService {
 
         if (!isAllowed) {
             logger.warn("Caminho fora da allowlist bloqueado em {}: {}", operationName, normalizedPath);
-            throw new SecurityException("O caminho informado nao pertence a uma raiz permitida.");
+            throw new SecurityException(
+                    "O caminho informado para a operacao de " + operationName
+                            + " nao pertence a uma raiz permitida."
+            );
         }
     }
 
