@@ -34,6 +34,8 @@ import java.util.Optional;
 public class RestoreController {
 
     private static final Logger logger = LoggerFactory.getLogger(RestoreController.class);
+    private static final String RESTORE_HISTORY_PATH = "/api/restore/history";
+    private static final String RESTORE_RECENT_PATH = "/api/restore/recent";
 
     private final RestoreService restoreService;
     private final RestoreRepository restoreRepository;
@@ -165,14 +167,22 @@ public class RestoreController {
                 securityAuditService.recordFailure("restore.cancel", "restore_task", "task_not_found_or_invalid",
                         Map.of("taskId", taskId));
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser cancelada", taskId));
+                        .body(restoreTaskNotFoundResponse(
+                                taskId,
+                                "cancel",
+                                "Tarefa de restauracao nao encontrada ou nao pode ser cancelada."
+                        ));
             }
 
         } catch (Exception e) {
             logger.error("Erro ao cancelar restauracao", e);
             securityAuditService.recordFailure("restore.cancel", "restore_task", "internal_error", Map.of("taskId", taskId));
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar restauracao.", taskId));
+                    .body(internalTaskErrorResponse(
+                            "Erro interno ao cancelar restauracao.",
+                            taskId,
+                            "/api/restore/" + taskId + "/cancel"
+                    ));
         }
     }
 
@@ -185,13 +195,21 @@ public class RestoreController {
                 return ResponseEntity.ok(RestoreTaskResponse.fromTask(task.get()));
             } else {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(ApiErrorResponse.of(HttpStatus.NOT_FOUND, "Tarefa de restauracao nao encontrada", taskId));
+                        .body(restoreTaskNotFoundResponse(
+                                taskId,
+                                "status",
+                                "Tarefa de restauracao nao encontrada."
+                        ));
             }
 
         } catch (Exception e) {
             logger.error("Erro ao buscar status da restauracao", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar status da restauracao.", taskId));
+                    .body(internalTaskErrorResponse(
+                            "Erro interno ao buscar status da restauracao.",
+                            taskId,
+                            "/api/restore/" + taskId + "/status"
+                    ));
         }
     }
 
@@ -204,7 +222,13 @@ public class RestoreController {
         try {
             if (size < 1 || size > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Tamanho da pagina deve estar entre 1 e 100"));
+                        .body(invalidRangeResponse(
+                                "page_size_out_of_range",
+                                "Tamanho da pagina deve estar entre 1 e 100.",
+                                "size",
+                                size,
+                                RESTORE_HISTORY_PATH
+                        ));
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
@@ -226,7 +250,13 @@ public class RestoreController {
         try {
             if (limit < 1 || limit > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Limite deve estar entre 1 e 100"));
+                        .body(invalidRangeResponse(
+                                "limit_out_of_range",
+                                "Limite deve estar entre 1 e 100.",
+                                "limit",
+                                limit,
+                                RESTORE_RECENT_PATH
+                        ));
             }
 
             Pageable pageable = PageRequest.of(0, limit);
@@ -258,5 +288,41 @@ public class RestoreController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar historico de restauracoes do backup."));
         }
+    }
+
+    private ApiErrorResponse invalidRangeResponse(String code,
+                                                  String message,
+                                                  String field,
+                                                  int value,
+                                                  String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.BAD_REQUEST,
+                message,
+                code,
+                Map.of(field, value, "min", 1, "max", 100),
+                path
+        );
+    }
+
+    private ApiErrorResponse restoreTaskNotFoundResponse(Long taskId, String action, String message) {
+        return ApiErrorResponse.of(
+                HttpStatus.NOT_FOUND,
+                message,
+                "restore_task_not_found_or_invalid",
+                Map.of("taskId", taskId, "action", action),
+                "/api/restore/" + taskId + "/" + action,
+                taskId
+        );
+    }
+
+    private ApiErrorResponse internalTaskErrorResponse(String message, Long taskId, String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                message,
+                "restore_task_operation_failed",
+                Map.of("taskId", taskId),
+                path,
+                taskId
+        );
     }
 }

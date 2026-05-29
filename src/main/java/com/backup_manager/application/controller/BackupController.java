@@ -42,6 +42,8 @@ import java.util.Optional;
 public class BackupController {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupController.class);
+    private static final String BACKUP_HISTORY_SEARCH_PATH = "/api/backup/history/search";
+    private static final String BACKUP_HISTORY_RECENT_PATH = "/api/backup/history/recent";
 
     private final BackupService backupService;
     private final BackupRequestValidationService backupRequestValidationService;
@@ -178,12 +180,24 @@ public class BackupController {
         try {
             if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Data inicial nao pode ser posterior a data final"));
+                        .body(ApiErrorResponse.of(
+                                HttpStatus.BAD_REQUEST,
+                                "Data inicial nao pode ser posterior a data final.",
+                                "invalid_date_range",
+                                Map.of("startDate", startDate, "endDate", endDate),
+                                BACKUP_HISTORY_SEARCH_PATH
+                        ));
             }
 
             if (size < 1 || size > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Tamanho da pagina deve estar entre 1 e 100"));
+                        .body(invalidRangeResponse(
+                                "page_size_out_of_range",
+                                "Tamanho da pagina deve estar entre 1 e 100.",
+                                "size",
+                                size,
+                                BACKUP_HISTORY_SEARCH_PATH
+                        ));
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
@@ -217,7 +231,13 @@ public class BackupController {
         try {
             if (limit < 1 || limit > 100) {
                 return ResponseEntity.badRequest()
-                        .body(ApiErrorResponse.of(HttpStatus.BAD_REQUEST, "Limite deve estar entre 1 e 100"));
+                        .body(invalidRangeResponse(
+                                "limit_out_of_range",
+                                "Limite deve estar entre 1 e 100.",
+                                "limit",
+                                limit,
+                                BACKUP_HISTORY_RECENT_PATH
+                        ));
             }
 
             List<BackupResponse> recent = historyService.getRecentBackups(limit);
@@ -236,7 +256,7 @@ public class BackupController {
     }
 
     @PostMapping("/{taskId}/pause")
-    public ResponseEntity<OperationResponse> pauseBackup(@PathVariable Long taskId) {
+    public ResponseEntity<Object> pauseBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.pauseBackup(taskId);
             if (success) {
@@ -245,17 +265,17 @@ public class BackupController {
             } else {
                 securityAuditService.recordFailure("backup.pause", "backup_task", "task_not_found_or_invalid",
                         Map.of("taskId", taskId));
-                return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser pausada", taskId);
+                return backupTaskNotFoundResponse(taskId, "pause", "Tarefa nao encontrada ou nao pode ser pausada.");
             }
         } catch (Exception e) {
             logger.error("Erro ao pausar backup {}", taskId, e);
             securityAuditService.recordFailure("backup.pause", "backup_task", "internal_error", Map.of("taskId", taskId));
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao pausar backup.", taskId);
+            return internalTaskErrorResponse("Erro interno ao pausar backup.", taskId, "/api/backup/" + taskId + "/pause");
         }
     }
 
     @PostMapping("/{taskId}/resume")
-    public ResponseEntity<OperationResponse> resumeBackup(@PathVariable Long taskId) {
+    public ResponseEntity<Object> resumeBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.resumeBackup(taskId);
             if (success) {
@@ -264,17 +284,17 @@ public class BackupController {
             } else {
                 securityAuditService.recordFailure("backup.resume", "backup_task", "task_not_found_or_invalid",
                         Map.of("taskId", taskId));
-                return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser retomada", taskId);
+                return backupTaskNotFoundResponse(taskId, "resume", "Tarefa nao encontrada ou nao pode ser retomada.");
             }
         } catch (Exception e) {
             logger.error("Erro ao retomar backup {}", taskId, e);
             securityAuditService.recordFailure("backup.resume", "backup_task", "internal_error", Map.of("taskId", taskId));
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao retomar backup.", taskId);
+            return internalTaskErrorResponse("Erro interno ao retomar backup.", taskId, "/api/backup/" + taskId + "/resume");
         }
     }
 
     @PostMapping("/{taskId}/cancel")
-    public ResponseEntity<OperationResponse> cancelBackup(@PathVariable Long taskId) {
+    public ResponseEntity<Object> cancelBackup(@PathVariable Long taskId) {
         try {
             boolean success = backupService.cancelBackup(taskId);
             if (success) {
@@ -283,12 +303,12 @@ public class BackupController {
             } else {
                 securityAuditService.recordFailure("backup.cancel", "backup_task", "task_not_found_or_invalid",
                         Map.of("taskId", taskId));
-                return errorResponse(HttpStatus.NOT_FOUND, "Tarefa nao encontrada ou nao pode ser cancelada", taskId);
+                return backupTaskNotFoundResponse(taskId, "cancel", "Tarefa nao encontrada ou nao pode ser cancelada.");
             }
         } catch (Exception e) {
             logger.error("Erro ao cancelar backup {}", taskId, e);
             securityAuditService.recordFailure("backup.cancel", "backup_task", "internal_error", Map.of("taskId", taskId));
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar backup.", taskId);
+            return internalTaskErrorResponse("Erro interno ao cancelar backup.", taskId, "/api/backup/" + taskId + "/cancel");
         }
     }
 
@@ -299,7 +319,14 @@ public class BackupController {
             return ResponseEntity.ok(BackupTaskSummaryResponse.fromTask(task.get()));
         } else {
             return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(OperationResponse.error("Tarefa nao encontrada", taskId));
+                    .body(ApiErrorResponse.of(
+                            HttpStatus.NOT_FOUND,
+                            "Tarefa de backup nao encontrada.",
+                            "backup_task_not_found",
+                            Map.of("taskId", taskId),
+                            "/api/backup/" + taskId + "/status",
+                            taskId
+                    ));
         }
     }
 
@@ -318,12 +345,48 @@ public class BackupController {
         return ResponseEntity.status(status).body(ApiErrorResponse.of(status, message));
     }
 
-    private ResponseEntity<OperationResponse> errorResponse(HttpStatus status, String message, Long taskId) {
-        return ResponseEntity.status(status).body(OperationResponse.error(message, taskId));
+    private ResponseEntity<Object> successResponse(String message, Long taskId) {
+        return ResponseEntity.ok(OperationResponse.success(message, taskId));
     }
 
-    private ResponseEntity<OperationResponse> successResponse(String message, Long taskId) {
-        return ResponseEntity.ok(OperationResponse.success(message, taskId));
+    private ApiErrorResponse invalidRangeResponse(String code,
+                                                  String message,
+                                                  String field,
+                                                  int value,
+                                                  String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.BAD_REQUEST,
+                message,
+                code,
+                Map.of(field, value, "min", 1, "max", 100),
+                path
+        );
+    }
+
+    private ResponseEntity<Object> backupTaskNotFoundResponse(Long taskId, String action, String message) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                ApiErrorResponse.of(
+                        HttpStatus.NOT_FOUND,
+                        message,
+                        "backup_task_not_found_or_invalid",
+                        Map.of("taskId", taskId, "action", action),
+                        "/api/backup/" + taskId + "/" + action,
+                        taskId
+                )
+        );
+    }
+
+    private ResponseEntity<Object> internalTaskErrorResponse(String message, Long taskId, String path) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiErrorResponse.of(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        message,
+                        "backup_task_operation_failed",
+                        Map.of("taskId", taskId),
+                        path,
+                        taskId
+                )
+        );
     }
 
     private ConflictDetails conflictDetails(String source, String destination, Long taskId) {
