@@ -1,6 +1,7 @@
 package com.backup_manager.application.service;
 
 import com.backup_manager.domain.service.BackupManager;
+import com.backup_manager.domain.exception.FolderEmptyException;
 import com.backup_manager.infrastructure.config.AppSecurityProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -11,6 +12,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class BackupRequestValidationServiceTests {
@@ -38,23 +40,30 @@ class BackupRequestValidationServiceTests {
     void shouldRejectMismatchedSourceAndDestinationCounts() {
         BackupRequestValidationService service = createService(List.of(tempDir.toString()));
 
-        assertThrows(IllegalArgumentException.class, () ->
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
                 service.validateSchedulableRequest(
                         List.of(tempDir.resolve("source").toString()),
                         List.of()
                 )
         );
+
+        assertEquals("As listas de origens e destinos nao podem estar vazias.", exception.getMessage());
     }
 
     @Test
     void shouldRejectUnsafePathsForScheduledRequest() {
         BackupRequestValidationService service = createService(List.of(tempDir.toString()));
 
-        assertThrows(SecurityException.class, () ->
+        SecurityException exception = assertThrows(SecurityException.class, () ->
                 service.validateSchedulableRequest(
                         List.of(tempDir.getParent().resolve("outside-source").toString()),
                         List.of(tempDir.resolve("destination").toString())
                 )
+        );
+
+        assertEquals(
+                "O caminho informado para a operacao de backup nao pertence a uma raiz permitida.",
+                exception.getMessage()
         );
     }
 
@@ -64,12 +73,28 @@ class BackupRequestValidationServiceTests {
         Path destinationDir = Files.createDirectories(tempDir.resolve("destination"));
         BackupRequestValidationService service = createService(List.of(tempDir.toString()));
 
-        assertThrows(RuntimeException.class, () ->
+        FolderEmptyException exception = assertThrows(FolderEmptyException.class, () ->
                 service.validateSchedulableRequest(
                         List.of(sourceDir.toString()),
                         List.of(destinationDir.toString())
                 )
         );
+
+        assertEquals("A pasta de origem esta vazia.", exception.getMessage());
+    }
+
+    @Test
+    void shouldRejectDifferentSourceAndDestinationCountsWhenBothListsArePresent() {
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                service.validateSchedulableRequest(
+                        List.of(tempDir.resolve("source-a").toString(), tempDir.resolve("source-b").toString()),
+                        List.of(tempDir.resolve("destination").toString())
+                )
+        );
+
+        assertEquals("O numero de origens deve ser igual ao numero de destinos.", exception.getMessage());
     }
 
     private BackupRequestValidationService createService(List<String> allowedRoots) {

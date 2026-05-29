@@ -100,6 +100,52 @@ class GlobalExceptionHandlerIntegrationTests {
                 .andExpect(jsonPath("$.details.source").value(emptySource.toString()));
     }
 
+    @Test
+    void shouldReturnStructuredValidationBodyForMismatchedSourceAndDestinationCounts() throws Exception {
+        Path source = Files.createDirectory(tempDir.resolve("source"));
+        Files.writeString(source.resolve("file.txt"), "content");
+        Path destination = Files.createDirectory(tempDir.resolve("destination"));
+
+        String payload = """
+                {
+                  "sources": ["%s", "%s"],
+                  "destination": ["%s"]
+                }
+                """.formatted(escapePath(source), escapePath(source), escapePath(destination));
+
+        mockMvc.perform(post("/api/backup/start")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("O numero de origens deve ser igual ao numero de destinos."))
+                .andExpect(jsonPath("$.code").value("operation_validation_failed"))
+                .andExpect(jsonPath("$.path").value("/api/backup/start"));
+    }
+
+    @Test
+    void shouldReturnStructuredForbiddenBodyForPathTraversalAttempt() throws Exception {
+        String payload = """
+                {
+                  "sources": ["..\\\\segredo"],
+                  "destination": ["..\\\\destino"]
+                }
+                """;
+
+        mockMvc.perform(post("/api/backup/start")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.error").value("Path traversal detectado na operacao de backup."))
+                .andExpect(jsonPath("$.code").value("operation_not_allowed"))
+                .andExpect(jsonPath("$.path").value("/api/backup/start"));
+    }
+
     private String basicAuth(String username, String password) {
         String credentials = username + ":" + password;
         String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
