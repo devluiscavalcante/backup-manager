@@ -10,6 +10,7 @@ import java.nio.file.Paths;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class PathSecurityServiceTests {
@@ -30,8 +31,13 @@ class PathSecurityServiceTests {
         Object service = createService(List.of(tempDir.toString()));
         Path outsidePath = tempDir.getParent().resolve("fora-da-allowlist");
 
-        assertThrows(SecurityException.class,
+        SecurityException exception = assertThrows(SecurityException.class,
                 () -> validateManagedPath(service, outsidePath.toString(), "backup"));
+
+        assertEquals(
+                "O caminho informado para a operacao de backup nao pertence a uma raiz permitida.",
+                exception.getMessage()
+        );
     }
 
     @Test
@@ -39,8 +45,23 @@ class PathSecurityServiceTests {
         Object service = createService(List.of(tempDir.toString()));
         String traversalPath = tempDir.resolve("docs").resolve("..").resolve("segredo").toString();
 
-        assertThrows(SecurityException.class,
+        SecurityException exception = assertThrows(SecurityException.class,
                 () -> validateManagedPath(service, traversalPath, "backup"));
+
+        assertEquals("Path traversal detectado na operacao de backup.", exception.getMessage());
+    }
+
+    @Test
+    void shouldRejectBlankManagedPath() {
+        Object service = createService(List.of(tempDir.toString()));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> validateManagedPath(service, "   ", "backup"));
+
+        assertEquals(
+                "O caminho informado nao pode estar vazio para a operacao de backup.",
+                exception.getMessage()
+        );
     }
 
     @Test

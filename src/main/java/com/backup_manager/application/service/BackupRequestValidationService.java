@@ -53,7 +53,7 @@ public class BackupRequestValidationService {
 
     private void validateDestinationRoot(Path destinationPath) {
         if (destinationPath.getRoot() == null) {
-            throw new IllegalStateException("O caminho de destino informado nao possui raiz acessivel.");
+            throw new IllegalStateException("O caminho de destino informado nao possui uma raiz acessivel.");
         }
 
         File destinationRoot = destinationPath.getRoot().toFile();
