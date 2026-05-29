@@ -66,6 +66,38 @@ class SecurityAuditControllerIntegrationTests {
     }
 
     @Test
+    void adminShouldReceiveStructuredErrorForInvalidDateRange() throws Exception {
+        mockMvc.perform(get("/api/system/audit")
+                        .param("startDate", "2026-05-02T00:00:00")
+                        .param("endDate", "2026-05-01T00:00:00")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Data inicial nao pode ser posterior a data final."))
+                .andExpect(jsonPath("$.code").value("invalid_date_range"))
+                .andExpect(jsonPath("$.path").value("/api/system/audit"))
+                .andExpect(jsonPath("$.details.startDate").value("2026-05-02T00:00:00"))
+                .andExpect(jsonPath("$.details.endDate").value("2026-05-01T00:00:00"));
+    }
+
+    @Test
+    void adminShouldReceiveStructuredErrorForInvalidPageSize() throws Exception {
+        mockMvc.perform(get("/api/system/audit")
+                        .param("size", "0")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Tamanho da pagina deve estar entre 1 e 100."))
+                .andExpect(jsonPath("$.code").value("page_size_out_of_range"))
+                .andExpect(jsonPath("$.path").value("/api/system/audit"))
+                .andExpect(jsonPath("$.details.size").value(0))
+                .andExpect(jsonPath("$.details.min").value(1))
+                .andExpect(jsonPath("$.details.max").value(100));
+    }
+
+    @Test
     void adminShouldCleanupExpiredAuditEvents() throws Exception {
         repository.save(createEvent("backup.start", "admin", "trace-old", AuditOutcome.SUCCESS, LocalDateTime.now().minusDays(120)));
         repository.save(createEvent("restore.cancel", "admin", "trace-new", AuditOutcome.FAILURE, LocalDateTime.now().minusDays(5)));
