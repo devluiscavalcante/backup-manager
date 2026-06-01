@@ -42,7 +42,10 @@ import java.util.Optional;
 public class BackupController {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupController.class);
+    private static final String BACKUP_START_PATH = "/api/backup/start";
+    private static final String BACKUP_HISTORY_PATH = "/api/backup/history";
     private static final String BACKUP_HISTORY_SEARCH_PATH = "/api/backup/history/search";
+    private static final String BACKUP_HISTORY_STATS_PATH = "/api/backup/history/stats";
     private static final String BACKUP_HISTORY_RECENT_PATH = "/api/backup/history/recent";
 
     private final BackupService backupService;
@@ -145,7 +148,12 @@ public class BackupController {
             logger.error("Erro inesperado ao iniciar backup", e);
             securityAuditService.recordFailure("backup.start", "backup_request", "internal_error",
                     Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()));
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar backup.");
+            return internalErrorResponse(
+                    "Erro interno ao iniciar backup.",
+                    "backup_start_failed",
+                    Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()),
+                    BACKUP_START_PATH
+            );
         }
     }
 
@@ -163,7 +171,12 @@ public class BackupController {
 
         } catch (Exception e) {
             logger.error("Erro ao listar historico de backups", e);
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao listar historico.");
+            return internalErrorResponse(
+                    "Erro interno ao listar historico.",
+                    "backup_history_list_failed",
+                    null,
+                    BACKUP_HISTORY_PATH
+            );
         }
     }
 
@@ -207,8 +220,12 @@ public class BackupController {
 
         } catch (Exception e) {
             logger.error("Erro ao buscar historico", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar historico."));
+            return internalErrorResponse(
+                    "Erro interno ao buscar historico.",
+                    "backup_history_search_failed",
+                    null,
+                    BACKUP_HISTORY_SEARCH_PATH
+            );
         }
     }
 
@@ -219,8 +236,12 @@ public class BackupController {
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
             logger.error("Erro ao calcular estatisticas", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao calcular estatisticas."));
+            return internalErrorResponse(
+                    "Erro interno ao calcular estatisticas.",
+                    "backup_statistics_failed",
+                    null,
+                    BACKUP_HISTORY_STATS_PATH
+            );
         }
     }
 
@@ -245,8 +266,12 @@ public class BackupController {
 
         } catch (Exception e) {
             logger.error("Erro ao buscar backups recentes", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar backups recentes."));
+            return internalErrorResponse(
+                    "Erro interno ao buscar backups recentes.",
+                    "backup_recent_list_failed",
+                    Map.of("limit", limit),
+                    BACKUP_HISTORY_RECENT_PATH
+            );
         }
     }
 
@@ -341,8 +366,16 @@ public class BackupController {
         return ResponseEntity.ok(CollectionResponse.of(activeTasks));
     }
 
-    private ResponseEntity<Object> errorResponse(HttpStatus status, String message) {
-        return ResponseEntity.status(status).body(ApiErrorResponse.of(status, message));
+    private ResponseEntity<Object> internalErrorResponse(String message, String code, Object details, String path) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiErrorResponse.of(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        message,
+                        code,
+                        details,
+                        path
+                )
+        );
     }
 
     private ResponseEntity<Object> successResponse(String message, Long taskId) {

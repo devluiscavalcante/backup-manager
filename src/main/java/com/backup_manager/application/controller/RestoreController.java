@@ -63,8 +63,12 @@ public class RestoreController {
 
         } catch (Exception e) {
             logger.error("Erro ao gerar preview", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao gerar preview."));
+            return internalErrorResponse(
+                    "Erro interno ao gerar preview.",
+                    "restore_preview_failed",
+                    Map.of("backupId", id),
+                    "/api/backup/" + id + "/restore/preview"
+            );
         }
     }
 
@@ -101,8 +105,12 @@ public class RestoreController {
             logger.error("Erro ao iniciar restauracao", e);
             securityAuditService.recordFailure("restore.start_full", "backup_restore_request", "internal_error",
                     Map.of("backupId", id));
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar restauracao."));
+            return internalErrorResponse(
+                    "Erro interno ao iniciar restauracao.",
+                    "restore_start_failed",
+                    Map.of("backupId", id),
+                    "/api/backup/" + id + "/restore"
+            );
         }
     }
 
@@ -146,8 +154,12 @@ public class RestoreController {
             logger.error("Erro ao iniciar restauracao seletiva", e);
             securityAuditService.recordFailure("restore.start_selective", "backup_restore_request", "internal_error",
                     Map.of("backupId", id, "selectedFilesCount", selectedFilesCount));
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao iniciar restauracao seletiva."));
+            return internalErrorResponse(
+                    "Erro interno ao iniciar restauracao seletiva.",
+                    "restore_selective_start_failed",
+                    Map.of("backupId", id, "selectedFilesCount", selectedFilesCount),
+                    "/api/backup/" + id + "/restore/selective"
+            );
         }
     }
 
@@ -239,8 +251,12 @@ public class RestoreController {
 
         } catch (Exception e) {
             logger.error("Erro ao buscar historico de restauracoes", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar historico de restauracoes."));
+            return internalErrorResponse(
+                    "Erro interno ao buscar historico de restauracoes.",
+                    "restore_history_list_failed",
+                    null,
+                    RESTORE_HISTORY_PATH
+            );
         }
     }
 
@@ -269,8 +285,12 @@ public class RestoreController {
 
         } catch (Exception e) {
             logger.error("Erro ao buscar restauracoes recentes", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar restauracoes recentes."));
+            return internalErrorResponse(
+                    "Erro interno ao buscar restauracoes recentes.",
+                    "restore_recent_list_failed",
+                    Map.of("limit", limit),
+                    RESTORE_RECENT_PATH
+            );
         }
     }
 
@@ -285,8 +305,12 @@ public class RestoreController {
 
         } catch (Exception e) {
             logger.error("Erro ao buscar historico de restauracoes do backup {}", id, e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(ApiErrorResponse.of(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao buscar historico de restauracoes do backup."));
+            return internalErrorResponse(
+                    "Erro interno ao buscar historico de restauracoes do backup.",
+                    "backup_restore_history_list_failed",
+                    Map.of("backupId", id),
+                    "/api/backup/" + id + "/restore/history"
+            );
         }
     }
 
@@ -323,6 +347,18 @@ public class RestoreController {
                 Map.of("taskId", taskId),
                 path,
                 taskId
+        );
+    }
+
+    private ResponseEntity<Object> internalErrorResponse(String message, String code, Object details, String path) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiErrorResponse.of(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        message,
+                        code,
+                        details,
+                        path
+                )
         );
     }
 }
