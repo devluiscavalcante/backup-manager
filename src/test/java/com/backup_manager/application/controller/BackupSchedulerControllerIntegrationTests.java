@@ -5,13 +5,16 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -83,6 +86,44 @@ class BackupSchedulerControllerIntegrationTests {
         mockMvc.perform(get("/api/backup/scheduler/status")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void adminShouldReceiveStructuredErrorForInvalidScheduleDelay() throws Exception {
+        mockMvc.perform(post("/api/backup/scheduler/schedule-once")
+                        .queryParam("minutesFromNow", "0")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sources": ["C:/temp/source"],
+                                  "destination": ["C:/temp/destination"]
+                                }
+                                """)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Minutos devem ser maior que 0."))
+                .andExpect(jsonPath("$.code").value("scheduler_minutes_out_of_range"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/schedule-once"))
+                .andExpect(jsonPath("$.details.minutesFromNow").value(0))
+                .andExpect(jsonPath("$.details.min").value(1))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
+    @Test
+    void adminShouldReceiveStructuredErrorWhenScheduledTaskDoesNotExist() throws Exception {
+        mockMvc.perform(delete("/api/backup/scheduler/schedule/999999/cancel")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Tarefa nao encontrada ou ja executada/cancelada."))
+                .andExpect(jsonPath("$.code").value("scheduler_task_not_found_or_completed"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/schedule/999999/cancel"))
+                .andExpect(jsonPath("$.taskId").value(999999))
+                .andExpect(jsonPath("$.details.taskId").value(999999))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
     }
 
     private String basicAuth(String username, String password) {

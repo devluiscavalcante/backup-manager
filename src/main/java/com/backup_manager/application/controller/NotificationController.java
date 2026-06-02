@@ -1,11 +1,13 @@
 package com.backup_manager.application.controller;
 
+import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.NotificationSettingsResponse;
 import com.backup_manager.application.dto.MutationResponse;
 import com.backup_manager.application.dto.OperationResponse;
 import com.backup_manager.application.service.EmailNotificationService;
 import com.backup_manager.application.service.SecurityAuditService;
 import com.backup_manager.infrastructure.config.NotificationProperties;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -17,6 +19,8 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/backup/notifications")
 public class NotificationController {
+
+    private static final String NOTIFICATION_TEST_PATH = "/api/backup/notifications/test";
 
     private final NotificationProperties properties;
     private final EmailNotificationService emailService;
@@ -50,7 +54,7 @@ public class NotificationController {
     }
 
     @PostMapping("/test")
-    public ResponseEntity<OperationResponse> sendTestEmail() {
+    public ResponseEntity<Object> sendTestEmail() {
         boolean success = emailService.sendTestEmail();
 
         if (success) {
@@ -59,6 +63,14 @@ public class NotificationController {
         }
 
         securityAuditService.recordFailure("notifications.test_email", "email_notification", "delivery_failed", Map.of());
-        return ResponseEntity.status(500).body(OperationResponse.error("Falha ao enviar email de teste."));
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
+                ApiErrorResponse.of(
+                        HttpStatus.INTERNAL_SERVER_ERROR,
+                        "Falha ao enviar email de teste.",
+                        "notification_test_email_failed",
+                        null,
+                        NOTIFICATION_TEST_PATH
+                )
+        );
     }
 }
