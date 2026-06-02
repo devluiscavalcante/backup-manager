@@ -37,6 +37,7 @@ public class BackupSchedulerController {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupSchedulerController.class);
     private static final String SCHEDULER_SCHEDULE_ONCE_PATH = "/api/backup/scheduler/schedule-once";
+    private static final String SCHEDULER_PENDING_PATH = "/api/backup/scheduler/schedule/pending";
     private static final String SCHEDULER_EXECUTE_NOW_PATH = "/api/backup/scheduler/execute-now";
 
     private final BackupScheduler backupScheduler;
@@ -183,15 +184,21 @@ public class BackupSchedulerController {
     }
 
     @GetMapping("/schedule/pending")
-    public ResponseEntity<CollectionResponse<PendingScheduledBackupResponse>> getPendingScheduledBackups() {
+    public ResponseEntity<Object> getPendingScheduledBackups() {
         try {
             List<PendingScheduledBackupResponse> pendingTasks = backupScheduler.getPendingScheduledBackups();
 
             return ResponseEntity.ok(CollectionResponse.of(pendingTasks));
         } catch (Exception e) {
             logger.error("Erro ao listar backups pendentes: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(CollectionResponse.empty("Erro interno ao listar backups pendentes."));
+            return apiError(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Erro interno ao listar backups pendentes.",
+                    "scheduler_pending_list_failed",
+                    null,
+                    SCHEDULER_PENDING_PATH,
+                    null
+            );
         }
     }
 
