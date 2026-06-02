@@ -24,7 +24,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.security.allow-default-password=true",
         "app.security.password=admin-secret",
         "app.security.operator-enabled=true",
-        "app.security.operator-password=operator-secret"
+        "app.security.operator-password=operator-secret",
+        "app.security.allowed-path-roots=${java.io.tmpdir}"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
