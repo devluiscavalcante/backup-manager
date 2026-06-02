@@ -1,5 +1,6 @@
 package com.backup_manager.application.controller;
 
+import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.HealthStatusResponse;
@@ -35,6 +36,8 @@ import java.util.Map;
 public class BackupSchedulerController {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupSchedulerController.class);
+    private static final String SCHEDULER_SCHEDULE_ONCE_PATH = "/api/backup/scheduler/schedule-once";
+    private static final String SCHEDULER_EXECUTE_NOW_PATH = "/api/backup/scheduler/execute-now";
 
     private final BackupScheduler backupScheduler;
     private final SecurityAuditService securityAuditService;
@@ -70,13 +73,20 @@ public class BackupSchedulerController {
     }
 
     @PostMapping("/schedule-once")
-    public ResponseEntity<OperationResponse> scheduleOneTimeBackup(
+    public ResponseEntity<Object> scheduleOneTimeBackup(
             @RequestParam int minutesFromNow,
             @Valid @RequestBody BackupRequest request) {
 
         try {
             if (minutesFromNow <= 0) {
-                return ResponseEntity.badRequest().body(OperationResponse.error("Minutos devem ser maior que 0"));
+                return apiError(
+                        HttpStatus.BAD_REQUEST,
+                        "Minutos devem ser maior que 0.",
+                        "scheduler_minutes_out_of_range",
+                        Map.of("minutesFromNow", minutesFromNow, "min", 1),
+                        SCHEDULER_SCHEDULE_ONCE_PATH,
+                        null
+                );
             }
 
             String backupName = "Backup Agendado";
@@ -107,7 +117,14 @@ public class BackupSchedulerController {
                     "validation_failed",
                     Map.of("minutesFromNow", minutesFromNow)
             );
-            return errorResponse(HttpStatus.BAD_REQUEST, "Nao foi possivel agendar o backup com os dados informados.");
+            return apiError(
+                    HttpStatus.BAD_REQUEST,
+                    "Nao foi possivel agendar o backup com os dados informados.",
+                    "scheduler_schedule_once_validation_failed",
+                    Map.of("minutesFromNow", minutesFromNow),
+                    SCHEDULER_SCHEDULE_ONCE_PATH,
+                    null
+            );
 
         } catch (Exception e) {
             logger.error("Erro ao agendar backup: {}", e.getMessage(), e);
@@ -117,12 +134,19 @@ public class BackupSchedulerController {
                     "internal_error",
                     Map.of("minutesFromNow", minutesFromNow)
             );
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao agendar backup.");
+            return apiError(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Erro interno ao agendar backup.",
+                    "scheduler_schedule_once_failed",
+                    Map.of("minutesFromNow", minutesFromNow),
+                    SCHEDULER_SCHEDULE_ONCE_PATH,
+                    null
+            );
         }
     }
 
     @DeleteMapping("/schedule/{taskId}/cancel")
-    public ResponseEntity<OperationResponse> cancelScheduledBackup(@PathVariable Long taskId) {
+    public ResponseEntity<Object> cancelScheduledBackup(@PathVariable Long taskId) {
         try {
             boolean cancelled = backupScheduler.cancelScheduledBackup(taskId);
 
@@ -135,13 +159,26 @@ public class BackupSchedulerController {
             logger.warn("Tentativa de cancelar tarefa inexistente: {}", taskId);
             securityAuditService.recordFailure("scheduler.cancel", "scheduled_backup_task", "task_not_found_or_completed",
                     Map.of("taskId", taskId));
-            return ResponseEntity.status(404)
-                    .body(OperationResponse.error("Tarefa nao encontrada ou ja executada/cancelada", taskId));
+            return apiError(
+                    HttpStatus.NOT_FOUND,
+                    "Tarefa nao encontrada ou ja executada/cancelada.",
+                    "scheduler_task_not_found_or_completed",
+                    Map.of("taskId", taskId),
+                    "/api/backup/scheduler/schedule/" + taskId + "/cancel",
+                    taskId
+            );
         } catch (Exception e) {
             logger.error("Erro ao cancelar backup {}: {}", taskId, e.getMessage(), e);
             securityAuditService.recordFailure("scheduler.cancel", "scheduled_backup_task", "internal_error",
                     Map.of("taskId", taskId));
-            return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR, "Erro interno ao cancelar backup.");
+            return apiError(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Erro interno ao cancelar backup.",
+                    "scheduler_cancel_failed",
+                    Map.of("taskId", taskId),
+                    "/api/backup/scheduler/schedule/" + taskId + "/cancel",
+                    taskId
+            );
         }
     }
 
@@ -159,7 +196,7 @@ public class BackupSchedulerController {
     }
 
     @PostMapping("/execute-now")
-    public ResponseEntity<OperationResponse> executeNow(@Valid @RequestBody BackupRequest request) {
+    public ResponseEntity<Object> executeNow(@Valid @RequestBody BackupRequest request) {
         try {
             String backupName = "Backup Imediato " + LocalDateTime.now();
             logger.info("Executando backup imediato: {}", backupName);
@@ -172,7 +209,14 @@ public class BackupSchedulerController {
         } catch (Exception e) {
             logger.error("Erro ao executar backup imediato: {}", e.getMessage(), e);
             securityAuditService.recordFailure("scheduler.execute_now", "backup_request", "execution_failed", Map.of());
-            return errorResponse(HttpStatus.BAD_REQUEST, "Falha ao executar backup imediato.");
+            return apiError(
+                    HttpStatus.BAD_REQUEST,
+                    "Falha ao executar backup imediato.",
+                    "scheduler_execute_now_failed",
+                    null,
+                    SCHEDULER_EXECUTE_NOW_PATH,
+                    null
+            );
         }
     }
 
@@ -209,7 +253,14 @@ public class BackupSchedulerController {
         logger.info("Desligando controller do scheduler...");
     }
 
-    private ResponseEntity<OperationResponse> errorResponse(HttpStatus status, String message) {
-        return ResponseEntity.status(status).body(OperationResponse.error(message));
+    private ResponseEntity<Object> apiError(HttpStatus status,
+                                            String message,
+                                            String code,
+                                            Object details,
+                                            String path,
+                                            Long taskId) {
+        return ResponseEntity.status(status).body(
+                ApiErrorResponse.of(status, message, code, details, path, taskId)
+        );
     }
 }
