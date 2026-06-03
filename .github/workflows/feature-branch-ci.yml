@@ -2,7 +2,7 @@ name: Feature Branch CI
 
 on:
   push:
-    branches-ignore: [ main, master ]  # Roda em TODAS exceto main/master
+    branches-ignore: [ main, master ]
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -26,7 +26,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
-      - name: Show Branch Info
+      - name: Show branch info
         run: |
           echo "Running CI on branch: ${{ github.ref }}"
           echo "Branch name: ${{ github.ref_name }}"
@@ -37,10 +37,10 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      - name: 🏗Quick Build Test
+      - name: Quick build test
         run: mvn clean compile
 
-      - name: 🎉 Feature CI Success
+      - name: Feature CI success
         run: |
           echo "CI executed on feature branch: ${{ github.ref_name }}"
           echo "Commit: ${{ github.sha }}"
