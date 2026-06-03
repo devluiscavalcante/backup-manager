@@ -98,6 +98,21 @@ class SecurityAuditControllerIntegrationTests {
     }
 
     @Test
+    void adminShouldReceiveStructuredErrorForNegativePage() throws Exception {
+        mockMvc.perform(get("/api/system/audit")
+                        .param("page", "-1")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Indice da pagina nao pode ser negativo."))
+                .andExpect(jsonPath("$.code").value("page_index_out_of_range"))
+                .andExpect(jsonPath("$.path").value("/api/system/audit"))
+                .andExpect(jsonPath("$.details.page").value(-1))
+                .andExpect(jsonPath("$.details.min").value(0));
+    }
+
+    @Test
     void adminShouldCleanupExpiredAuditEvents() throws Exception {
         repository.save(createEvent("backup.start", "admin", "trace-old", AuditOutcome.SUCCESS, LocalDateTime.now().minusDays(120)));
         repository.save(createEvent("restore.cancel", "admin", "trace-new", AuditOutcome.FAILURE, LocalDateTime.now().minusDays(5)));
