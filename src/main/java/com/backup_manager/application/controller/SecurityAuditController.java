@@ -70,6 +70,11 @@ public class SecurityAuditController {
                         .body(invalidRangeResponse("size", size, AUDIT_PATH));
             }
 
+            if (page < 0) {
+                return ResponseEntity.badRequest()
+                        .body(invalidMinimumResponse("page", page, AUDIT_PATH));
+            }
+
             PageRequest pageable = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt"));
             Page<SecurityAuditEventResponse> result = securityAuditQueryService.search(
                     action,
@@ -124,6 +129,16 @@ public class SecurityAuditController {
                 "Tamanho da pagina deve estar entre 1 e 100.",
                 "page_size_out_of_range",
                 Map.of(field, value, "min", 1, "max", 100),
+                path
+        );
+    }
+
+    private ApiErrorResponse invalidMinimumResponse(String field, int value, String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.BAD_REQUEST,
+                "Indice da pagina nao pode ser negativo.",
+                "page_index_out_of_range",
+                Map.of(field, value, "min", 0),
                 path
         );
     }
