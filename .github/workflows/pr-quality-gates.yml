@@ -2,7 +2,7 @@ name: PR Quality Gates
 
 on:
   push:
-    branches: [ main, master, develop, 'feature/**', 'bugfix/**', 'hotfix/**', 'infra/**']
+    branches: [ main, master, develop, 'feature/**', 'bugfix/**', 'hotfix/**', 'infra/**', 'ci/**', 'refactor/**']
   pull_request:
     branches: [ main, master, develop ]
   workflow_dispatch:
@@ -112,7 +112,7 @@ jobs:
 
       - name: Upload Quality Reports
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: quality-reports-${{ github.sha }}
           path: |
