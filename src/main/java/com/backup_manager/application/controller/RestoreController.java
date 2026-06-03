@@ -243,6 +243,18 @@ public class RestoreController {
                         ));
             }
 
+            if (page < 0) {
+                return ResponseEntity.badRequest()
+                        .body(invalidMinimumResponse(
+                                "page_index_out_of_range",
+                                "Indice da pagina nao pode ser negativo.",
+                                "page",
+                                page,
+                                0,
+                                RESTORE_HISTORY_PATH
+                        ));
+            }
+
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
             Page<RestoreTaskResponse> history = restoreRepository.findAllOrderByStartedAtDesc(pageable)
                     .map(RestoreTaskResponse::fromTask);
@@ -324,6 +336,21 @@ public class RestoreController {
                 message,
                 code,
                 Map.of(field, value, "min", 1, "max", 100),
+                path
+        );
+    }
+
+    private ApiErrorResponse invalidMinimumResponse(String code,
+                                                    String message,
+                                                    String field,
+                                                    int value,
+                                                    int min,
+                                                    String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.BAD_REQUEST,
+                message,
+                code,
+                Map.of(field, value, "min", min),
                 path
         );
     }

@@ -61,6 +61,21 @@ class RestoreControllerErrorIntegrationTests {
     }
 
     @Test
+    void restoreHistoryShouldReturnStructuredErrorForNegativePage() throws Exception {
+        mockMvc.perform(get("/api/restore/history")
+                        .queryParam("page", "-1")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Indice da pagina nao pode ser negativo."))
+                .andExpect(jsonPath("$.code").value("page_index_out_of_range"))
+                .andExpect(jsonPath("$.path").value("/api/restore/history"))
+                .andExpect(jsonPath("$.details.page").value(-1))
+                .andExpect(jsonPath("$.details.min").value(0));
+    }
+
+    @Test
     void restoreStatusShouldReturnStructuredErrorForUnknownTask() throws Exception {
         mockMvc.perform(get("/api/restore/999999/status")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
