@@ -16,7 +16,9 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -151,6 +153,34 @@ public class GlobalExceptionHandler {
                         "Falha na validacao dos dados enviados.",
                         "request_validation_failed",
                         validationErrors,
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleMethodArgumentTypeMismatch(MethodArgumentTypeMismatchException ex,
+                                                                             WebRequest request) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("parameter", ex.getName());
+        details.put("value", ex.getValue());
+
+        Class<?> requiredType = ex.getRequiredType();
+        if (requiredType != null) {
+            details.put("expectedType", requiredType.getSimpleName());
+            if (requiredType.isEnum()) {
+                details.put("allowedValues", Arrays.stream(requiredType.getEnumConstants())
+                        .map(Object::toString)
+                        .toList());
+            }
+        }
+
+        return ResponseEntity.badRequest().body(
+                ApiErrorResponse.of(
+                        HttpStatus.BAD_REQUEST,
+                        "Parametro de requisicao invalido.",
+                        "request_parameter_type_mismatch",
+                        details,
                         extractPath(request)
                 )
         );
