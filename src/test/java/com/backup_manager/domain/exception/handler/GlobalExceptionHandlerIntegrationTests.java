@@ -127,6 +127,24 @@ class GlobalExceptionHandlerIntegrationTests {
     }
 
     @Test
+    void shouldReturnStructuredBodyForInvalidQueryParameterType() throws Exception {
+        mockMvc.perform(get("/api/backup/history/search")
+                        .param("sortDir", "SIDEWAYS")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Parametro de requisicao invalido."))
+                .andExpect(jsonPath("$.code").value("request_parameter_type_mismatch"))
+                .andExpect(jsonPath("$.path").value("/api/backup/history/search"))
+                .andExpect(jsonPath("$.details.parameter").value("sortDir"))
+                .andExpect(jsonPath("$.details.value").value("SIDEWAYS"))
+                .andExpect(jsonPath("$.details.expectedType").value("Direction"))
+                .andExpect(jsonPath("$.details.allowedValues[0]").value("ASC"))
+                .andExpect(jsonPath("$.details.allowedValues[1]").value("DESC"));
+    }
+
+    @Test
     void shouldReturnStructuredForbiddenBodyForPathTraversalAttempt() throws Exception {
         String payload = """
                 {
