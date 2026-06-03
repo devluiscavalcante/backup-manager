@@ -2,7 +2,7 @@ name: PR Quality Gates
 
 on:
   push:
-    branches: [ main, master, develop, 'feature/**', 'bugfix/**', 'hotfix/**', 'infra/**', 'ci/**', 'refactor/**']
+    branches: [ main, master, develop, 'feature/**', 'bugfix/**', 'hotfix/**', 'infra/**', 'ci/**', 'refactor/**' ]
   pull_request:
     branches: [ main, master, develop ]
   workflow_dispatch:
@@ -19,15 +19,6 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          MAIL_HOST: ${{ secrets.MAIL_HOST }}
-          MAIL_PORT: ${{ secrets.MAIL_PORT }}
-          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
-          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
-          NOTIFICATION_ENABLED: "true"
-          NOTIFICATION_EMAIL_FROM: ${{ secrets.NOTIFICATION_EMAIL_FROM }}
-          NOTIFICATION_EMAIL_RECIPIENTS: ${{ secrets.NOTIFICATION_EMAIL_RECIPIENTS }}
-          NOTIFICATION_NOTIFY_SUCCESS: "true"
-          NOTIFICATION_NOTIFY_FAILURE: "true"
           POSTGRES_PASSWORD: test
           POSTGRES_DB: backup_manager_test
           POSTGRES_USER: test
@@ -59,7 +50,7 @@ jobs:
           echo "DB_PASSWORD=test" >> $GITHUB_ENV
           echo "APP_PORT=8080" >> $GITHUB_ENV
           echo "APP_DEBUG=false" >> $GITHUB_ENV
-          
+
           echo "DB_HOST=localhost" > .env
           echo "DB_PORT=5432" >> .env
           echo "DB_NAME=backup_manager_test" >> .env
@@ -81,7 +72,6 @@ jobs:
 
       - name: Checkstyle Analysis
         run: mvn checkstyle:check
-        continue-on-error: true
 
       - name: Run Unit Tests
         run: mvn test
@@ -91,6 +81,15 @@ jobs:
           DB_NAME: backup_manager_test
           DB_USERNAME: test
           DB_PASSWORD: test
+          MAIL_HOST: ${{ secrets.MAIL_HOST }}
+          MAIL_PORT: ${{ secrets.MAIL_PORT }}
+          MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
+          MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
+          NOTIFICATION_ENABLED: "true"
+          NOTIFICATION_EMAIL_FROM: ${{ secrets.NOTIFICATION_EMAIL_FROM }}
+          NOTIFICATION_EMAIL_RECIPIENTS: ${{ secrets.NOTIFICATION_EMAIL_RECIPIENTS }}
+          NOTIFICATION_NOTIFY_SUCCESS: "true"
+          NOTIFICATION_NOTIFY_FAILURE: "true"
 
       - name: Test Coverage Report
         run: mvn jacoco:report
@@ -104,7 +103,6 @@ jobs:
           echo "Creating report directories (if missing)..."
           mkdir -p target/surefire-reports
           mkdir -p target/site/jacoco
-          # Cria arquivo checkstyle vazio se não existir
           if [ ! -f target/checkstyle-result.xml ]; then
             echo '<?xml version="1.0"?><checkstyle version="8.0"></checkstyle>' > target/checkstyle-result.xml
           fi
