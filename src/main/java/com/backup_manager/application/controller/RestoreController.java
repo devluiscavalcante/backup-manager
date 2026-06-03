@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 @RestController
 @RequestMapping("/api")
@@ -36,6 +37,16 @@ public class RestoreController {
     private static final Logger logger = LoggerFactory.getLogger(RestoreController.class);
     private static final String RESTORE_HISTORY_PATH = "/api/restore/history";
     private static final String RESTORE_RECENT_PATH = "/api/restore/recent";
+    private static final Set<String> ALLOWED_HISTORY_SORT_FIELDS = Set.of(
+            "id",
+            "status",
+            "startedAt",
+            "finishedAt",
+            "restoreType",
+            "totalSizeMB",
+            "fileCount",
+            "restoredFiles"
+    );
 
     private final RestoreService restoreService;
     private final RestoreRepository restoreRepository;
@@ -255,6 +266,11 @@ public class RestoreController {
                         ));
             }
 
+            if (!ALLOWED_HISTORY_SORT_FIELDS.contains(sortBy)) {
+                return ResponseEntity.badRequest()
+                        .body(invalidSortResponse(sortBy, ALLOWED_HISTORY_SORT_FIELDS, RESTORE_HISTORY_PATH));
+            }
+
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
             Page<RestoreTaskResponse> history = restoreRepository.findAllOrderByStartedAtDesc(pageable)
                     .map(RestoreTaskResponse::fromTask);
@@ -351,6 +367,16 @@ public class RestoreController {
                 message,
                 code,
                 Map.of(field, value, "min", min),
+                path
+        );
+    }
+
+    private ApiErrorResponse invalidSortResponse(String sortBy, Set<String> allowedFields, String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.BAD_REQUEST,
+                "Campo de ordenacao invalido.",
+                "invalid_sort_field",
+                Map.of("sortBy", sortBy, "allowedFields", allowedFields),
                 path
         );
     }

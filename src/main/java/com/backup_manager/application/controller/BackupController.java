@@ -37,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 @RestController
 @RequestMapping("/api/backup")
 public class BackupController {
@@ -47,6 +48,14 @@ public class BackupController {
     private static final String BACKUP_HISTORY_SEARCH_PATH = "/api/backup/history/search";
     private static final String BACKUP_HISTORY_STATS_PATH = "/api/backup/history/stats";
     private static final String BACKUP_HISTORY_RECENT_PATH = "/api/backup/history/recent";
+    private static final Set<String> ALLOWED_HISTORY_SORT_FIELDS = Set.of(
+            "id",
+            "status",
+            "startedAt",
+            "finishedAt",
+            "totalSizeMB",
+            "fileCount"
+    );
 
     private final BackupService backupService;
     private final BackupRequestValidationService backupRequestValidationService;
@@ -223,6 +232,11 @@ public class BackupController {
                                 0,
                                 BACKUP_HISTORY_SEARCH_PATH
                         ));
+            }
+
+            if (!ALLOWED_HISTORY_SORT_FIELDS.contains(sortBy)) {
+                return ResponseEntity.badRequest()
+                        .body(invalidSortResponse(sortBy, ALLOWED_HISTORY_SORT_FIELDS, BACKUP_HISTORY_SEARCH_PATH));
             }
 
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
@@ -419,6 +433,16 @@ public class BackupController {
                 message,
                 code,
                 Map.of(field, value, "min", min),
+                path
+        );
+    }
+
+    private ApiErrorResponse invalidSortResponse(String sortBy, Set<String> allowedFields, String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.BAD_REQUEST,
+                "Campo de ordenacao invalido.",
+                "invalid_sort_field",
+                Map.of("sortBy", sortBy, "allowedFields", allowedFields),
                 path
         );
     }
