@@ -76,6 +76,21 @@ class RestoreControllerErrorIntegrationTests {
     }
 
     @Test
+    void restoreHistoryShouldReturnStructuredErrorForInvalidSortField() throws Exception {
+        mockMvc.perform(get("/api/restore/history")
+                        .queryParam("sortBy", "unknownField")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Campo de ordenacao invalido."))
+                .andExpect(jsonPath("$.code").value("invalid_sort_field"))
+                .andExpect(jsonPath("$.path").value("/api/restore/history"))
+                .andExpect(jsonPath("$.details.sortBy").value("unknownField"))
+                .andExpect(jsonPath("$.details.allowedFields").isArray());
+    }
+
+    @Test
     void restoreStatusShouldReturnStructuredErrorForUnknownTask() throws Exception {
         mockMvc.perform(get("/api/restore/999999/status")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))

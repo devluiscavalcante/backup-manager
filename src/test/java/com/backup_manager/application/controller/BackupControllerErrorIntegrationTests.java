@@ -76,6 +76,21 @@ class BackupControllerErrorIntegrationTests {
     }
 
     @Test
+    void historySearchShouldReturnStructuredErrorForInvalidSortField() throws Exception {
+        mockMvc.perform(get("/api/backup/history/search")
+                        .queryParam("sortBy", "unknownField")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Campo de ordenacao invalido."))
+                .andExpect(jsonPath("$.code").value("invalid_sort_field"))
+                .andExpect(jsonPath("$.path").value("/api/backup/history/search"))
+                .andExpect(jsonPath("$.details.sortBy").value("unknownField"))
+                .andExpect(jsonPath("$.details.allowedFields").isArray());
+    }
+
+    @Test
     void backupStatusShouldReturnStructuredErrorForUnknownTask() throws Exception {
         mockMvc.perform(get("/api/backup/999999/status")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
