@@ -213,6 +213,18 @@ public class BackupController {
                         ));
             }
 
+            if (page < 0) {
+                return ResponseEntity.badRequest()
+                        .body(invalidMinimumResponse(
+                                "page_index_out_of_range",
+                                "Indice da pagina nao pode ser negativo.",
+                                "page",
+                                page,
+                                0,
+                                BACKUP_HISTORY_SEARCH_PATH
+                        ));
+            }
+
             Pageable pageable = PageRequest.of(page, size, Sort.by(sortDir, sortBy));
             Page<BackupResponse> result = historyService.searchHistory(status, startDate, endDate, pageable);
 
@@ -392,6 +404,21 @@ public class BackupController {
                 message,
                 code,
                 Map.of(field, value, "min", 1, "max", 100),
+                path
+        );
+    }
+
+    private ApiErrorResponse invalidMinimumResponse(String code,
+                                                    String message,
+                                                    String field,
+                                                    int value,
+                                                    int min,
+                                                    String path) {
+        return ApiErrorResponse.of(
+                HttpStatus.BAD_REQUEST,
+                message,
+                code,
+                Map.of(field, value, "min", min),
                 path
         );
     }
