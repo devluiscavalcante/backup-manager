@@ -2,7 +2,7 @@ name: PR Quality Gates
 
 on:
   push:
-    branches: [ main, master, develop, 'feature/**', 'bugfix/**', 'hotfix/**', 'infra/**', 'ci/**', 'refactor/**' ]
+    branches: [ main, master, develop, 'feature/**', 'feat/**', 'fix/**', 'bugfix/**', 'hotfix/**', 'infra/**', 'ci/**', 'refactor/**', 'security/**', 'perf/**', 'docs/**', 'chore/**' ]
   pull_request:
     branches: [ main, master, develop ]
   workflow_dispatch:
