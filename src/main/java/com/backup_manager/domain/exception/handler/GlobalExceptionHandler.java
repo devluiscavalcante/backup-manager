@@ -13,12 +13,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
-import org.springframework.web.bind.MissingServletRequestParameterException;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -214,6 +216,44 @@ public class GlobalExceptionHandler {
                         "Corpo da requisicao invalido ou malformado.",
                         "invalid_request_body",
                         null,
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleHttpRequestMethodNotSupported(
+            HttpRequestMethodNotSupportedException ex,
+            WebRequest request) {
+        return ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED).body(
+                ApiErrorResponse.of(
+                        HttpStatus.METHOD_NOT_ALLOWED,
+                        "Metodo HTTP nao suportado para este endpoint.",
+                        "http_method_not_supported",
+                        Map.of(
+                                "method", ex.getMethod(),
+                                "supportedMethods", Arrays.stream(ex.getSupportedMethods()).toList()
+                        ),
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiErrorResponse> handleHttpMediaTypeNotSupported(
+            HttpMediaTypeNotSupportedException ex,
+            WebRequest request) {
+        return ResponseEntity.status(HttpStatus.UNSUPPORTED_MEDIA_TYPE).body(
+                ApiErrorResponse.of(
+                        HttpStatus.UNSUPPORTED_MEDIA_TYPE,
+                        "Tipo de conteudo nao suportado para este endpoint.",
+                        "http_media_type_not_supported",
+                        Map.of(
+                                "contentType", String.valueOf(ex.getContentType()),
+                                "supportedContentTypes", ex.getSupportedMediaTypes().stream()
+                                        .map(Object::toString)
+                                        .toList()
+                        ),
                         extractPath(request)
                 )
         );
