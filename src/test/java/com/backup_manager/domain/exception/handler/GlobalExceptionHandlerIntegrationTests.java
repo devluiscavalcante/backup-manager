@@ -127,6 +127,20 @@ class GlobalExceptionHandlerIntegrationTests {
     }
 
     @Test
+    void shouldReturnStructuredBodyForMalformedJsonRequestBody() throws Exception {
+        mockMvc.perform(post("/api/backup/start")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sources\":[\"C:/origem\"],"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Corpo da requisicao invalido ou malformado."))
+                .andExpect(jsonPath("$.code").value("invalid_request_body"))
+                .andExpect(jsonPath("$.path").value("/api/backup/start"));
+    }
+
+    @Test
     void shouldReturnStructuredBodyForInvalidQueryParameterType() throws Exception {
         mockMvc.perform(get("/api/backup/history/search")
                         .param("sortDir", "SIDEWAYS")
