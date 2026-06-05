@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -254,6 +255,20 @@ public class GlobalExceptionHandler {
                                         .map(Object::toString)
                                         .toList()
                         ),
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleNoResourceFound(NoResourceFoundException ex,
+                                                                  WebRequest request) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(
+                ApiErrorResponse.of(
+                        HttpStatus.NOT_FOUND,
+                        "Endpoint nao encontrado.",
+                        "endpoint_not_found",
+                        null,
                         extractPath(request)
                 )
         );

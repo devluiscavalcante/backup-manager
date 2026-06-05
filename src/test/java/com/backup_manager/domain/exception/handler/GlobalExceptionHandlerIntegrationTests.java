@@ -171,6 +171,18 @@ class GlobalExceptionHandlerIntegrationTests {
     }
 
     @Test
+    void shouldReturnStructuredBodyForMissingEndpoint() throws Exception {
+        mockMvc.perform(get("/api/backup/endpoint-inexistente")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.error").value("Endpoint nao encontrado."))
+                .andExpect(jsonPath("$.code").value("endpoint_not_found"))
+                .andExpect(jsonPath("$.path").value("/api/backup/endpoint-inexistente"));
+    }
+
+    @Test
     void shouldReturnStructuredBodyForInvalidQueryParameterType() throws Exception {
         mockMvc.perform(get("/api/backup/history/search")
                         .param("sortDir", "SIDEWAYS")
