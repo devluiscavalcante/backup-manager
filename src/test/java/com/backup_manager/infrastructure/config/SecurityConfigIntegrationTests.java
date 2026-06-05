@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest(properties = {
@@ -36,7 +38,14 @@ class SecurityConfigIntegrationTests {
     @Test
     void unauthenticatedOperationalRequestShouldBeRejected() throws Exception {
         mockMvc.perform(get("/api/backup/active"))
-                .andExpect(status().isUnauthorized());
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"backup-manager\""))
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(401))
+                .andExpect(jsonPath("$.error").value("Autenticacao obrigatoria."))
+                .andExpect(jsonPath("$.code").value("authentication_required"))
+                .andExpect(jsonPath("$.path").value("/api/backup/active"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
     }
 
     @Test
@@ -50,7 +59,13 @@ class SecurityConfigIntegrationTests {
     void operatorShouldNotAccessAdministrativeEndpoints() throws Exception {
         mockMvc.perform(get("/api/logs")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.error").value("Acesso negado para este recurso."))
+                .andExpect(jsonPath("$.code").value("access_denied"))
+                .andExpect(jsonPath("$.path").value("/api/logs"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
     }
 
     @Test

@@ -1,11 +1,18 @@
 package com.backup_manager.infrastructure.config;
 
+import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.infrastructure.web.RequestTracingFilter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
@@ -16,9 +23,10 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.factory.PasswordEncoderFactories;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.provisioning.InMemoryUserDetailsManager;
-import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,12 +38,34 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
                                                    AppSecurityProperties securityProperties,
-                                                   RequestTracingFilter requestTracingFilter) throws Exception {
+                                                   RequestTracingFilter requestTracingFilter,
+                                                   ObjectMapper objectMapper) throws Exception {
         return http
                 .csrf(AbstractHttpConfigurer::disable)
                 .cors(Customizer.withDefaults())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .httpBasic(Customizer.withDefaults())
+                .exceptionHandling(exceptions -> exceptions
+                        .authenticationEntryPoint((request, response, ex) -> {
+                            response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"backup-manager\"");
+                            writeSecurityError(
+                                    response,
+                                    objectMapper,
+                                    HttpStatus.UNAUTHORIZED,
+                                    "Autenticacao obrigatoria.",
+                                    "authentication_required",
+                                    request
+                            );
+                        })
+                        .accessDeniedHandler((request, response, ex) -> writeSecurityError(
+                                response,
+                                objectMapper,
+                                HttpStatus.FORBIDDEN,
+                                "Acesso negado para este recurso.",
+                                "access_denied",
+                                request
+                        ))
+                )
                 .addFilterBefore(requestTracingFilter, BasicAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/health/application").permitAll()
@@ -112,5 +142,20 @@ public class SecurityConfig {
         }
 
         logger.warn("{} Defina {} no ambiente.", warningMessage, environmentVariable);
+    }
+
+    private void writeSecurityError(HttpServletResponse response,
+                                    ObjectMapper objectMapper,
+                                    HttpStatus status,
+                                    String message,
+                                    String code,
+                                    HttpServletRequest request) throws IOException {
+        response.setStatus(status.value());
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        response.setCharacterEncoding("UTF-8");
+        objectMapper.writeValue(
+                response.getWriter(),
+                ApiErrorResponse.of(status, message, code, null, request.getRequestURI())
+        );
     }
 }
