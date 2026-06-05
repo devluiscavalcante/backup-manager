@@ -17,6 +17,7 @@ import java.util.Base64;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -138,6 +139,35 @@ class GlobalExceptionHandlerIntegrationTests {
                 .andExpect(jsonPath("$.error").value("Corpo da requisicao invalido ou malformado."))
                 .andExpect(jsonPath("$.code").value("invalid_request_body"))
                 .andExpect(jsonPath("$.path").value("/api/backup/start"));
+    }
+
+    @Test
+    void shouldReturnStructuredBodyForUnsupportedHttpMethod() throws Exception {
+        mockMvc.perform(put("/api/backup/start")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isMethodNotAllowed())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(405))
+                .andExpect(jsonPath("$.error").value("Metodo HTTP nao suportado para este endpoint."))
+                .andExpect(jsonPath("$.code").value("http_method_not_supported"))
+                .andExpect(jsonPath("$.path").value("/api/backup/start"))
+                .andExpect(jsonPath("$.details.method").value("PUT"))
+                .andExpect(jsonPath("$.details.supportedMethods[0]").value("POST"));
+    }
+
+    @Test
+    void shouldReturnStructuredBodyForUnsupportedMediaType() throws Exception {
+        mockMvc.perform(post("/api/backup/start")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret"))
+                        .contentType(MediaType.TEXT_PLAIN)
+                        .content("not-json"))
+                .andExpect(status().isUnsupportedMediaType())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(415))
+                .andExpect(jsonPath("$.error").value("Tipo de conteudo nao suportado para este endpoint."))
+                .andExpect(jsonPath("$.code").value("http_media_type_not_supported"))
+                .andExpect(jsonPath("$.path").value("/api/backup/start"))
+                .andExpect(jsonPath("$.details.contentType").value("text/plain;charset=UTF-8"));
     }
 
     @Test
