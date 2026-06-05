@@ -112,6 +112,28 @@ class BackupSchedulerControllerIntegrationTests {
     }
 
     @Test
+    void adminShouldReceiveStructuredErrorWhenScheduleDelayIsMissing() throws Exception {
+        mockMvc.perform(post("/api/backup/scheduler/schedule-once")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sources": ["C:/temp/source"],
+                                  "destination": ["C:/temp/destination"]
+                                }
+                                """)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Parametro de requisicao obrigatorio ausente."))
+                .andExpect(jsonPath("$.code").value("request_parameter_missing"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/schedule-once"))
+                .andExpect(jsonPath("$.details.parameter").value("minutesFromNow"))
+                .andExpect(jsonPath("$.details.expectedType").value("int"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
+    @Test
     void adminShouldReceiveStructuredErrorWhenScheduledTaskDoesNotExist() throws Exception {
         mockMvc.perform(delete("/api/backup/scheduler/schedule/999999/cancel")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))

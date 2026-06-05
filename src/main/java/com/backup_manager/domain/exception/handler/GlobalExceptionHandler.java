@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -182,6 +183,21 @@ public class GlobalExceptionHandler {
                         "Parametro de requisicao invalido.",
                         "request_parameter_type_mismatch",
                         details,
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    public ResponseEntity<ApiErrorResponse> handleMissingServletRequestParameter(
+            MissingServletRequestParameterException ex,
+            WebRequest request) {
+        return ResponseEntity.badRequest().body(
+                ApiErrorResponse.of(
+                        HttpStatus.BAD_REQUEST,
+                        "Parametro de requisicao obrigatorio ausente.",
+                        "request_parameter_missing",
+                        Map.of("parameter", ex.getParameterName(), "expectedType", ex.getParameterType()),
                         extractPath(request)
                 )
         );
