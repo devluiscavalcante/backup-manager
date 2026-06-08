@@ -15,8 +15,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -49,7 +52,8 @@ class RestoreControllerInternalErrorIntegrationTests {
                 .andExpect(jsonPath("$.error").value("Erro interno ao buscar historico de restauracoes."))
                 .andExpect(jsonPath("$.code").value("restore_history_list_failed"))
                 .andExpect(jsonPath("$.path").value("/api/restore/history"))
-                .andExpect(jsonPath("$.requestId").isNotEmpty());
+                .andExpect(jsonPath("$.requestId").isNotEmpty())
+                .andExpect(content().string(not(containsString("database_unavailable"))));
     }
 
     private String basicAuth(String username, String password) {
