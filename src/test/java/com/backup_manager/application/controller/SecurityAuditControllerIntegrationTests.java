@@ -62,7 +62,13 @@ class SecurityAuditControllerIntegrationTests {
     void operatorShouldNotQueryAuditEvents() throws Exception {
         mockMvc.perform(get("/api/system/audit")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.error").value("Acesso negado para este recurso."))
+                .andExpect(jsonPath("$.code").value("access_denied"))
+                .andExpect(jsonPath("$.path").value("/api/system/audit"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
     }
 
     @Test
