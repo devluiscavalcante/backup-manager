@@ -44,7 +44,13 @@ class LogControllerIntegrationTests {
     void operatorShouldNotInspectLogStatus() throws Exception {
         mockMvc.perform(get("/api/logs")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.error").value("Acesso negado para este recurso."))
+                .andExpect(jsonPath("$.code").value("access_denied"))
+                .andExpect(jsonPath("$.path").value("/api/logs"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
     }
 
     @Test
