@@ -25,6 +25,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestControllerAdvice
@@ -233,7 +234,7 @@ public class GlobalExceptionHandler {
                         "http_method_not_supported",
                         Map.of(
                                 "method", ex.getMethod(),
-                                "supportedMethods", Arrays.stream(ex.getSupportedMethods()).toList()
+                                "supportedMethods", supportedMethods(ex)
                         ),
                         extractPath(request)
                 )
@@ -319,5 +320,14 @@ public class GlobalExceptionHandler {
         }
 
         return Map.of("destination", ex.getPath());
+    }
+
+    private List<String> supportedMethods(HttpRequestMethodNotSupportedException ex) {
+        String[] methods = ex.getSupportedMethods();
+        if (methods == null) {
+            return List.of();
+        }
+
+        return Arrays.stream(methods).toList();
     }
 }
