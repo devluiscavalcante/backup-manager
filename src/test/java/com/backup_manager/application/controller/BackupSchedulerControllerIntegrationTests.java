@@ -78,14 +78,26 @@ class BackupSchedulerControllerIntegrationTests {
     void operatorShouldNotInspectSchedulerHealth() throws Exception {
         mockMvc.perform(get("/api/backup/scheduler/health")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.error").value("Acesso negado para este recurso."))
+                .andExpect(jsonPath("$.code").value("access_denied"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/health"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
     }
 
     @Test
     void operatorShouldNotInspectSchedulerStatus() throws Exception {
         mockMvc.perform(get("/api/backup/scheduler/status")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.error").value("Acesso negado para este recurso."))
+                .andExpect(jsonPath("$.code").value("access_denied"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/status"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
     }
 
     @Test
