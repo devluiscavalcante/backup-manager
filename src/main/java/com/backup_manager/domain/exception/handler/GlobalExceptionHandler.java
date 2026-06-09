@@ -9,6 +9,7 @@ import com.backup_manager.domain.exception.FolderNotFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.http.converter.HttpMessageNotWritableException;
@@ -252,9 +253,7 @@ public class GlobalExceptionHandler {
                         "http_media_type_not_supported",
                         Map.of(
                                 "contentType", String.valueOf(ex.getContentType()),
-                                "supportedContentTypes", ex.getSupportedMediaTypes().stream()
-                                        .map(Object::toString)
-                                        .toList()
+                                "supportedContentTypes", supportedMediaTypes(ex)
                         ),
                         extractPath(request)
                 )
@@ -329,5 +328,16 @@ public class GlobalExceptionHandler {
         }
 
         return Arrays.stream(methods).toList();
+    }
+
+    private List<String> supportedMediaTypes(HttpMediaTypeNotSupportedException ex) {
+        List<MediaType> mediaTypes = ex.getSupportedMediaTypes();
+        if (mediaTypes == null) {
+            return List.of();
+        }
+
+        return mediaTypes.stream()
+                .map(Object::toString)
+                .toList();
     }
 }
