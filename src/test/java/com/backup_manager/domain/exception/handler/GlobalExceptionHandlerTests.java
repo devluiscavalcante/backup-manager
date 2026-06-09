@@ -44,6 +44,30 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
+    void unsupportedMethodShouldHandleNullMethod() {
+        WebRequest request = mock(WebRequest.class);
+        when(request.getDescription(false)).thenReturn("uri=/api/example");
+
+        HttpRequestMethodNotSupportedException exception = mock(HttpRequestMethodNotSupportedException.class);
+        when(exception.getMethod()).thenReturn(null);
+        when(exception.getSupportedMethods()).thenReturn(new String[]{"GET"});
+
+        ResponseEntity<ApiErrorResponse> response =
+                handler.handleHttpRequestMethodNotSupported(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("http_method_not_supported");
+        assertThat(response.getBody().getPath()).isEqualTo("/api/example");
+        assertThat(response.getBody().getDetails()).isInstanceOf(Map.class);
+
+        Map<?, ?> details = (Map<?, ?>) response.getBody().getDetails();
+        assertThat(details.containsKey("method")).isTrue();
+        assertThat(details.get("method")).isNull();
+        assertThat(details.get("supportedMethods")).isEqualTo(List.of("GET"));
+    }
+
+    @Test
     void unsupportedMediaTypeShouldHandleNullSupportedMediaTypes() {
         WebRequest request = mock(WebRequest.class);
         when(request.getDescription(false)).thenReturn("uri=/api/example");
