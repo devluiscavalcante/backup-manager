@@ -233,10 +233,7 @@ public class GlobalExceptionHandler {
                         HttpStatus.METHOD_NOT_ALLOWED,
                         "Metodo HTTP nao suportado para este endpoint.",
                         "http_method_not_supported",
-                        Map.of(
-                                "method", ex.getMethod(),
-                                "supportedMethods", supportedMethods(ex)
-                        ),
+                        unsupportedMethodDetails(ex),
                         extractPath(request)
                 )
         );
@@ -319,6 +316,13 @@ public class GlobalExceptionHandler {
         }
 
         return Map.of("destination", ex.getPath());
+    }
+
+    private Map<String, Object> unsupportedMethodDetails(HttpRequestMethodNotSupportedException ex) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("method", ex.getMethod());
+        details.put("supportedMethods", supportedMethods(ex));
+        return details;
     }
 
     private List<String> supportedMethods(HttpRequestMethodNotSupportedException ex) {
