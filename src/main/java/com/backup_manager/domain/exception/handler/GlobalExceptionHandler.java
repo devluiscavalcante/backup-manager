@@ -42,7 +42,7 @@ public class GlobalExceptionHandler {
                         HttpStatus.BAD_REQUEST,
                         ex.getMessage(),
                         "source_folder_not_found",
-                        Map.of("source", ex.getPath()),
+                        detail("source", ex.getPath()),
                         extractPath(request)
                 )
         );
@@ -56,7 +56,7 @@ public class GlobalExceptionHandler {
                         HttpStatus.BAD_REQUEST,
                         ex.getMessage(),
                         "source_folder_empty",
-                        Map.of("source", ex.getPath()),
+                        detail("source", ex.getPath()),
                         extractPath(request)
                 )
         );
@@ -84,7 +84,7 @@ public class GlobalExceptionHandler {
                         HttpStatus.NOT_FOUND,
                         ex.getMessage(),
                         "backup_not_found",
-                        Map.of("backupId", ex.getBackupId()),
+                        detail("backupId", ex.getBackupId()),
                         extractPath(request)
                 )
         );
@@ -98,7 +98,7 @@ public class GlobalExceptionHandler {
                         HttpStatus.CONFLICT,
                         ex.getMessage(),
                         "backup_storage_not_found",
-                        Map.of("backupId", ex.getBackupId(), "backupPath", ex.getBackupPath()),
+                        backupStorageDetails(ex),
                         extractPath(request)
                 )
         );
@@ -316,6 +316,19 @@ public class GlobalExceptionHandler {
         }
 
         return Map.of("destination", ex.getPath());
+    }
+
+    private Map<String, Object> detail(String key, Object value) {
+        Map<String, Object> details = new HashMap<>();
+        details.put(key, value);
+        return details;
+    }
+
+    private Map<String, Object> backupStorageDetails(BackupStorageNotFoundException ex) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("backupId", ex.getBackupId());
+        details.put("backupPath", ex.getBackupPath());
+        return details;
     }
 
     private Map<String, Object> unsupportedMethodDetails(HttpRequestMethodNotSupportedException ex) {
