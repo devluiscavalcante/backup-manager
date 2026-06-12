@@ -13,6 +13,7 @@ import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.Collection;
 import java.util.List;
@@ -126,6 +127,30 @@ class GlobalExceptionHandlerTests {
     }
 
     @Test
+    void typeMismatchShouldReturnEnumNamesAsAllowedValues() {
+        WebRequest request = mock(WebRequest.class);
+        when(request.getDescription(false)).thenReturn("uri=/api/backup/history");
+
+        MethodArgumentTypeMismatchException exception =
+                new MethodArgumentTypeMismatchException("display", DisplayEnum.class, "mode", null, null);
+
+        ResponseEntity<ApiErrorResponse> response =
+                handler.handleMethodArgumentTypeMismatch(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("request_parameter_type_mismatch");
+        assertThat(response.getBody().getPath()).isEqualTo("/api/backup/history");
+        assertThat(response.getBody().getDetails()).isInstanceOf(Map.class);
+
+        Map<?, ?> details = (Map<?, ?>) response.getBody().getDetails();
+        assertThat(details.get("parameter")).isEqualTo("mode");
+        assertThat(details.get("value")).isEqualTo("display");
+        assertThat(details.get("expectedType")).isEqualTo("DisplayEnum");
+        assertThat(details.get("allowedValues")).isEqualTo(List.of("FIRST_VALUE"));
+    }
+
+    @Test
     void unsupportedMethodShouldHandleNullSupportedMethods() {
         WebRequest request = mock(WebRequest.class);
         when(request.getDescription(false)).thenReturn("uri=/api/example");
@@ -216,5 +241,14 @@ class GlobalExceptionHandlerTests {
         assertThat(details.containsKey("contentType")).isTrue();
         assertThat(details.get("contentType")).isNull();
         assertThat(details.get("supportedContentTypes")).isEqualTo(List.of("application/json"));
+    }
+
+    private enum DisplayEnum {
+        FIRST_VALUE;
+
+        @Override
+        public String toString() {
+            return "Display value";
+        }
     }
 }
