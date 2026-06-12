@@ -193,4 +193,28 @@ class GlobalExceptionHandlerTests {
         assertThat(details.get("contentType")).isEqualTo("application/xml");
         assertThat(details.get("supportedContentTypes")).isEqualTo(List.of());
     }
+
+    @Test
+    void unsupportedMediaTypeShouldPreserveNullContentType() {
+        WebRequest request = mock(WebRequest.class);
+        when(request.getDescription(false)).thenReturn("uri=/api/example");
+
+        HttpMediaTypeNotSupportedException exception = mock(HttpMediaTypeNotSupportedException.class);
+        when(exception.getContentType()).thenReturn(null);
+        when(exception.getSupportedMediaTypes()).thenReturn(List.of(MediaType.APPLICATION_JSON));
+
+        ResponseEntity<ApiErrorResponse> response =
+                handler.handleHttpMediaTypeNotSupported(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNSUPPORTED_MEDIA_TYPE);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("http_media_type_not_supported");
+        assertThat(response.getBody().getPath()).isEqualTo("/api/example");
+        assertThat(response.getBody().getDetails()).isInstanceOf(Map.class);
+
+        Map<?, ?> details = (Map<?, ?>) response.getBody().getDetails();
+        assertThat(details.containsKey("contentType")).isTrue();
+        assertThat(details.get("contentType")).isNull();
+        assertThat(details.get("supportedContentTypes")).isEqualTo(List.of("application/json"));
+    }
 }
