@@ -11,6 +11,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.context.request.WebRequest;
 
 import java.util.Collection;
@@ -97,6 +98,31 @@ class GlobalExceptionHandlerTests {
         assertThat(details.containsKey("backupPath")).isTrue();
         assertThat(details.get("backupId")).isNull();
         assertThat(details.get("backupPath")).isNull();
+    }
+
+    @Test
+    void missingRequestParameterShouldHandleNullMetadata() {
+        WebRequest request = mock(WebRequest.class);
+        when(request.getDescription(false)).thenReturn("uri=/api/backup/history/search");
+
+        MissingServletRequestParameterException exception = mock(MissingServletRequestParameterException.class);
+        when(exception.getParameterName()).thenReturn(null);
+        when(exception.getParameterType()).thenReturn(null);
+
+        ResponseEntity<ApiErrorResponse> response =
+                handler.handleMissingServletRequestParameter(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("request_parameter_missing");
+        assertThat(response.getBody().getPath()).isEqualTo("/api/backup/history/search");
+        assertThat(response.getBody().getDetails()).isInstanceOf(Map.class);
+
+        Map<?, ?> details = (Map<?, ?>) response.getBody().getDetails();
+        assertThat(details.containsKey("parameter")).isTrue();
+        assertThat(details.containsKey("expectedType")).isTrue();
+        assertThat(details.get("parameter")).isNull();
+        assertThat(details.get("expectedType")).isNull();
     }
 
     @Test
