@@ -202,7 +202,7 @@ public class GlobalExceptionHandler {
                         HttpStatus.BAD_REQUEST,
                         "Parametro de requisicao obrigatorio ausente.",
                         "request_parameter_missing",
-                        Map.of("parameter", ex.getParameterName(), "expectedType", ex.getParameterType()),
+                        missingParameterDetails(ex),
                         extractPath(request)
                 )
         );
@@ -328,6 +328,13 @@ public class GlobalExceptionHandler {
         Map<String, Object> details = new HashMap<>();
         details.put("backupId", ex.getBackupId());
         details.put("backupPath", ex.getBackupPath());
+        return details;
+    }
+
+    private Map<String, Object> missingParameterDetails(MissingServletRequestParameterException ex) {
+        Map<String, Object> details = new HashMap<>();
+        details.put("parameter", ex.getParameterName());
+        details.put("expectedType", ex.getParameterType());
         return details;
     }
 
