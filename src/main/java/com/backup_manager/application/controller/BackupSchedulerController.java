@@ -213,12 +213,24 @@ public class BackupSchedulerController {
 
             return ResponseEntity.ok(OperationResponse.namedSuccess("Backup executado com sucesso", backupName));
 
+        } catch (IllegalArgumentException e) {
+            logger.warn("Falha de validacao ao executar backup imediato: {}", e.getMessage());
+            securityAuditService.recordFailure("scheduler.execute_now", "backup_request", "validation_failed", Map.of());
+            return apiError(
+                    HttpStatus.BAD_REQUEST,
+                    "Nao foi possivel executar backup imediato com os dados informados.",
+                    "scheduler_execute_now_validation_failed",
+                    null,
+                    SCHEDULER_EXECUTE_NOW_PATH,
+                    null
+            );
+
         } catch (Exception e) {
             logger.error("Erro ao executar backup imediato: {}", e.getMessage(), e);
             securityAuditService.recordFailure("scheduler.execute_now", "backup_request", "execution_failed", Map.of());
             return apiError(
-                    HttpStatus.BAD_REQUEST,
-                    "Falha ao executar backup imediato.",
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Erro interno ao executar backup imediato.",
                     "scheduler_execute_now_failed",
                     null,
                     SCHEDULER_EXECUTE_NOW_PATH,
