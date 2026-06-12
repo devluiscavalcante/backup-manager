@@ -9,8 +9,11 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindingResult;
+import org.springframework.validation.FieldError;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
@@ -124,6 +127,33 @@ class GlobalExceptionHandlerTests {
         assertThat(details.containsKey("expectedType")).isTrue();
         assertThat(details.get("parameter")).isNull();
         assertThat(details.get("expectedType")).isNull();
+    }
+
+    @Test
+    void validationErrorsShouldPreserveBindingResultOrder() {
+        WebRequest request = mock(WebRequest.class);
+        when(request.getDescription(false)).thenReturn("uri=/api/backup/start");
+
+        BindingResult bindingResult = mock(BindingResult.class);
+        when(bindingResult.getFieldErrors()).thenReturn(List.of(
+                new FieldError("backupRequest", "sources", "A lista de origens nao pode estar vazia"),
+                new FieldError("backupRequest", "destination", "A lista de destinos nao pode estar vazia")
+        ));
+
+        MethodArgumentNotValidException exception = mock(MethodArgumentNotValidException.class);
+        when(exception.getBindingResult()).thenReturn(bindingResult);
+
+        ResponseEntity<ApiErrorResponse> response =
+                handler.handleValidationExceptions(exception, request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isNotNull();
+        assertThat(response.getBody().getCode()).isEqualTo("request_validation_failed");
+        assertThat(response.getBody().getDetails()).isInstanceOf(Map.class);
+
+        Map<?, ?> details = (Map<?, ?>) response.getBody().getDetails();
+        assertThat(details.keySet().stream().map(Object::toString).toList())
+                .containsExactly("sources", "destination");
     }
 
     @Test
