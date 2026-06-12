@@ -87,7 +87,11 @@ class BackupControllerErrorIntegrationTests {
                 .andExpect(jsonPath("$.code").value("invalid_sort_field"))
                 .andExpect(jsonPath("$.path").value("/api/backup/history/search"))
                 .andExpect(jsonPath("$.details.sortBy").value("unknownField"))
-                .andExpect(jsonPath("$.details.allowedFields").isArray());
+                .andExpect(jsonPath("$.details.allowedFields").isArray())
+                .andExpect(jsonPath("$.details.allowedFields[0]").value("id"))
+                .andExpect(jsonPath("$.details.allowedFields[1]").value("status"))
+                .andExpect(jsonPath("$.details.allowedFields[2]").value("startedAt"))
+                .andExpect(jsonPath("$.details.allowedFields[5]").value("fileCount"));
     }
 
     @Test
