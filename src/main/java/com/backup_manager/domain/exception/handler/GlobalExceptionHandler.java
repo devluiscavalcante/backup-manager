@@ -248,10 +248,7 @@ public class GlobalExceptionHandler {
                         HttpStatus.UNSUPPORTED_MEDIA_TYPE,
                         "Tipo de conteudo nao suportado para este endpoint.",
                         "http_media_type_not_supported",
-                        Map.of(
-                                "contentType", String.valueOf(ex.getContentType()),
-                                "supportedContentTypes", supportedMediaTypes(ex)
-                        ),
+                        unsupportedMediaTypeDetails(ex),
                         extractPath(request)
                 )
         );
@@ -335,6 +332,14 @@ public class GlobalExceptionHandler {
         Map<String, Object> details = new HashMap<>();
         details.put("parameter", ex.getParameterName());
         details.put("expectedType", ex.getParameterType());
+        return details;
+    }
+
+    private Map<String, Object> unsupportedMediaTypeDetails(HttpMediaTypeNotSupportedException ex) {
+        Map<String, Object> details = new HashMap<>();
+        MediaType contentType = ex.getContentType();
+        details.put("contentType", contentType == null ? null : contentType.toString());
+        details.put("supportedContentTypes", supportedMediaTypes(ex));
         return details;
     }
 
