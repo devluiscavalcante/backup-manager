@@ -176,9 +176,7 @@ public class GlobalExceptionHandler {
         if (requiredType != null) {
             details.put("expectedType", requiredType.getSimpleName());
             if (requiredType.isEnum()) {
-                details.put("allowedValues", Arrays.stream(requiredType.getEnumConstants())
-                        .map(Object::toString)
-                        .toList());
+                details.put("allowedValues", enumNames(requiredType));
             }
         }
 
@@ -367,6 +365,12 @@ public class GlobalExceptionHandler {
 
         return mediaTypes.stream()
                 .map(Object::toString)
+                .toList();
+    }
+
+    private List<String> enumNames(Class<?> enumType) {
+        return Arrays.stream(enumType.getEnumConstants())
+                .map(constant -> ((Enum<?>) constant).name())
                 .toList();
     }
 }
