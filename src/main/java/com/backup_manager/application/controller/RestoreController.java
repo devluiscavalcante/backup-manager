@@ -28,7 +28,6 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 @RestController
 @RequestMapping("/api")
@@ -37,7 +36,7 @@ public class RestoreController {
     private static final Logger logger = LoggerFactory.getLogger(RestoreController.class);
     private static final String RESTORE_HISTORY_PATH = "/api/restore/history";
     private static final String RESTORE_RECENT_PATH = "/api/restore/recent";
-    private static final Set<String> ALLOWED_HISTORY_SORT_FIELDS = Set.of(
+    private static final List<String> ALLOWED_HISTORY_SORT_FIELDS = List.of(
             "id",
             "status",
             "startedAt",
@@ -371,7 +370,7 @@ public class RestoreController {
         );
     }
 
-    private ApiErrorResponse invalidSortResponse(String sortBy, Set<String> allowedFields, String path) {
+    private ApiErrorResponse invalidSortResponse(String sortBy, List<String> allowedFields, String path) {
         return ApiErrorResponse.of(
                 HttpStatus.BAD_REQUEST,
                 "Campo de ordenacao invalido.",

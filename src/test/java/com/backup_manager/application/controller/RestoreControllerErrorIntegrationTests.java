@@ -87,7 +87,11 @@ class RestoreControllerErrorIntegrationTests {
                 .andExpect(jsonPath("$.code").value("invalid_sort_field"))
                 .andExpect(jsonPath("$.path").value("/api/restore/history"))
                 .andExpect(jsonPath("$.details.sortBy").value("unknownField"))
-                .andExpect(jsonPath("$.details.allowedFields").isArray());
+                .andExpect(jsonPath("$.details.allowedFields").isArray())
+                .andExpect(jsonPath("$.details.allowedFields[0]").value("id"))
+                .andExpect(jsonPath("$.details.allowedFields[1]").value("status"))
+                .andExpect(jsonPath("$.details.allowedFields[2]").value("startedAt"))
+                .andExpect(jsonPath("$.details.allowedFields[7]").value("restoredFiles"));
     }
 
     @Test

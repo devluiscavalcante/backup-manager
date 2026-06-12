@@ -37,7 +37,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 @RestController
 @RequestMapping("/api/backup")
 public class BackupController {
@@ -48,7 +47,7 @@ public class BackupController {
     private static final String BACKUP_HISTORY_SEARCH_PATH = "/api/backup/history/search";
     private static final String BACKUP_HISTORY_STATS_PATH = "/api/backup/history/stats";
     private static final String BACKUP_HISTORY_RECENT_PATH = "/api/backup/history/recent";
-    private static final Set<String> ALLOWED_HISTORY_SORT_FIELDS = Set.of(
+    private static final List<String> ALLOWED_HISTORY_SORT_FIELDS = List.of(
             "id",
             "status",
             "startedAt",
@@ -437,7 +436,7 @@ public class BackupController {
         );
     }
 
-    private ApiErrorResponse invalidSortResponse(String sortBy, Set<String> allowedFields, String path) {
+    private ApiErrorResponse invalidSortResponse(String sortBy, List<String> allowedFields, String path) {
         return ApiErrorResponse.of(
                 HttpStatus.BAD_REQUEST,
                 "Campo de ordenacao invalido.",
