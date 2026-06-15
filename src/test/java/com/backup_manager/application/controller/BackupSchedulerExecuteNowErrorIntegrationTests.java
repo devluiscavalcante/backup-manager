@@ -66,6 +66,31 @@ class BackupSchedulerExecuteNowErrorIntegrationTests {
                 .andExpect(content().string(not(containsString("scheduler_unavailable"))));
     }
 
+    @Test
+    void adminShouldReceiveBadRequestWhenExecuteNowValidationFails() throws Exception {
+        doThrow(new IllegalArgumentException("invalid_backup_request"))
+                .when(backupScheduler)
+                .executeBackupWithRequest(ArgumentMatchers.any(BackupRequest.class), anyString());
+
+        mockMvc.perform(post("/api/backup/scheduler/execute-now")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sources": ["C:/temp/source"],
+                                  "destination": ["C:/temp/destination"]
+                                }
+                                """)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.error").value("Nao foi possivel executar backup imediato com os dados informados."))
+                .andExpect(jsonPath("$.code").value("scheduler_execute_now_validation_failed"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/execute-now"))
+                .andExpect(jsonPath("$.requestId").isNotEmpty())
+                .andExpect(content().string(not(containsString("invalid_backup_request"))));
+    }
+
     private String basicAuth(String username, String password) {
         String credentials = username + ":" + password;
         String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
