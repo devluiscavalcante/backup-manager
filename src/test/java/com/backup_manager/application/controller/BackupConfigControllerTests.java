@@ -18,6 +18,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -50,6 +51,35 @@ class BackupConfigControllerTests {
         assertThat(body.getStatus()).isEqualTo(500);
         assertThat(body.getError()).isEqualTo("Nao foi possivel salvar a configuracao de backup.");
         assertThat(body.getCode()).isEqualTo("scheduler_config_save_failed");
+        assertThat(body.getPath()).isEqualTo("/api/backup/config");
+        assertThat(body.getDetails()).isNull();
+    }
+
+    @Test
+    void createOrUpdateShouldReturnStructuredBadRequestWhenValidationFails() {
+        BackupRequestValidationService validationService = mock(BackupRequestValidationService.class);
+        BackupConfigController controller = new BackupConfigController(
+                mock(ApplicationEventPublisher.class),
+                mock(ScheduledBackupRepository.class),
+                mock(DynamicSchedulerService.class),
+                validationService,
+                mock(CronValidationService.class),
+                mock(SecurityAuditService.class)
+        );
+
+        doThrow(new IllegalArgumentException("A pasta de origem esta vazia"))
+                .when(validationService)
+                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+
+        ResponseEntity<Object> response = controller.createOrUpdate(validRequest());
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(response.getBody()).isInstanceOf(ApiErrorResponse.class);
+
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.getStatus()).isEqualTo(400);
+        assertThat(body.getError()).isEqualTo("A pasta de origem esta vazia");
+        assertThat(body.getCode()).isEqualTo("scheduler_config_validation_failed");
         assertThat(body.getPath()).isEqualTo("/api/backup/config");
         assertThat(body.getDetails()).isNull();
     }
