@@ -111,6 +111,33 @@ class BackupConfigControllerTests {
         assertThat(body.getDetails()).isNull();
     }
 
+    @Test
+    void getByIdShouldReturnStructuredInternalServerErrorWhenRepositoryFails() {
+        ScheduledBackupRepository repository = mock(ScheduledBackupRepository.class);
+        BackupConfigController controller = new BackupConfigController(
+                mock(ApplicationEventPublisher.class),
+                repository,
+                mock(DynamicSchedulerService.class),
+                mock(BackupRequestValidationService.class),
+                mock(CronValidationService.class),
+                mock(SecurityAuditService.class)
+        );
+
+        when(repository.findById(42L)).thenThrow(new RuntimeException("database_unavailable"));
+
+        ResponseEntity<Object> response = controller.getById(42L);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isInstanceOf(ApiErrorResponse.class);
+
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.getStatus()).isEqualTo(500);
+        assertThat(body.getError()).isEqualTo("Nao foi possivel buscar a configuracao de backup.");
+        assertThat(body.getCode()).isEqualTo("scheduler_config_get_failed");
+        assertThat(body.getPath()).isEqualTo("/api/backup/config/42");
+        assertThat(body.getDetails()).isNull();
+    }
+
     private ScheduledBackupRequest validRequest() {
         ScheduledBackupRequest request = new ScheduledBackupRequest();
         request.setName("Backup diario");
