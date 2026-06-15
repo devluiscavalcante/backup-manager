@@ -1,6 +1,7 @@
 package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.application.dto.CronValidationRequest;
 import com.backup_manager.application.dto.CronValidationResponse;
 import com.backup_manager.application.dto.ScheduledBackupRequest;
 import com.backup_manager.application.service.BackupRequestValidationService;
@@ -135,6 +136,63 @@ class BackupConfigControllerTests {
         assertThat(body.getError()).isEqualTo("Nao foi possivel buscar a configuracao de backup.");
         assertThat(body.getCode()).isEqualTo("scheduler_config_get_failed");
         assertThat(body.getPath()).isEqualTo("/api/backup/config/42");
+        assertThat(body.getDetails()).isNull();
+    }
+
+    @Test
+    void validateCronShouldReturnStructuredInternalServerErrorWhenValidationServiceFails() {
+        CronValidationService cronValidationService = mock(CronValidationService.class);
+        BackupConfigController controller = new BackupConfigController(
+                mock(ApplicationEventPublisher.class),
+                mock(ScheduledBackupRepository.class),
+                mock(DynamicSchedulerService.class),
+                mock(BackupRequestValidationService.class),
+                cronValidationService,
+                mock(SecurityAuditService.class)
+        );
+        CronValidationRequest request = new CronValidationRequest();
+        request.setCronExpression("0 0 2 * * *");
+
+        when(cronValidationService.validateCronExpression("0 0 2 * * *"))
+                .thenThrow(new RuntimeException("cron_engine_unavailable"));
+
+        ResponseEntity<Object> response = controller.validateCron(request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isInstanceOf(ApiErrorResponse.class);
+
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.getStatus()).isEqualTo(500);
+        assertThat(body.getError()).isEqualTo("Nao foi possivel validar a expressao cron.");
+        assertThat(body.getCode()).isEqualTo("scheduler_cron_validation_failed");
+        assertThat(body.getPath()).isEqualTo("/api/backup/config/validate-cron");
+        assertThat(body.getDetails()).isNull();
+    }
+
+    @Test
+    void getCronTemplatesShouldReturnStructuredInternalServerErrorWhenValidationServiceFails() {
+        CronValidationService cronValidationService = mock(CronValidationService.class);
+        BackupConfigController controller = new BackupConfigController(
+                mock(ApplicationEventPublisher.class),
+                mock(ScheduledBackupRepository.class),
+                mock(DynamicSchedulerService.class),
+                mock(BackupRequestValidationService.class),
+                cronValidationService,
+                mock(SecurityAuditService.class)
+        );
+
+        when(cronValidationService.getCronTemplates()).thenThrow(new RuntimeException("template_registry_unavailable"));
+
+        ResponseEntity<Object> response = controller.getCronTemplates();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isInstanceOf(ApiErrorResponse.class);
+
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.getStatus()).isEqualTo(500);
+        assertThat(body.getError()).isEqualTo("Nao foi possivel listar os templates de cron.");
+        assertThat(body.getCode()).isEqualTo("scheduler_cron_templates_failed");
+        assertThat(body.getPath()).isEqualTo("/api/backup/config/cron-templates");
         assertThat(body.getDetails()).isNull();
     }
 
