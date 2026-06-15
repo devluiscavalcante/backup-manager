@@ -129,7 +129,12 @@ public class BackupConfigController {
                     "internal_error",
                     auditConfigDetails(request.getId(), request.getName())
             );
-            return errorResponse(HttpStatus.BAD_REQUEST, "Nao foi possivel salvar a configuracao de backup.");
+            return errorResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Nao foi possivel salvar a configuracao de backup.",
+                    "scheduler_config_save_failed",
+                    "/api/backup/config"
+            );
         }
     }
 
