@@ -290,29 +290,49 @@ public class BackupConfigController {
     }
 
     @PostMapping("/validate-cron")
-    public ResponseEntity<CronValidationResponse> validateCron(@Valid @RequestBody CronValidationRequest request) {
-        String cronExpression = request.getCronExpression();
+    public ResponseEntity<Object> validateCron(@Valid @RequestBody CronValidationRequest request) {
+        try {
+            String cronExpression = request.getCronExpression();
 
-        if (cronExpression == null || cronExpression.trim().isEmpty()) {
-            return ResponseEntity.badRequest().body(
-                    CronValidationResponse.of(
-                            false,
-                            null,
-                            "Expressao cron nao pode estar vazia",
-                            null
-                    )
+            if (cronExpression == null || cronExpression.trim().isEmpty()) {
+                return ResponseEntity.badRequest().body(
+                        CronValidationResponse.of(
+                                false,
+                                null,
+                                "Expressao cron nao pode estar vazia",
+                                null
+                        )
+                );
+            }
+
+            CronValidationResponse validation = cronValidationService.validateCronExpression(cronExpression);
+            return ResponseEntity.ok(validation);
+        } catch (Exception e) {
+            logger.error("Erro ao validar expressao cron", e);
+            return errorResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Nao foi possivel validar a expressao cron.",
+                    "scheduler_cron_validation_failed",
+                    "/api/backup/config/validate-cron"
             );
         }
-
-        CronValidationResponse validation = cronValidationService.validateCronExpression(cronExpression);
-        return ResponseEntity.ok(validation);
     }
 
     @GetMapping("/cron-templates")
-    public ResponseEntity<CollectionResponse<CronTemplateResponse>> getCronTemplates() {
-        return ResponseEntity.ok(
-                CollectionResponse.of(cronValidationService.getCronTemplates().values().stream().toList())
-        );
+    public ResponseEntity<Object> getCronTemplates() {
+        try {
+            return ResponseEntity.ok(
+                    CollectionResponse.of(cronValidationService.getCronTemplates().values().stream().toList())
+            );
+        } catch (Exception e) {
+            logger.error("Erro ao listar templates de cron", e);
+            return errorResponse(
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Nao foi possivel listar os templates de cron.",
+                    "scheduler_cron_templates_failed",
+                    "/api/backup/config/cron-templates"
+            );
+        }
     }
 
     private ResponseEntity<Object> errorResponse(HttpStatus status, String message) {
