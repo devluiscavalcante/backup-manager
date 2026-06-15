@@ -167,18 +167,28 @@ public class BackupConfigController {
 
     @GetMapping("/{id}")
     public ResponseEntity<Object> getById(@PathVariable Long id) {
-        Optional<ScheduledBackupEntity> config = repository.findById(id);
+        try {
+            Optional<ScheduledBackupEntity> config = repository.findById(id);
 
-        if (config.isEmpty()) {
+            if (config.isEmpty()) {
+                return errorResponse(
+                        HttpStatus.NOT_FOUND,
+                        "Configuracao de backup nao encontrada.",
+                        "scheduler_config_not_found",
+                        "/api/backup/config/" + id
+                );
+            }
+
+            return ResponseEntity.ok(toResponse(config.get()));
+        } catch (Exception e) {
+            logger.error("Erro ao buscar configuracao de backup {}", id, e);
             return errorResponse(
-                    HttpStatus.NOT_FOUND,
-                    "Configuracao de backup nao encontrada.",
-                    "scheduler_config_not_found",
+                    HttpStatus.INTERNAL_SERVER_ERROR,
+                    "Nao foi possivel buscar a configuracao de backup.",
+                    "scheduler_config_get_failed",
                     "/api/backup/config/" + id
             );
         }
-
-        return ResponseEntity.ok(toResponse(config.get()));
     }
 
     @DeleteMapping("/{id}")
