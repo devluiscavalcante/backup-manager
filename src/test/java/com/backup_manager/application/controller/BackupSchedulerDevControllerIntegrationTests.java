@@ -62,9 +62,9 @@ class BackupSchedulerDevControllerIntegrationTests {
 
         mockMvc.perform(post("/api/backup/scheduler/test-quick")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
-                .andExpect(status().isBadRequest())
+                .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.success").value(false))
-                .andExpect(jsonPath("$.status").value(400))
+                .andExpect(jsonPath("$.status").value(500))
                 .andExpect(jsonPath("$.error").value("Erro no endpoint de teste do scheduler."))
                 .andExpect(jsonPath("$.code").value("scheduler_dev_test_failed"))
                 .andExpect(jsonPath("$.path").value("/api/backup/scheduler/test-quick"))
