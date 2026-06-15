@@ -84,6 +84,33 @@ class BackupConfigControllerTests {
         assertThat(body.getDetails()).isNull();
     }
 
+    @Test
+    void listAllShouldReturnStructuredInternalServerErrorWhenRepositoryFails() {
+        ScheduledBackupRepository repository = mock(ScheduledBackupRepository.class);
+        BackupConfigController controller = new BackupConfigController(
+                mock(ApplicationEventPublisher.class),
+                repository,
+                mock(DynamicSchedulerService.class),
+                mock(BackupRequestValidationService.class),
+                mock(CronValidationService.class),
+                mock(SecurityAuditService.class)
+        );
+
+        when(repository.findAll()).thenThrow(new RuntimeException("database_unavailable"));
+
+        ResponseEntity<Object> response = controller.listAll();
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR);
+        assertThat(response.getBody()).isInstanceOf(ApiErrorResponse.class);
+
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.getStatus()).isEqualTo(500);
+        assertThat(body.getError()).isEqualTo("Nao foi possivel listar as configuracoes de backup.");
+        assertThat(body.getCode()).isEqualTo("scheduler_config_list_failed");
+        assertThat(body.getPath()).isEqualTo("/api/backup/config");
+        assertThat(body.getDetails()).isNull();
+    }
+
     private ScheduledBackupRequest validRequest() {
         ScheduledBackupRequest request = new ScheduledBackupRequest();
         request.setName("Backup diario");
