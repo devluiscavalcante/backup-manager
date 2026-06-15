@@ -58,9 +58,9 @@ public class BackupSchedulerDevController {
             ));
         } catch (Exception e) {
             logger.error("Erro ao executar endpoint de teste do scheduler: {}", e.getMessage(), e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(
                     ApiErrorResponse.of(
-                            HttpStatus.BAD_REQUEST,
+                            HttpStatus.INTERNAL_SERVER_ERROR,
                             "Erro no endpoint de teste do scheduler.",
                             "scheduler_dev_test_failed",
                             null,
