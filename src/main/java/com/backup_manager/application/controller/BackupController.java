@@ -364,19 +364,28 @@ public class BackupController {
 
     @GetMapping("/{taskId}/status")
     public ResponseEntity<Object> getTaskStatus(@PathVariable Long taskId) {
-        Optional<BackupTask> task = backupRepository.findById(taskId);
-        if (task.isPresent()) {
-            return ResponseEntity.ok(BackupTaskSummaryResponse.fromTask(task.get()));
-        } else {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(ApiErrorResponse.of(
-                            HttpStatus.NOT_FOUND,
-                            "Tarefa de backup nao encontrada.",
-                            "backup_task_not_found",
-                            Map.of("taskId", taskId),
-                            "/api/backup/" + taskId + "/status",
-                            taskId
-                    ));
+        try {
+            Optional<BackupTask> task = backupRepository.findById(taskId);
+            if (task.isPresent()) {
+                return ResponseEntity.ok(BackupTaskSummaryResponse.fromTask(task.get()));
+            } else {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(ApiErrorResponse.of(
+                                HttpStatus.NOT_FOUND,
+                                "Tarefa de backup nao encontrada.",
+                                "backup_task_not_found",
+                                Map.of("taskId", taskId),
+                                "/api/backup/" + taskId + "/status",
+                                taskId
+                        ));
+            }
+        } catch (Exception e) {
+            logger.error("Erro ao buscar status do backup {}", taskId, e);
+            return internalTaskErrorResponse(
+                    "Erro interno ao buscar status do backup.",
+                    taskId,
+                    "/api/backup/" + taskId + "/status"
+            );
         }
     }
 
