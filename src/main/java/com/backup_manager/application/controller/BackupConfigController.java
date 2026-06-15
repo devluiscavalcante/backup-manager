@@ -120,7 +120,12 @@ public class BackupConfigController {
                     "validation_failed",
                     auditConfigDetails(request.getId(), request.getName())
             );
-            return errorResponse(HttpStatus.BAD_REQUEST, e.getMessage());
+            return errorResponse(
+                    HttpStatus.BAD_REQUEST,
+                    e.getMessage(),
+                    "scheduler_config_validation_failed",
+                    "/api/backup/config"
+            );
         } catch (Exception e) {
             logger.error("Erro ao salvar configuracao", e);
             securityAuditService.recordFailure(
