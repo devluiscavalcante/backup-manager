@@ -160,7 +160,7 @@ public class BackupConfigController {
                     HttpStatus.INTERNAL_SERVER_ERROR,
                     "Nao foi possivel listar as configuracoes de backup.",
                     "scheduler_config_list_failed",
-                    null
+                    "/api/backup/config"
             );
         }
     }
