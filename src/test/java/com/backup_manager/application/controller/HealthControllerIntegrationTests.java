@@ -19,7 +19,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "app.security.allow-default-password=true",
         "app.security.password=admin-secret",
         "app.security.operator-enabled=true",
-        "app.security.operator-password=operator-secret"
+        "app.security.operator-password=operator-secret",
+        "app.version=1.5.0-SNAPSHOT"
 })
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
@@ -63,7 +64,7 @@ class HealthControllerIntegrationTests {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"))
                 .andExpect(jsonPath("$.service").value("Backup Manager"))
-                .andExpect(jsonPath("$.version").value("1.0.0"))
+                .andExpect(jsonPath("$.version").value("1.5.0-SNAPSHOT"))
                 .andExpect(jsonPath("$.details.publicEndpoint").value(true))
                 .andExpect(jsonPath("$.details.defaultTimeZone").isString())
                 .andExpect(jsonPath("$.details.requestTracingHeader").value("X-Request-Id"))
