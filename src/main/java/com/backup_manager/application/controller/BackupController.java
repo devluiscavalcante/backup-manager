@@ -13,6 +13,7 @@ import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.BackupService;
 import com.backup_manager.application.service.SecurityAuditService;
+import com.backup_manager.domain.exception.BackupInitializationException;
 import com.backup_manager.domain.exception.DestinationNotFoundException;
 import com.backup_manager.domain.exception.FolderEmptyException;
 import com.backup_manager.domain.exception.FolderNotFoundException;
@@ -120,10 +121,7 @@ public class BackupController {
                 String destination = destinations.get(i);
 
                 Long taskId = backupService.runBackup(source, destination);
-
-                if (taskId != null) {
-                    taskIds.add(taskId);
-                }
+                taskIds.add(taskId);
             }
 
             securityAuditService.recordSuccess(
@@ -152,6 +150,16 @@ public class BackupController {
             securityAuditService.recordFailure("backup.start", "backup_request", "validation_failed",
                     Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()));
             throw e;
+        } catch (BackupInitializationException e) {
+            logger.error("Falha operacional ao preparar backup", e);
+            securityAuditService.recordFailure("backup.start", "backup_request", "initialization_failed",
+                    Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()));
+            return internalErrorResponse(
+                    "Erro interno ao preparar backup.",
+                    "backup_start_failed",
+                    Map.of("sourceCount", sources.size(), "destinationCount", destinations.size()),
+                    BACKUP_START_PATH
+            );
         } catch (Exception e) {
             logger.error("Erro inesperado ao iniciar backup", e);
             securityAuditService.recordFailure("backup.start", "backup_request", "internal_error",
