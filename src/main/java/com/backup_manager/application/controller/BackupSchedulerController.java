@@ -208,10 +208,33 @@ public class BackupSchedulerController {
             String backupName = "Backup Imediato " + LocalDateTime.now();
             logger.info("Executando backup imediato: {}", backupName);
 
-            backupScheduler.executeBackupWithRequest(request, backupName);
-            securityAuditService.recordSuccess("scheduler.execute_now", "backup_request", Map.of("backupName", backupName));
+            List<Long> taskIds = backupScheduler.executeBackupWithRequest(request, backupName);
+            if (taskIds.isEmpty()) {
+                securityAuditService.recordFailure(
+                        "scheduler.execute_now",
+                        "backup_request",
+                        "active_backup_conflict",
+                        Map.of("backupName", backupName)
+                );
+                return apiError(
+                        HttpStatus.CONFLICT,
+                        "Nenhum backup foi iniciado porque ja existe uma tarefa ativa para os pares informados.",
+                        "active_backup_conflict",
+                        Map.of("requestedCount", request.getSources().size()),
+                        SCHEDULER_EXECUTE_NOW_PATH,
+                        null
+                );
+            }
 
-            return ResponseEntity.ok(OperationResponse.namedSuccess("Backup executado com sucesso", backupName));
+            securityAuditService.recordSuccess(
+                    "scheduler.execute_now",
+                    "backup_request",
+                    Map.of("backupName", backupName, "taskIds", taskIds)
+            );
+
+            return ResponseEntity.ok(
+                    OperationResponse.backupStarted("Backup(s) iniciado(s) com sucesso", taskIds)
+            );
 
         } catch (IllegalArgumentException e) {
             logger.warn("Falha de validacao ao executar backup imediato: {}", e.getMessage());
