@@ -2,6 +2,7 @@ package com.backup_manager.application.service;
 
 import com.backup_manager.application.dto.Progress;
 import com.backup_manager.application.progress.ProgressEmitter;
+import com.backup_manager.domain.exception.BackupInitializationException;
 import com.backup_manager.domain.event.BackupCompletedEvent;
 import com.backup_manager.domain.event.BackupFailedEvent;
 import com.backup_manager.domain.event.BackupStartedEvent;
@@ -86,7 +87,14 @@ public class BackupService {
     public void startMultipleBackups(List<String> sources, String destination) {
         validateDestination(destination);
         for (String source : sources) {
-            backupDispatchExecutor.execute(() -> runBackup(source, destination));
+            backupDispatchExecutor.execute(() -> {
+                try {
+                    runBackup(source, destination);
+                } catch (RuntimeException e) {
+                    logger.error("Falha ao despachar backup [{} -> {}]: {}",
+                            source, destination, e.getMessage(), e);
+                }
+            });
         }
     }
 
@@ -109,11 +117,15 @@ public class BackupService {
         } catch (SecurityException se) {
             logger.error("BLOQUEIO DE SEGURANCA: {}", se.getMessage());
             progressEmitter.sendError("Erro de Seguranca: " + se.getMessage());
-            return null;
-        } catch (IllegalArgumentException | IllegalStateException | IOException ex) {
+            throw se;
+        } catch (IllegalArgumentException | IllegalStateException ex) {
             logger.error("FALHA NA VALIDACAO PREVIA: {}", ex.getMessage());
             progressEmitter.sendError("Falha ao iniciar: " + ex.getMessage());
-            return null;
+            throw ex;
+        } catch (IOException ex) {
+            logger.error("FALHA OPERACIONAL NA PREPARACAO: {}", ex.getMessage(), ex);
+            progressEmitter.sendError("Falha ao preparar o backup.");
+            throw new BackupInitializationException("Falha ao preparar o backup.", ex);
         }
     }
 
@@ -124,10 +136,7 @@ public class BackupService {
 
         List<Long> taskIds = new ArrayList<>();
         for (String destinationPath : destinationPaths) {
-            Long taskId = runBackup(sourcePath, destinationPath);
-            if (taskId != null) {
-                taskIds.add(taskId);
-            }
+            taskIds.add(runBackup(sourcePath, destinationPath));
         }
         return taskIds;
     }
