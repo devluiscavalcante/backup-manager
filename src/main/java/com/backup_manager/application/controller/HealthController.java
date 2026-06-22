@@ -4,6 +4,7 @@ import com.backup_manager.application.dto.ApplicationHealthSummary;
 import com.backup_manager.application.dto.HealthStatusResponse;
 import com.backup_manager.application.dto.SchemaHealthSummary;
 import com.backup_manager.application.dto.SchemaStatusResponse;
+import com.backup_manager.application.service.ApplicationVersionService;
 import com.backup_manager.application.service.SchemaDiagnosticsService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -17,10 +18,14 @@ public class HealthController {
 
     private final JdbcTemplate jdbcTemplate;
     private final SchemaDiagnosticsService schemaDiagnosticsService;
+    private final ApplicationVersionService applicationVersionService;
 
-    public HealthController(JdbcTemplate jdbcTemplate, SchemaDiagnosticsService schemaDiagnosticsService) {
+    public HealthController(JdbcTemplate jdbcTemplate,
+                            SchemaDiagnosticsService schemaDiagnosticsService,
+                            ApplicationVersionService applicationVersionService) {
         this.jdbcTemplate = jdbcTemplate;
         this.schemaDiagnosticsService = schemaDiagnosticsService;
+        this.applicationVersionService = applicationVersionService;
     }
 
     @GetMapping("/database")
@@ -54,7 +59,7 @@ public class HealthController {
         return ResponseEntity.ok(HealthStatusResponse.of(
                 "UP",
                 "Backup Manager",
-                "1.0.0",
+                applicationVersionService.currentVersion(),
                 null,
                 ApplicationHealthSummary.current()
         ));
