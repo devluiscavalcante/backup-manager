@@ -4,9 +4,10 @@ import com.backup_manager.domain.model.ScheduledBackupEntity;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.scheduling.annotation.SchedulingConfigurer;
-import org.springframework.scheduling.config.ScheduledTaskRegistrar;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Service;
 
@@ -15,34 +16,35 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
 
-@Configuration
 @Service
-public class DynamicSchedulerService implements SchedulingConfigurer {
+public class DynamicSchedulerService {
 
     private static final Logger logger = LoggerFactory.getLogger(DynamicSchedulerService.class);
 
     private final ScheduledBackupRepository repository;
     private final BackupScheduler backupScheduler;
     private final BackupRequestValidationService backupRequestValidationService;
+    private final TaskScheduler taskScheduler;
     private final ConcurrentHashMap<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
-
-    private ScheduledTaskRegistrar taskRegistrar;
 
     public DynamicSchedulerService(ScheduledBackupRepository repository,
                                    BackupScheduler backupScheduler,
-                                   BackupRequestValidationService backupRequestValidationService) {
+                                   BackupRequestValidationService backupRequestValidationService,
+                                   @Qualifier("backupOneTimeScheduler") TaskScheduler taskScheduler) {
         this.repository = repository;
         this.backupScheduler = backupScheduler;
         this.backupRequestValidationService = backupRequestValidationService;
+        this.taskScheduler = taskScheduler;
     }
 
-    @Override
-    public void configureTasks(ScheduledTaskRegistrar taskRegistrar) {
-        this.taskRegistrar = taskRegistrar;
+    // O carregamento ocorre apos o boot completo: o scheduler e injetado diretamente,
+    // sem depender do ScheduledTaskRegistrar (que ainda nao tem scheduler em configureTasks).
+    @EventListener(ApplicationReadyEvent.class)
+    public void loadScheduledBackupsOnStartup() {
         refreshAllTasks();
     }
 
-    public void refreshAllTasks() {
+    public synchronized void refreshAllTasks() {
         logger.info("Atualizando agendamentos recorrentes");
 
         scheduledTasks.values().forEach(future -> future.cancel(false));
@@ -72,21 +74,25 @@ public class DynamicSchedulerService implements SchedulingConfigurer {
             return;
         }
 
-        if (taskRegistrar != null && taskRegistrar.getScheduler() != null) {
-            try {
-                ScheduledFuture<?> future = taskRegistrar.getScheduler().schedule(
-                        () -> executeScheduledBackup(config),
-                        new CronTrigger(config.getCronExpression())
-                );
+        try {
+            ScheduledFuture<?> future = taskScheduler.schedule(
+                    () -> executeScheduledBackup(config),
+                    new CronTrigger(config.getCronExpression())
+            );
 
-                scheduledTasks.put(config.getId(), future);
-                logger.info("Agendamento '{}' registrado com expressao cron: {}",
+            if (future == null) {
+                logger.warn("Agendamento '{}' ignorado: expressao cron sem proxima execucao ({})",
                         config.getName(), config.getCronExpression());
-
-            } catch (IllegalArgumentException e) {
-                logger.error("Expressao cron invalida para o backup '{}': {}",
-                        config.getName(), config.getCronExpression());
+                return;
             }
+
+            scheduledTasks.put(config.getId(), future);
+            logger.info("Agendamento '{}' registrado com expressao cron: {}",
+                    config.getName(), config.getCronExpression());
+
+        } catch (IllegalArgumentException e) {
+            logger.error("Expressao cron invalida para o backup '{}': {}",
+                    config.getName(), config.getCronExpression());
         }
     }
 

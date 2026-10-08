@@ -53,7 +53,7 @@ public class BackupService {
     private final Executor backupDispatchExecutor;
     private final BackupService self;
 
-    @Value("${backup.excluded-folders:AppData,Temp,node_modules}")
+    @Value("${backup.exclusions:AppData,Temp,node_modules,.git,$RECYCLE.BIN}")
     private List<String> excludedFolders;
 
     public BackupService(
