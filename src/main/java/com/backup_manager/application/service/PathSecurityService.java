@@ -49,6 +49,18 @@ public class PathSecurityService {
         return normalizedPath;
     }
 
+    public void ensureNotOverlapping(Path sourcePath, Path targetPath, String operationName) {
+        Path source = sourcePath.toAbsolutePath().normalize();
+        Path target = targetPath.toAbsolutePath().normalize();
+
+        if (target.startsWith(source) || source.startsWith(target)) {
+            logger.warn("Sobreposicao de caminhos bloqueada em {}: {} <-> {}", operationName, source, target);
+            throw new IllegalArgumentException(
+                    "Origem e destino nao podem estar um dentro do outro na operacao de " + operationName + "."
+            );
+        }
+    }
+
     private void ensureNotPathTraversal(String rawPath, String operationName) {
         if (rawPath.contains("..")) {
             logger.warn("Path traversal bloqueado em {}: {}", operationName, rawPath);

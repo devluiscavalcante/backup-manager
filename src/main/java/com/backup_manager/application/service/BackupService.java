@@ -100,8 +100,9 @@ public class BackupService {
 
     public Long runBackup(String sourcePath, String destinationPath) {
         try {
-            validateSafePath(sourcePath);
-            validateSafePath(destinationPath);
+            Path validatedSource = validateSafePath(sourcePath);
+            Path validatedDestination = validateSafePath(destinationPath);
+            pathSecurityService.ensureNotOverlapping(validatedSource, validatedDestination, "backup");
             validatePathAndDriveSpace(sourcePath, destinationPath);
 
             BackupTask task = createInitialTask(sourcePath, destinationPath);
@@ -330,8 +331,8 @@ public class BackupService {
         }
     }
 
-    public void validateSafePath(String path) {
-        pathSecurityService.validateManagedPath(path, "backup");
+    public Path validateSafePath(String path) {
+        return pathSecurityService.validateManagedPath(path, "backup");
     }
 
     private void handlePause(BackupTask task, Long taskId, int processed, int total) {

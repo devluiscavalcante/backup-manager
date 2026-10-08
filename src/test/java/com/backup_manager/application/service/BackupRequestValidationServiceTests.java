@@ -97,6 +97,50 @@ class BackupRequestValidationServiceTests {
         assertEquals("O numero de origens deve ser igual ao numero de destinos.", exception.getMessage());
     }
 
+    @Test
+    void shouldRejectDestinationInsideSource() throws IOException {
+        Path sourceDir = Files.createDirectories(tempDir.resolve("source"));
+        Files.writeString(sourceDir.resolve("file.txt"), "content");
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                service.validateSchedulableRequest(
+                        List.of(sourceDir.toString()),
+                        List.of(sourceDir.resolve("backup").toString())
+                )
+        );
+
+        assertEquals("Origem e destino nao podem estar um dentro do outro na operacao de backup.",
+                exception.getMessage());
+    }
+
+    @Test
+    void shouldRejectSourceInsideDestinationOrSamePath() throws IOException {
+        Path destinationDir = Files.createDirectories(tempDir.resolve("destination"));
+        Path sourceDir = Files.createDirectories(destinationDir.resolve("source"));
+        Files.writeString(sourceDir.resolve("file.txt"), "content");
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        assertThrows(IllegalArgumentException.class, () ->
+                service.validateSchedulableRequest(List.of(sourceDir.toString()), List.of(destinationDir.toString())));
+        assertThrows(IllegalArgumentException.class, () ->
+                service.validateSchedulableRequest(List.of(sourceDir.toString()), List.of(sourceDir.toString())));
+    }
+
+    @Test
+    void shouldAllowSiblingDestinationSharingNamePrefix() throws IOException {
+        Path sourceDir = Files.createDirectories(tempDir.resolve("data"));
+        Files.writeString(sourceDir.resolve("file.txt"), "content");
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        assertDoesNotThrow(() ->
+                service.validateSchedulableRequest(
+                        List.of(sourceDir.toString()),
+                        List.of(tempDir.resolve("data-backup").toString())
+                )
+        );
+    }
+
     private BackupRequestValidationService createService(List<String> allowedRoots) {
         AppSecurityProperties properties = new AppSecurityProperties();
         properties.setAllowedPathRoots(allowedRoots);
