@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
+import java.util.Objects;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
@@ -31,7 +32,7 @@ public class FileStorageOperations {
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
                 if (!callback.shouldContinue()) return FileVisitResult.TERMINATE;
 
-                if (shouldExclude(dir, excludedFolders)) {
+                if (shouldExclude(dir, source, excludedFolders)) {
                     callback.onWarning("Diretório ignorado", dir);
                     return FileVisitResult.SKIP_SUBTREE;
                 }
@@ -51,7 +52,7 @@ public class FileStorageOperations {
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                 if (!callback.shouldContinue()) return FileVisitResult.TERMINATE;
 
-                if (shouldExclude(file, excludedFolders)) return FileVisitResult.CONTINUE;
+                if (shouldExclude(file, source, excludedFolders)) return FileVisitResult.CONTINUE;
 
                 Path targetFile = destination.resolve(source.relativize(file));
                 try {
@@ -79,8 +80,22 @@ public class FileStorageOperations {
                 sourceAttrs.lastModifiedTime().toMillis() > targetAttrs.lastModifiedTime().toMillis();
     }
 
-    private boolean shouldExclude(Path path, List<String> excludedFolders) {
-        String p = path.toString();
-        return excludedFolders.stream().anyMatch(p::contains);
+    // Compara apenas o nome da entrada (sem diferenciar maiusculas). A raiz da origem nunca e excluida,
+    // mesmo que algum diretorio do seu caminho tenha um nome presente na lista de exclusoes.
+    static boolean shouldExclude(Path path, Path sourceRoot, List<String> excludedNames) {
+        if (excludedNames == null || excludedNames.isEmpty() || path.equals(sourceRoot)) {
+            return false;
+        }
+
+        Path fileName = path.getFileName();
+        if (fileName == null) {
+            return false;
+        }
+
+        String name = fileName.toString();
+        return excludedNames.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .anyMatch(name::equalsIgnoreCase);
     }
 }
