@@ -26,6 +26,7 @@ public class BackupRequestValidationService {
             Path sourcePath = pathSecurityService.validateManagedPath(sources.get(i), "backup");
             Path destinationPath = pathSecurityService.validateManagedPath(destinations.get(i), "backup");
 
+            pathSecurityService.ensureNotOverlapping(sourcePath, destinationPath, "backup");
             backupManager.validateSource(sourcePath.toString());
             validateDestinationRoot(destinationPath);
         }

@@ -179,7 +179,8 @@ public class RestoreService {
                 backupId, request.getTargetPath());
 
         BackupTask backup = validateBackup(backupId);
-        pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
+        Path targetPath = pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
+        pathSecurityService.ensureNotOverlapping(Paths.get(backup.getDestinationPath()), targetPath, "restauracao");
 
         RestoreTask task = createRestoreTask(backup, request.getTargetPath(),
                 RestoreType.FULL, null);
@@ -199,7 +200,8 @@ public class RestoreService {
         BackupTask backup = validateBackup(backupId);
         Path backupRoot = Paths.get(backup.getDestinationPath());
 
-        pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
+        Path targetPath = pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
+        pathSecurityService.ensureNotOverlapping(backupRoot, targetPath, "restauracao");
         validateSelectedFiles(request.getSelectedFiles(), backupRoot);
 
         RestoreTask task = createRestoreTask(
