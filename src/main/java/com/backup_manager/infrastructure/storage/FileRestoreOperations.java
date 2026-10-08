@@ -214,6 +214,13 @@ public class FileRestoreOperations {
 
                 return FileVisitResult.CONTINUE;
             }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                callback.onWarning("Falha ao acessar arquivo: " + exc.getMessage(), file);
+                warnings.incrementAndGet();
+                return FileVisitResult.CONTINUE;
+            }
         });
     }
 
@@ -280,6 +287,11 @@ public class FileRestoreOperations {
                 count.incrementAndGet();
                 return FileVisitResult.CONTINUE;
             }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                return FileVisitResult.CONTINUE;
+            }
         });
         return count.get();
     }
@@ -299,6 +311,11 @@ public class FileRestoreOperations {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                         count.incrementAndGet();
+                        return FileVisitResult.CONTINUE;
+                    }
+
+                    @Override
+                    public FileVisitResult visitFileFailed(Path file, IOException exc) {
                         return FileVisitResult.CONTINUE;
                     }
                 });

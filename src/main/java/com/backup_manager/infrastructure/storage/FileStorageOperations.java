@@ -68,6 +68,18 @@ public class FileStorageOperations {
                 }
                 return FileVisitResult.CONTINUE;
             }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+                // Sem acesso a raiz nao ha o que copiar: propaga para o backup falhar explicitamente.
+                if (file.equals(source)) {
+                    throw exc;
+                }
+
+                callback.onWarning("Falha ao acessar: " + exc.getMessage(), file);
+                warnings.incrementAndGet();
+                return FileVisitResult.CONTINUE;
+            }
         });
 
         return warnings.get();
