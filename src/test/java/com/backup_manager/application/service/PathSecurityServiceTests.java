@@ -3,8 +3,10 @@ package com.backup_manager.application.service;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -12,6 +14,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class PathSecurityServiceTests {
 
@@ -70,6 +73,39 @@ class PathSecurityServiceTests {
         Path homePath = Paths.get(System.getProperty("user.home")).resolve("backup-test");
 
         assertDoesNotThrow(() -> validateManagedPath(service, homePath.toString(), "backup"));
+    }
+
+    @Test
+    void shouldBlockSymbolicLinkPointingOutsideConfiguredRoot() throws IOException {
+        Path allowedRoot = Files.createDirectories(tempDir.resolve("permitida"));
+        Path outside = Files.createDirectories(tempDir.resolve("fora"));
+        Path link = allowedRoot.resolve("atalho");
+        createSymbolicLinkOrSkip(link, outside);
+
+        Object service = createService(List.of(allowedRoot.toString()));
+
+        assertThrows(SecurityException.class,
+                () -> validateManagedPath(service, link.resolve("novo-destino").toString(), "backup"));
+    }
+
+    @Test
+    void shouldAllowSymbolicLinkPointingInsideConfiguredRoot() throws IOException {
+        Path allowedRoot = Files.createDirectories(tempDir.resolve("permitida"));
+        Path inside = Files.createDirectories(allowedRoot.resolve("dados"));
+        Path link = allowedRoot.resolve("atalho");
+        createSymbolicLinkOrSkip(link, inside);
+
+        Object service = createService(List.of(allowedRoot.toString()));
+
+        assertDoesNotThrow(() -> validateManagedPath(service, link.toString(), "backup"));
+    }
+
+    private void createSymbolicLinkOrSkip(Path link, Path target) {
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (IOException | UnsupportedOperationException e) {
+            assumeTrue(false, "Criacao de symlink indisponivel: " + e.getMessage());
+        }
     }
 
     private Object createService(List<String> allowedRoots) {

@@ -38,16 +38,23 @@ public class FileRestoreOperations {
         AtomicInteger warnings = new AtomicInteger(0);
         AtomicLong totalSize = new AtomicLong(0);
 
-        int totalFiles = countFiles(backupSource);
+        Path realBackup = backupSource.toRealPath();
+        int totalFiles = countFiles(realBackup);
 
-        Files.walkFileTree(backupSource, new SimpleFileVisitor<>() {
+        Files.walkFileTree(realBackup, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                 if (!callback.shouldContinue()) {
                     return FileVisitResult.TERMINATE;
                 }
 
-                Path targetDir = targetDestination.resolve(backupSource.relativize(dir));
+                if (!dir.equals(realBackup) && FileLinks.isRedirected(dir)) {
+                    callback.onWarning("Link simbolico/junction ignorado", dir);
+                    warnings.incrementAndGet();
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+
+                Path targetDir = targetDestination.resolve(realBackup.relativize(dir));
                 if (!Files.exists(targetDir)) {
                     Files.createDirectories(targetDir);
                 }
@@ -60,7 +67,13 @@ public class FileRestoreOperations {
                     return FileVisitResult.TERMINATE;
                 }
 
-                Path targetFile = targetDestination.resolve(backupSource.relativize(file));
+                if (FileLinks.isLink(attrs)) {
+                    callback.onWarning("Link simbolico ignorado", file);
+                    warnings.incrementAndGet();
+                    return FileVisitResult.CONTINUE;
+                }
+
+                Path targetFile = targetDestination.resolve(realBackup.relativize(file));
 
                 try {
                     if (!overwriteExisting && Files.exists(targetFile)) {
@@ -117,6 +130,7 @@ public class FileRestoreOperations {
         AtomicInteger warnings = new AtomicInteger(0);
         AtomicLong totalSize = new AtomicLong(0);
 
+        Path realBackup = backupSource.toRealPath();
         int totalFilesToRestore = countSelectedFiles(backupSource, selectedPaths);
 
         for (String selectedPath : selectedPaths) {
@@ -139,12 +153,20 @@ public class FileRestoreOperations {
             }
 
             try {
-                if (Files.isDirectory(sourceFile)) {
-                    restoreDirectory(sourceFile, backupSource, targetDestination,
+                // O item selecionado (ou um diretorio no caminho ate ele) pode ser um link para fora do backup.
+                Path realSourceFile = sourceFile.toRealPath();
+                if (!realSourceFile.startsWith(realBackup)) {
+                    callback.onWarning("Path inválido (link para fora do backup)", sourceFile);
+                    warnings.incrementAndGet();
+                    continue;
+                }
+
+                if (Files.isDirectory(realSourceFile)) {
+                    restoreDirectory(realSourceFile, realBackup, targetDestination,
                             overwriteExisting, callback, processedFiles,
                             warnings, totalSize, totalFilesToRestore);
                 } else {
-                    restoreFile(sourceFile, backupSource, targetDestination,
+                    restoreFile(realSourceFile, realBackup, targetDestination,
                             overwriteExisting, callback, processedFiles,
                             warnings, totalSize, totalFilesToRestore);
                 }
@@ -172,6 +194,12 @@ public class FileRestoreOperations {
                     return FileVisitResult.TERMINATE;
                 }
 
+                if (!dir.equals(sourceDir) && FileLinks.isRedirected(dir)) {
+                    callback.onWarning("Link simbolico/junction ignorado", dir);
+                    warnings.incrementAndGet();
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+
                 Path relativePath = backupRoot.relativize(dir);
                 Path targetDir = targetRoot.resolve(relativePath);
 
@@ -185,6 +213,12 @@ public class FileRestoreOperations {
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                 if (!callback.shouldContinue()) {
                     return FileVisitResult.TERMINATE;
+                }
+
+                if (FileLinks.isLink(attrs)) {
+                    callback.onWarning("Link simbolico ignorado", file);
+                    warnings.incrementAndGet();
+                    return FileVisitResult.CONTINUE;
                 }
 
                 Path relativePath = backupRoot.relativize(file);

@@ -5,7 +5,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
@@ -31,9 +33,12 @@ public class PathSecurityService {
 
         Path normalizedPath = Paths.get(rawPath).toAbsolutePath().normalize();
         ensureNotPathTraversal(rawPath, operationName);
-        ensureNotProtectedSystemPath(normalizedPath, operationName);
-        ensureWithinAllowedRoots(normalizedPath, operationName);
-        return normalizedPath;
+
+        // Valida o caminho efetivamente acessado: symlinks/junctions nao podem levar para fora da allowlist.
+        Path realPath = resolveRealPath(normalizedPath, operationName);
+        ensureNotProtectedSystemPath(realPath, operationName);
+        ensureWithinAllowedRoots(realPath, operationName);
+        return realPath;
     }
 
     public Path validateWritableManagedPath(String rawPath, String operationName) {
@@ -50,8 +55,8 @@ public class PathSecurityService {
     }
 
     public void ensureNotOverlapping(Path sourcePath, Path targetPath, String operationName) {
-        Path source = sourcePath.toAbsolutePath().normalize();
-        Path target = targetPath.toAbsolutePath().normalize();
+        Path source = resolveRealPath(sourcePath.toAbsolutePath().normalize(), operationName);
+        Path target = resolveRealPath(targetPath.toAbsolutePath().normalize(), operationName);
 
         if (target.startsWith(source) || source.startsWith(target)) {
             logger.warn("Sobreposicao de caminhos bloqueada em {}: {} <-> {}", operationName, source, target);
@@ -110,7 +115,38 @@ public class PathSecurityService {
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(path -> !path.isEmpty())
-                .map(path -> Paths.get(path).toAbsolutePath().normalize())
+                .map(path -> realPathOrSelf(Paths.get(path).toAbsolutePath().normalize()))
                 .toList();
+    }
+
+    // Resolve o ancestral existente mais proximo para o caminho real e reaplica o trecho ainda inexistente
+    // (destinos de backup/restauracao podem ainda nao existir).
+    private Path resolveRealPath(Path normalizedPath, String operationName) {
+        Path existingAncestor = normalizedPath;
+        while (existingAncestor != null && !Files.exists(existingAncestor, LinkOption.NOFOLLOW_LINKS)) {
+            existingAncestor = existingAncestor.getParent();
+        }
+
+        if (existingAncestor == null) {
+            return normalizedPath;
+        }
+
+        try {
+            Path remainder = existingAncestor.relativize(normalizedPath);
+            return existingAncestor.toRealPath().resolve(remainder).normalize();
+        } catch (IOException e) {
+            logger.warn("Caminho real nao resolvido em {}: {} ({})", operationName, normalizedPath, e.getMessage());
+            throw new SecurityException(
+                    "Nao foi possivel resolver o caminho real informado para a operacao de " + operationName + "."
+            );
+        }
+    }
+
+    private Path realPathOrSelf(Path path) {
+        try {
+            return path.toRealPath();
+        } catch (IOException e) {
+            return path;
+        }
     }
 }

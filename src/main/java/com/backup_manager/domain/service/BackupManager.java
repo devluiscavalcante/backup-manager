@@ -6,8 +6,14 @@ import com.backup_manager.domain.exception.FolderNotFoundException;
 import org.springframework.stereotype.Component;
 
 import java.io.File;
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.nio.file.FileVisitResult;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 
 /**
  * Classe responsável pelas regras de negócio relacionadas ao processo de backup.
@@ -40,38 +46,63 @@ public class BackupManager {
     }
 
     public BigDecimal calculateFolderSizeMB(File folder) {
-        long totalBytes = calculateFolderSize(folder);
+        long totalBytes = scanRegularFiles(folder).totalBytes();
         double sizeInMB = totalBytes / (1024.0 * 1024.0);
         return BigDecimal.valueOf(sizeInMB).setScale(2, RoundingMode.HALF_UP);
     }
 
     public long countFiles(File folder) {
-        File[] files = folder.listFiles();
-        if (files == null) return 0;
-
-        long count = 0;
-        for (File file : files) {
-            if (file.isFile()) {
-                count++;
-            } else if (file.isDirectory()) {
-                count += countFiles(file);
-            }
-        }
-        return count;
+        return scanRegularFiles(folder).fileCount();
     }
 
-    private long calculateFolderSize(File folder) {
-        File[] files = folder.listFiles();
-        if (files == null) return 0;
-
-        long total = 0;
-        for (File file : files) {
-            if (file.isFile()) {
-                total += file.length();
-            } else if (file.isDirectory()) {
-                total += calculateFolderSize(file);
-            }
+    // Percorre a arvore sem seguir symlinks/junctions (evita contar conteudo externo e loops por links ciclicos).
+    private FolderScan scanRegularFiles(File folder) {
+        Path root;
+        try {
+            root = folder.toPath().toRealPath();
+        } catch (IOException e) {
+            return new FolderScan(0, 0);
         }
-        return total;
+
+        long[] totals = {0, 0};
+        try {
+            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+                @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    return dir.equals(root) || !isRedirected(dir)
+                            ? FileVisitResult.CONTINUE
+                            : FileVisitResult.SKIP_SUBTREE;
+                }
+
+                @Override
+                public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                    if (attrs.isRegularFile()) {
+                        totals[0]++;
+                        totals[1] += attrs.size();
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
+                public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            return new FolderScan(totals[0], totals[1]);
+        }
+
+        return new FolderScan(totals[0], totals[1]);
+    }
+
+    private static boolean isRedirected(Path dir) {
+        try {
+            return !dir.toRealPath().equals(dir);
+        } catch (IOException e) {
+            return true;
+        }
+    }
+
+    private record FolderScan(long fileCount, long totalBytes) {
     }
 }

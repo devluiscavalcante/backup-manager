@@ -105,6 +105,47 @@ class FileStorageOperationsTests {
                 .isInstanceOf(NoSuchFileException.class);
     }
 
+    @Test
+    void shouldNotFollowSymbolicLinksInsideSource() throws IOException {
+        Path source = tempDir.resolve("origem");
+        Path destination = tempDir.resolve("destino");
+        Path external = tempDir.resolve("externo");
+        write(source.resolve("documento.txt"));
+        write(external.resolve("segredo.txt"));
+
+        createSymbolicLinkOrSkip(source.resolve("link-pasta"), external);
+        createSymbolicLinkOrSkip(source.resolve("link-arquivo.txt"), external.resolve("segredo.txt"));
+
+        int warnings = storageOperations.copyDirectoryIncremental(source, destination, List.of(), noOpCallback());
+
+        assertThat(warnings).isEqualTo(2);
+        assertThat(destination.resolve("documento.txt")).exists();
+        assertThat(destination.resolve("link-pasta")).doesNotExist();
+        assertThat(destination.resolve("link-arquivo.txt")).doesNotExist();
+    }
+
+    @Test
+    void shouldCopyWhenSourceRootItselfIsASymbolicLink() throws IOException {
+        Path realSource = tempDir.resolve("origem-real");
+        Path linkedSource = tempDir.resolve("origem-link");
+        Path destination = tempDir.resolve("destino");
+        write(realSource.resolve("documento.txt"));
+
+        createSymbolicLinkOrSkip(linkedSource, realSource);
+
+        storageOperations.copyDirectoryIncremental(linkedSource, destination, List.of(), noOpCallback());
+
+        assertThat(destination.resolve("documento.txt")).exists();
+    }
+
+    private void createSymbolicLinkOrSkip(Path link, Path target) {
+        try {
+            Files.createSymbolicLink(link, target);
+        } catch (IOException | UnsupportedOperationException e) {
+            assumeTrue(false, "Criacao de symlink indisponivel: " + e.getMessage());
+        }
+    }
+
     private void write(Path file) throws IOException {
         Files.createDirectories(file.getParent());
         Files.writeString(file, "conteudo");
