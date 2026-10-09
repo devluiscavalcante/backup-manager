@@ -1,11 +1,9 @@
 import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { LucideAngularModule, Server, Code, Cpu, HardDrive, Settings2 } from 'lucide-angular';
 
 @Component({
   selector: 'app-specs',
-  standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [LucideAngularModule],
   templateUrl: './specs.component.html'
 })
 export class SpecsComponent {
@@ -19,10 +17,13 @@ export class SpecsComponent {
     'POST /api/backup/start',
     'GET /api/backup/history',
     'GET /api/backup/progress',
-    'POST /api/backup/taskId/pause',
-    'POST /api/backup/taskId/resume',
-    'DELETE /api/backup/taskId/cancel',
-    'POST /api/backup/taskId/status'
+    'POST /api/backup/{taskId}/pause',
+    'POST /api/backup/{taskId}/resume',
+    'POST /api/backup/{taskId}/cancel',
+    'GET /api/backup/{taskId}/status',
+    'GET /api/backup/active',
+    'GET /api/system/storage',
+    'GET /api/logs/warnings'
   ];
 
   getMethodClass(endpoint: string): string {

@@ -9,7 +9,7 @@
       <div class="flex-1 w-full space-y-8 text-center lg:text-left">
         <div class="space-y-4 px-2 sm:px-0">
           <div class="flex items-center justify-center lg:justify-start gap-2 text-gray-400">
-            <span class="text-[10px] font-bold uppercase tracking-[0.2em]">{{ getGreeting() }} • BKM v1.0</span>
+            <span class="text-[10px] font-bold uppercase tracking-[0.2em]">{{ getGreeting() }} • BKM{{ appInfo.version() ? ' v' + appInfo.version() : '' }}</span>
           </div>
 
           <h1 class="text-3xl md:text-5xl lg:text-6xl font-light tracking-tight text-gray-900 leading-snug md:leading-[1.1] break-words">

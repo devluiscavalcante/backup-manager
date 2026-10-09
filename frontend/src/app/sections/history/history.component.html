@@ -20,7 +20,7 @@
         <th class="px-8 py-5 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">Execution Date</th>
         <th class="px-8 py-5 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">Status</th>
         <th class="px-8 py-5 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">Source Path</th>
-        <th class="px-8 py-5 text-[100px] font-bold text-gray-400 uppercase tracking-[0.2em]">Metrics</th>
+        <th class="px-8 py-5 text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em]">Metrics</th>
       </tr>
       </thead>
 
@@ -32,6 +32,12 @@
                 <div class="animate-spin rounded-full h-5 w-5 border-2 border-gray-900 border-t-transparent"></div>
                 <span class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Accessing records...</span>
               </div>
+            </td>
+          </tr>
+        } @else if (error()) {
+          <tr>
+            <td colspan="4" class="px-8 py-16 text-center">
+              <p class="text-xs text-red-500 font-medium">{{ error() }}</p>
             </td>
           </tr>
         } @else if (historyRecords().length === 0) {
@@ -55,14 +61,12 @@
               </td>
 
               <td class="px-8 py-5">
-                @if (record.status === 'EM_ANDAMENTO' || record.status === 'CONCLUIDO') {
-                  <span class="inline-flex items-center px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-tighter bg-emerald-50 text-emerald-600 border border-emerald-100/50">
-                    {{ record.status }}
-                  </span>
-                } @else {
-                  <span class="inline-flex items-center px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-tighter bg-red-50 text-red-600 border border-red-100/50">
-                    {{ record.status }}
-                  </span>
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-tighter border"
+                      [class]="statusClass(record.status)">
+                  {{ statusLabel(record.status) }}
+                </span>
+                @if (record.errorMessage) {
+                  <p class="mt-1 text-[10px] text-gray-400 max-w-[14rem] truncate" [title]="record.errorMessage">{{ record.errorMessage }}</p>
                 }
               </td>
 
@@ -81,11 +85,11 @@
               <td class="px-8 py-5 whitespace-nowrap">
                 <div class="flex flex-col gap-1">
                   <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-bold text-gray-900">{{ record.totalSizeMB | number:'1.1-2' }} MB</span>
+                    <span class="text-[10px] font-bold text-gray-900">{{ (record.totalSizeMB ?? 0) | number:'1.1-2' }} MB</span>
                     <span class="text-[8px] text-gray-300 uppercase">Size</span>
                   </div>
                   <div class="flex items-center gap-2">
-                    <span class="text-[10px] font-medium text-gray-500">{{ record.fileCount }} files</span>
+                    <span class="text-[10px] font-medium text-gray-500">{{ record.fileCount ?? 0 }} files</span>
                     <span class="text-[8px] text-gray-300 uppercase">Count</span>
                   </div>
                 </div>

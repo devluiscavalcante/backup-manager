@@ -1,17 +1,17 @@
-import { Component, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { LucideAngularModule, Info, Github, ExternalLink, Code2, ShieldCheck, Cpu, Layers, Server, Terminal, Download, Play } from 'lucide-angular';
+import { Component, computed, inject, signal } from '@angular/core';
+import { LucideAngularModule, LucideIconData, Info, Github, ExternalLink, Code2, ShieldCheck, Cpu, Layers, Server, Terminal, Download, Play } from 'lucide-angular';
+import { AppInfoService } from '../../core/services/app-info.service';
 
 interface Step {
   label: string;
   desc: string;
   command: string;
-  icon: any;
+  icon: LucideIconData;
 }
 
 interface DocSection {
   title: string;
-  icon: any;
+  icon: LucideIconData;
   content: string[];
 }
 
@@ -23,11 +23,12 @@ interface BackendCard {
 
 @Component({
   selector: 'app-about',
-  standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [LucideAngularModule],
   templateUrl: './about.component.html'
 })
 export class AboutComponent {
+  private appInfo = inject(AppInfoService);
+
   readonly infoIcon = Info;
   readonly githubIcon = Github;
   readonly linkIcon = ExternalLink;
@@ -40,28 +41,26 @@ export class AboutComponent {
   quickStartSteps = signal<Step[]>([
     {
       label: 'Prerequisites',
-      desc: 'Ensure you have Java 17+, Node.js 18+, and a SQL Database ready.',
-      command: 'java --version && node -v',
+      desc: 'Ensure you have Java 21, Node.js 20+ and Docker (for PostgreSQL) ready.',
+      command: 'java --version && node -v && docker compose up -d postgres',
       icon: Download
     },
     {
       label: 'Backend Setup',
-      desc: 'Clone the repository and run the Spring Boot engine.',
+      desc: 'Set DB_PASSWORD and APP_SECURITY_PASSWORD in .env, then run the Spring Boot engine.',
       command: './mvnw spring-boot:run',
       icon: Terminal
     },
     {
       label: 'Frontend Launch',
-      desc: 'Install dependencies and launch the Angular dashboard.',
-      command: 'npm install && ng serve',
+      desc: 'Install dependencies and launch the Angular dashboard (proxied to :8080).',
+      command: 'cd frontend && npm install && npm start',
       icon: Play
     }
   ]);
 
   copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text).then(() => {
-      console.log('Comando copiado:', text);
-    });
+    navigator.clipboard.writeText(text).catch(() => undefined);
   }
 
   projectDocs = signal<DocSection[]>([
@@ -78,9 +77,9 @@ export class AboutComponent {
       title: 'System Architecture',
       icon: Layers,
       content: [
-        'Backend: Java 17+ with Spring Boot Ecosystem.',
-        'Frontend: Angular 18 with Signals and Tailwind CSS.',
-        'Integration: RESTful APIs with JSON communication.'
+        'Backend: Java 21 with Spring Boot 4 and PostgreSQL.',
+        'Frontend: Angular 21 with Signals and Tailwind CSS.',
+        'Integration: REST/JSON APIs secured with HTTP Basic, plus SSE for live progress.'
       ]
     },
     {
@@ -102,8 +101,8 @@ export class AboutComponent {
     },
     {
       label: 'Persistence Layer',
-      desc: 'Utilizes Spring Data JPA to manage ScheduledBackupEntity and history, persisting configurations and audit logs into a SQL database.',
-      tech: 'Spring Data JPA / SQL'
+      desc: 'Utilizes Spring Data JPA to manage ScheduledBackupEntity and history, persisting configurations and audit logs into PostgreSQL (Flyway migrations).',
+      tech: 'Spring Data JPA / PostgreSQL'
     },
     {
       label: 'REST Controller',
@@ -137,7 +136,7 @@ export class AboutComponent {
       tech: 'Java NIO / Logging'
     },
     {
-      label: 'System StorageComponent Stats',
+      label: 'System Storage Stats',
       desc: 'The SystemController provides real-time information about Windows storage partitions, mapping disk health and available space.',
       tech: 'SystemStorageService'
     },
@@ -148,13 +147,13 @@ export class AboutComponent {
     }
   ]);
 
-  projectMeta = signal({
-    version: '1.2.0',
+  projectMeta = computed(() => ({
+    version: this.appInfo.version(),
     author: 'Luis Cavalcante',
     githubUser: 'devluiscavalcante',
     repoBackendUrl: 'https://github.com/devluiscavalcante/backup-manager',
-    repoFrontendUrl: 'https://github.com/devluiscavalcante/bkm-angular'
-  });
+    repoFrontendUrl: 'https://github.com/devluiscavalcante/backup-manager/tree/master/frontend'
+  }));
 
   getYear(): number {
     return new Date().getFullYear();

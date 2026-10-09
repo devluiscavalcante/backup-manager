@@ -1,11 +1,15 @@
-<div class="flex flex-col lg:flex-row min-h-screen bg-white">
-  <app-sidebar></app-sidebar>
+@if (auth.isAuthenticated()) {
+  <div class="flex flex-col lg:flex-row min-h-screen bg-white">
+    <app-sidebar></app-sidebar>
 
-  <main class="flex-1 min-w-0">
-    <div class="h-16 lg:hidden"></div>
+    <main class="flex-1 min-w-0">
+      <div class="h-16 lg:hidden"></div>
 
-    <div class="p-4 md:p-8 lg:p-12">
-      <router-outlet></router-outlet>
-    </div>
-  </main>
-</div>
+      <div class="p-4 md:p-8 lg:p-12">
+        <router-outlet></router-outlet>
+      </div>
+    </main>
+  </div>
+} @else {
+  <router-outlet></router-outlet>
+}

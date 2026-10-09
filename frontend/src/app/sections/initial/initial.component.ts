@@ -1,13 +1,11 @@
 import { Component, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { RouterModule, Router } from '@angular/router';
 import { LucideAngularModule, Zap, Shield, Package, LucideIconData } from 'lucide-angular';
 import { AboutComponent } from '../about/about.component';
 import { SpecsComponent } from '../specs/specs.component';
 import { StructureComponent } from '../structure/structure.component';
-// 1. Certifique-se de que o import do arquivo está correto
 import { StorageComponent } from '../storage/storage.component';
+import { AppInfoService } from '../../core/services/app-info.service';
 
 interface Feature {
   icon: LucideIconData;
@@ -18,22 +16,19 @@ interface Feature {
 
 @Component({
   selector: 'app-initial',
-  standalone: true,
   imports: [
-    CommonModule,
     LucideAngularModule,
-    FormsModule,
     RouterModule,
     AboutComponent,
     SpecsComponent,
     StructureComponent,
-    // 2. ADICIONE O COMPONENTE AQUI para que o Angular reconheça a tag <app-storage>
     StorageComponent
   ],
   templateUrl: './initial.component.html'
 })
 export class InitialComponent {
   private router = inject(Router);
+  protected readonly appInfo = inject(AppInfoService);
 
   readonly features: Feature[] = [
     { icon: Zap, label: 'Fast', desc: 'Incremental backups', css: 'text-amber-500' },

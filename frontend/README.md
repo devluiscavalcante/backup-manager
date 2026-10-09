@@ -1,59 +1,56 @@
-# BkmAngular
+# Backup Manager — Frontend
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 21.1.4.
+Interface web do Backup Manager, feita em **Angular 21** (componentes standalone e Signals) com **Tailwind CSS 3** e ícones **Lucide**.
 
-## Development server
+## Requisitos
 
-To start a local development server, run:
+- Node.js 20+ (o CI usa Node 24) e npm
+- Backend rodando em `http://localhost:8080` (veja o [README principal](../README.md#início-rápido))
 
-```bash
-ng serve
-```
-
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
-
-## Code scaffolding
-
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
+## Desenvolvimento
 
 ```bash
-ng generate component component-name
+npm ci
+npm start        # ng serve em http://localhost:4200
 ```
 
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+O `ng serve` usa o [`proxy.conf.json`](proxy.conf.json) para encaminhar `/api/**` ao backend em `:8080`. Os services sempre chamam caminhos relativos (`/api/...`), então não há URL do backend fixa no código.
 
-```bash
-ng generate --help
+### Autenticação
+
+O backend exige **HTTP Basic** em todos os endpoints `/api/**`, exceto `GET /api/health/application`.
+
+- A tela `/login` valida as credenciais em `GET /api/backup/active` e guarda a sessão no `sessionStorage`, que é apagado ao fechar a aba.
+- O `authInterceptor` envia `Authorization` e `X-Requested-With: XMLHttpRequest` nas chamadas à API. Com esse cabeçalho, o backend não manda o desafio `WWW-Authenticate`, e o navegador não abre o popup nativo de senha.
+- Uma resposta 401 encerra a sessão e volta para o login.
+- O usuário **operador** acessa backup e histórico. Storage e Logs exigem **administrador**, e a interface avisa quando o perfil não tem acesso.
+
+### Progresso em tempo real
+
+`GET /api/backup/progress` é um stream SSE com eventos nomeados (`progress`, `control`, `complete`, `error`). Como `EventSource` não envia cabeçalhos de autenticação, o stream é lido com `fetch` em [`core/http/event-stream.ts`](src/app/core/http/event-stream.ts).
+
+## Scripts
+
+| Comando | Descrição |
+|---|---|
+| `npm start` | Servidor de desenvolvimento com proxy |
+| `npm test` | Testes unitários (Vitest), execução única |
+| `npm run test:watch` | Testes em modo watch |
+| `npm run build` | Build de produção em `dist/backup-manager-frontend/browser` |
+
+## Estrutura
+
+```
+src/app
+├── core/
+│   ├── api/        contratos de resposta do backend (CollectionResponse, ApiErrorResponse...)
+│   ├── auth/       AuthService, guard e interceptor
+│   ├── http/       leitor de Server-Sent Events via fetch
+│   └── services/   BackupService, StorageService, LogsService, AppInfoService
+├── components/layout/sidebar
+└── sections/       páginas (login, inicio, backup, historico, storage, logs, sobre...)
 ```
 
-## Building
+## Deploy
 
-To build the project run:
-
-```bash
-ng build
-```
-
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
-
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
-
-```bash
-ng test
-```
-
-## Running end-to-end tests
-
-For end-to-end (e2e) testing, run:
-
-```bash
-ng e2e
-```
-
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
-
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+O frontend é publicado separadamente da API. Como os services usam caminhos relativos (`/api/...`), sirva `dist/backup-manager-frontend/browser` e a API **na mesma origem**: um proxy reverso (nginx, Caddy, IIS) entrega os arquivos estáticos e encaminha `/api` ao backend. Configure o fallback de rotas para `index.html`.

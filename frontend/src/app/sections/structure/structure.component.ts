@@ -1,11 +1,9 @@
 import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
 import { LucideAngularModule, Monitor, Server, FolderTree, FileCode, Box, Layers, Settings, HardDrive } from 'lucide-angular';
 
 @Component({
   selector: 'app-structure',
-  standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [LucideAngularModule],
   templateUrl: './structure.component.html'
 })
 export class StructureComponent {
@@ -19,12 +17,18 @@ export class StructureComponent {
   readonly driveIcon = HardDrive;
 
   readonly frontendTree = `
-src/app
-├── core/services
+frontend/src/app
+├── core/
+│   ├── api/       (contratos da API)
+│   ├── auth/      (login, guard, interceptor)
+│   ├── http/      (stream SSE)
+│   └── services/
 └── sections/
     ├── backup
     ├── history
-    └── structure`.trim();
+    ├── logs
+    ├── storage
+    └── login`.trim();
 
   readonly backendTree = `
 src/main/java
