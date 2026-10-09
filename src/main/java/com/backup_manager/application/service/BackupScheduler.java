@@ -15,6 +15,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -112,7 +113,11 @@ public class BackupScheduler {
             request.setSources(config.getSources());
             request.setDestination(config.getDestinations());
 
-            executeBackupWithRequest(request, config.getName());
+            List<Long> taskIds = executeBackupWithRequest(request, config.getName());
+            if (taskIds.isEmpty()) {
+                logger.warn("Backup agendado '{}' nao iniciou nenhuma tarefa", config.getName());
+                return false;
+            }
 
             lastExecutionMap.put(backupKey, now);
             return true;
@@ -138,7 +143,10 @@ public class BackupScheduler {
         ScheduledFuture<?> future = backupOneTimeScheduler.schedule(() -> {
             try {
                 logger.info("Executando backup unico agendado ID {}: {}", taskId, backupName);
-                executeBackupWithRequest(request, backupName);
+                List<Long> taskIds = executeBackupWithRequest(request, backupName);
+                if (taskIds.isEmpty()) {
+                    logger.warn("Backup unico agendado ID {} nao iniciou nenhuma tarefa", taskId);
+                }
                 scheduledTasks.remove(taskId);
             } catch (Exception e) {
                 logger.error("Erro no backup agendado ID {}: {}", taskId, e.getMessage());
@@ -150,9 +158,11 @@ public class BackupScheduler {
         return taskId;
     }
 
-    public void executeBackupWithRequest(BackupRequest request, String backupName) {
+    public List<Long> executeBackupWithRequest(BackupRequest request, String backupName) {
         List<String> sources = request.getSources();
         List<String> destinations = request.getDestination();
+        List<Long> taskIds = new ArrayList<>();
+        RuntimeException firstFailure = null;
 
         backupRequestValidationService.validateExecutableRequest(sources, destinations);
 
@@ -169,12 +179,21 @@ public class BackupScheduler {
                 }
 
                 logger.info("Disparando execucao agendada '{}': {} -> {}", backupName, source, destination);
-                backupService.runBackup(source, destination);
+                taskIds.add(backupService.runBackup(source, destination));
 
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 logger.error("Agendador pulou o par [{} -> {}] devido a erro: {}", source, destination, e.getMessage());
+                if (firstFailure == null) {
+                    firstFailure = e;
+                }
             }
         }
+
+        if (taskIds.isEmpty() && firstFailure != null) {
+            throw firstFailure;
+        }
+
+        return taskIds;
     }
 
     public boolean cancelScheduledBackup(Long taskId) {

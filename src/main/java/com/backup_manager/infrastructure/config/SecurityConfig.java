@@ -1,6 +1,7 @@
 package com.backup_manager.infrastructure.config;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.infrastructure.web.CrossOriginWriteProtectionFilter;
 import com.backup_manager.infrastructure.web.RequestTracingFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -67,6 +68,12 @@ public class SecurityConfig {
                         ))
                 )
                 .addFilterBefore(requestTracingFilter, BasicAuthenticationFilter.class)
+                // CSRF fica desabilitado (API stateless), mas o navegador reenvia credenciais Basic em cache:
+                // escritas vindas de outra origem sao bloqueadas pela verificacao do cabecalho Origin.
+                .addFilterBefore(
+                        new CrossOriginWriteProtectionFilter(securityProperties.getAllowedOrigins(), objectMapper),
+                        BasicAuthenticationFilter.class
+                )
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.GET, "/api/health/application").permitAll()
                         .requestMatchers("/error").permitAll()

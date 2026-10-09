@@ -31,9 +31,18 @@ public class BackupTaskManager {
         this.eventPublisher = eventPublisher;
     }
 
-    public void registerTask(Long taskId, BackupTask task) {
-        runningTasks.put(taskId, new AtomicReference<>(task));
-        logger.info("Tarefa registrada: ID={}, Status={}", taskId, task.getStatus());
+    // Chamado quando a tarefa sai da fila do executor. A referencia e registrada antes de reler o banco,
+    // assim pausas/cancelamentos feitos enquanto a tarefa aguardava (ou durante a releitura) sao preservados.
+    public BackupTask activateQueuedTask(Long taskId, BackupTask queuedTask) {
+        AtomicReference<BackupTask> ref = new AtomicReference<>(queuedTask);
+        runningTasks.put(taskId, ref);
+
+        backupRepository.findById(taskId)
+                .ifPresent(persistedTask -> ref.compareAndSet(queuedTask, persistedTask));
+
+        BackupTask currentTask = ref.get();
+        logger.info("Tarefa ativada: ID={}, Status={}", taskId, currentTask.getStatus());
+        return currentTask;
     }
 
     public BackupTask getTask(Long taskId) {

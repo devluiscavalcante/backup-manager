@@ -53,7 +53,7 @@ public class BackupService {
     private final Executor backupDispatchExecutor;
     private final BackupService self;
 
-    @Value("${backup.excluded-folders:AppData,Temp,node_modules}")
+    @Value("${backup.exclusions:AppData,Temp,node_modules,.git,$RECYCLE.BIN}")
     private List<String> excludedFolders;
 
     public BackupService(
@@ -100,8 +100,9 @@ public class BackupService {
 
     public Long runBackup(String sourcePath, String destinationPath) {
         try {
-            validateSafePath(sourcePath);
-            validateSafePath(destinationPath);
+            Path validatedSource = validateSafePath(sourcePath);
+            Path validatedDestination = validateSafePath(destinationPath);
+            pathSecurityService.ensureNotOverlapping(validatedSource, validatedDestination, "backup");
             validatePathAndDriveSpace(sourcePath, destinationPath);
 
             BackupTask task = createInitialTask(sourcePath, destinationPath);
@@ -146,7 +147,13 @@ public class BackupService {
         try {
             logger.info("Iniciando processamento assincrono: ID={}, Status={}", task.getId(), task.getStatus());
 
-            taskManager.registerTask(task.getId(), task);
+            BackupTask activeTask = taskManager.activateQueuedTask(task.getId(), task);
+            if (activeTask.isCancelled() || activeTask.getStatus() == Status.CANCELADO) {
+                logger.info("Backup {} cancelado enquanto aguardava na fila, execucao ignorada", task.getId());
+                taskManager.unregisterTask(task.getId());
+                return;
+            }
+
             progressEmitter.sendControlEvent("start", task.getId(), "EM_ANDAMENTO");
             eventPublisher.publishEvent(new BackupStartedEvent(task, false));
 
@@ -330,8 +337,8 @@ public class BackupService {
         }
     }
 
-    public void validateSafePath(String path) {
-        pathSecurityService.validateManagedPath(path, "backup");
+    public Path validateSafePath(String path) {
+        return pathSecurityService.validateManagedPath(path, "backup");
     }
 
     private void handlePause(BackupTask task, Long taskId, int processed, int total) {

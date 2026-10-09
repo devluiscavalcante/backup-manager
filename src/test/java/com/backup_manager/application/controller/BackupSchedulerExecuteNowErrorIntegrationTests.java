@@ -15,11 +15,13 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -40,6 +42,55 @@ class BackupSchedulerExecuteNowErrorIntegrationTests {
 
     @MockitoBean
     private BackupScheduler backupScheduler;
+
+    @Test
+    void adminShouldReceiveConflictWhenNoBackupStarts() throws Exception {
+        when(backupScheduler.executeBackupWithRequest(
+                ArgumentMatchers.any(BackupRequest.class),
+                anyString()
+        )).thenReturn(List.of());
+
+        mockMvc.perform(post("/api/backup/scheduler/execute-now")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sources": ["C:/temp/source"],
+                                  "destination": ["C:/temp/destination"]
+                                }
+                                """)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.code").value("active_backup_conflict"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/execute-now"))
+                .andExpect(jsonPath("$.details.requestedCount").value(1))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
+
+    @Test
+    void adminShouldReceiveStartedTaskIds() throws Exception {
+        when(backupScheduler.executeBackupWithRequest(
+                ArgumentMatchers.any(BackupRequest.class),
+                anyString()
+        )).thenReturn(List.of(41L, 42L));
+
+        mockMvc.perform(post("/api/backup/scheduler/execute-now")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "sources": ["C:/temp/source-a", "C:/temp/source-b"],
+                                  "destination": ["C:/temp/destination-a", "C:/temp/destination-b"]
+                                }
+                                """)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.status").value("EM_ANDAMENTO"))
+                .andExpect(jsonPath("$.taskIds[0]").value(41))
+                .andExpect(jsonPath("$.taskIds[1]").value(42))
+                .andExpect(jsonPath("$.requestId").isNotEmpty());
+    }
 
     @Test
     void adminShouldReceiveInternalServerErrorWhenExecuteNowUnexpectedlyFails() throws Exception {

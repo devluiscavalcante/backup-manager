@@ -40,4 +40,6 @@ public class AppSecurityProperties {
     private boolean allowDefaultPassword = false;
 
     private List<String> allowedPathRoots = new ArrayList<>();
+
+    private List<String> allowedOrigins = new ArrayList<>(List.of("http://localhost:4200"));
 }
