@@ -1,0 +1,147 @@
+<div class="max-w-6xl mx-auto space-y-10 animate-in fade-in duration-700">
+
+  <div class="flex items-center justify-between border-b border-gray-100 pb-6">
+    <div class="space-y-1">
+      <h2 class="text-3xl font-bold text-gray-900 tracking-tight">Execution <span class="font-light italic">Engine</span></h2>
+      <p class="text-xs text-gray-400 uppercase tracking-[0.3em] font-bold italic">Manual Backup Control</p>
+    </div>
+    <div class="flex gap-2">
+       <span class="px-3 py-1 bg-gray-50 border border-gray-200 rounded-full text-[10px] font-bold text-gray-500 uppercase">
+         Thread Safety: Active
+       </span>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+    <div class="bg-white border border-gray-100 rounded-[2rem] p-8 shadow-sm hover:shadow-md transition-all">
+      <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-3">
+          <div class="p-2 bg-gray-900 text-white rounded-xl shadow-lg">
+            <lucide-icon [name]="folderIcon" class="w-4 h-4"></lucide-icon>
+          </div>
+          <h3 class="font-bold text-gray-900 uppercase text-xs tracking-widest">Source Directories</h3>
+        </div>
+        <span class="text-[10px] font-mono text-gray-400">{{ sources().length }} items</span>
+      </div>
+
+      <div class="relative group mb-6">
+        <input [(ngModel)]="newSource" (keyup.enter)="addSource()"
+               placeholder="Ex: C:\Users\Documents"
+               class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/5 focus:bg-white transition-all">
+        <button (click)="addSource()"
+                class="absolute right-2 top-1.5 p-1.5 bg-gray-900 text-white rounded-xl hover:scale-105 active:scale-95 transition-all">
+          <lucide-icon [name]="plusIcon" class="w-4 h-4"></lucide-icon>
+        </button>
+      </div>
+
+      <div class="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+        @for (path of sources(); track $index) {
+          <div class="flex items-center justify-between bg-gray-50/50 p-3 rounded-xl border border-gray-50 group/item hover:bg-white hover:border-gray-200 transition-all">
+            <span class="text-xs text-gray-600 font-mono truncate max-w-[80%]">{{ path }}</span>
+            <button (click)="removeSource($index)" class="opacity-0 group-hover/item:opacity-100 p-1.5 text-gray-400 hover:text-red-500 transition-all">
+              <lucide-icon [name]="trashIcon" class="w-4 h-4"></lucide-icon>
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+
+    <div class="bg-white border border-gray-100 rounded-[2rem] p-8 shadow-sm hover:shadow-md transition-all">
+      <div class="flex items-center justify-between mb-6">
+        <div class="flex items-center gap-3">
+          <div class="p-2 bg-emerald-500 text-white rounded-xl shadow-lg">
+            <lucide-icon [name]="shieldIcon" class="w-4 h-4"></lucide-icon>
+          </div>
+          <h3 class="font-bold text-gray-900 uppercase text-xs tracking-widest">Safe Destinations</h3>
+        </div>
+        <span class="text-[10px] font-mono text-gray-400">{{ destinations().length }} items</span>
+      </div>
+
+      <div class="relative group mb-6">
+        <input [(ngModel)]="newDestination" (keyup.enter)="addDestination()"
+               placeholder="Ex: D:\Backup_External"
+               class="w-full pl-4 pr-12 py-3 bg-gray-50 border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/5 focus:bg-white transition-all">
+        <button (click)="addDestination()"
+                class="absolute right-2 top-1.5 p-1.5 bg-emerald-500 text-white rounded-xl hover:scale-105 active:scale-95 transition-all">
+          <lucide-icon [name]="plusIcon" class="w-4 h-4"></lucide-icon>
+        </button>
+      </div>
+
+      <div class="space-y-3 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+        @for (path of destinations(); track $index) {
+          <div class="flex items-center justify-between bg-emerald-50/20 p-3 rounded-xl border border-emerald-50/50 group/item hover:bg-white hover:border-emerald-200 transition-all">
+            <span class="text-xs text-gray-600 font-mono truncate max-w-[80%]">{{ path }}</span>
+            <button (click)="removeDestination($index)" class="opacity-0 group-hover/item:opacity-100 p-1.5 text-gray-400 hover:text-red-500 transition-all">
+              <lucide-icon [name]="trashIcon" class="w-4 h-4"></lucide-icon>
+            </button>
+          </div>
+        }
+      </div>
+    </div>
+  </div>
+
+  @if (isBackingUp()) {
+    <div class="max-w-3xl mx-auto p-8 bg-gray-900 rounded-[2.5rem] text-white shadow-2xl animate-in slide-in-from-bottom-8 duration-500 relative overflow-hidden">
+      <div class="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 blur-[50px]"></div>
+
+      <div class="relative z-10">
+        <div class="flex justify-between items-end mb-6">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2">
+              <span class="relative flex h-2 w-2">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              <p class="text-[10px] font-bold uppercase tracking-widest text-emerald-400">Engine Streaming</p>
+            </div>
+            <h4 class="text-lg font-medium text-gray-100 truncate max-w-md">{{ currentStatus() }}</h4>
+          </div>
+          <div class="text-right">
+            <span class="text-4xl font-light tracking-tighter">{{ progress() }}<span class="text-lg text-gray-500">%</span></span>
+          </div>
+        </div>
+
+        <div class="w-full bg-white/10 rounded-full h-1.5 overflow-hidden mb-8">
+          <div
+            class="bg-emerald-500 h-1.5 rounded-full transition-all duration-700 ease-out shadow-[0_0_15px_rgba(16,185,129,0.5)]"
+            [style.width.%]="progress()">
+          </div>
+        </div>
+
+        <div class="flex justify-center gap-4">
+          <button class="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all">
+            <lucide-icon [name]="pauseIcon" class="w-4 h-4"></lucide-icon>
+          </button>
+          <button class="p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 rounded-2xl transition-all">
+            <lucide-icon [name]="cancelIcon" class="w-4 h-4"></lucide-icon>
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <div class="flex flex-col items-center pt-6 space-y-4">
+    <button
+      (click)="startBackup()"
+      [disabled]="!canStart()"
+      class="group relative flex items-center gap-4 px-12 py-4 bg-gray-900 text-white rounded-full font-bold text-sm uppercase tracking-widest hover:bg-black disabled:opacity-30 disabled:cursor-not-allowed transition-all shadow-2xl active:scale-95 overflow-hidden">
+
+      <div class="absolute inset-0 bg-gradient-to-r from-emerald-500/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+
+      @if (isBackingUp()) {
+        <lucide-icon [name]="zapIcon" class="w-5 h-5 animate-pulse text-emerald-400"></lucide-icon>
+        <span>Synchronizing...</span>
+      } @else {
+        <lucide-icon [name]="playIcon" class="w-5 h-5"></lucide-icon>
+        <span>Initialize Backup Engine</span>
+      }
+    </button>
+
+    @if (sources().length !== destinations().length && sources().length > 0 && destinations().length > 0) {
+      <p class="text-[10px] text-red-500 font-bold uppercase tracking-tighter animate-bounce">
+        Attention: The number of sources and destinations must match.
+      </p>
+    }
+  </div>
+</div>

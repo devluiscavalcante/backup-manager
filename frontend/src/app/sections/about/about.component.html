@@ -1,0 +1,153 @@
+<div class="fixed inset-0 -z-10 opacity-[0.03]"
+     style="background-image: radial-gradient(#000 1px, transparent 1px); background-size: 24px 24px;">
+</div>
+
+<div class="max-w-5xl mx-auto space-y-12 animate-in fade-in duration-1000 px-6 py-12 text-gray-900">
+
+  <div class="space-y-4 border-l-4 border-gray-900 pl-8">
+    <h2 class="text-3xl md:text-5xl font-light tracking-tight text-gray-900 leading-tight break-words">
+      Project <span class="font-semibold italic">Documentation</span>
+    </h2>
+    <p class="text-gray-500 max-w-2xl leading-relaxed text-sm">
+      A comprehensive deep dive into the <strong>Backup Manager (BKM)</strong> engineering, highlighting its robust Java core and reactive architecture.
+    </p>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+    <div class="bg-gray-900 rounded-3xl p-8 text-white flex flex-col justify-between group overflow-hidden relative h-full">
+      <div class="relative z-10 space-y-4">
+        <h3 class="text-xl font-semibold">Repository Access</h3>
+        <p class="text-gray-400 text-sm max-w-[240px]">Explore the source code for both parts of the system.</p>
+        <div class="flex flex-col sm:flex-row gap-3 pt-2">
+          <a [href]="projectMeta().repoBackendUrl" target="_blank" class="inline-flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest bg-white text-gray-900 px-4 py-2.5 rounded-xl hover:bg-gray-100 transition-colors flex-1 text-center">
+            Backend <lucide-icon [name]="linkIcon" class="w-3 h-3"></lucide-icon>
+          </a>
+          <a [href]="projectMeta().repoFrontendUrl" target="_blank" class="inline-flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-widest border border-white/20 text-white px-4 py-2.5 rounded-xl hover:bg-white/10 transition-colors flex-1 text-center">
+            Frontend <lucide-icon [name]="linkIcon" class="w-3 h-3"></lucide-icon>
+          </a>
+        </div>
+      </div>
+      <lucide-icon [name]="githubIcon" class="w-32 h-32 absolute -right-8 -bottom-8 text-white/5 group-hover:text-white/10 transition-all"></lucide-icon>
+    </div>
+
+    <div class="bg-white border border-gray-100 rounded-3xl p-8 flex flex-col justify-between shadow-sm h-full">
+      <div class="flex justify-between items-start">
+        <div class="space-y-1">
+          <p class="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Project Status</p>
+          <h3 class="text-xl font-semibold">Stable Build</h3>
+        </div>
+        <span class="px-3 py-1 bg-gray-100 rounded-full text-[10px] font-mono font-bold text-gray-600">v{{ projectMeta().version }}</span>
+      </div>
+      <div class="pt-6 flex items-center gap-4 border-t border-gray-50">
+        <div class="w-10 h-10 bg-gray-900 text-white rounded-full flex items-center justify-center text-[10px] font-bold">LC</div>
+        <div>
+          <p class="text-xs font-bold">{{ projectMeta().author }}</p>
+          <p class="text-[10px] text-gray-400 uppercase tracking-tighter">Software Developer</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bg-white/40 backdrop-blur-md border border-gray-100 rounded-[2.5rem] p-10 space-y-10 shadow-sm">
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+      <div class="flex items-center gap-4">
+        <div class="p-3 bg-gray-900 text-white rounded-2xl shadow-lg">
+          <lucide-icon [name]="serverIcon" class="w-6 h-6"></lucide-icon>
+        </div>
+        <div>
+          <h2 class="text-2xl font-bold">Core Backend Logic</h2>
+          <p class="text-[10px] text-gray-400 uppercase tracking-[0.3em] font-bold">Robust Java Enterprise Pattern</p>
+        </div>
+      </div>
+      <span class="text-[9px] font-bold text-gray-400 uppercase tracking-widest bg-gray-50 px-3 py-1 rounded-full border border-gray-100">Clean Architecture</span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 border-b border-gray-100 pb-10">
+      @for (item of backendArchitecture(); track item.label) {
+        <div class="p-6 rounded-2xl border border-transparent hover:border-gray-100 hover:bg-white/50 transition-all">
+          <div class="mb-4">
+            <h4 class="font-bold text-[10px] uppercase tracking-widest mb-1">{{ item.label }}</h4>
+            <span class="text-[8px] font-mono text-gray-400 uppercase tracking-tighter">{{ item.tech }}</span>
+          </div>
+          <p class="text-sm text-gray-500 leading-relaxed">{{ item.desc }}</p>
+        </div>
+      }
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 border-b border-gray-100 pb-10">
+      @for (item of advancedFeatures(); track item.label) {
+        <div class="p-6 rounded-2xl border border-transparent hover:border-gray-100 hover:bg-white/50 transition-all">
+          <div class="mb-4">
+            <h4 class="font-bold text-[10px] uppercase tracking-widest mb-1">{{ item.label }}</h4>
+            <span class="text-[8px] font-mono text-gray-400 uppercase tracking-tighter">{{ item.tech }}</span>
+          </div>
+          <p class="text-sm text-gray-500 leading-relaxed font-light italic">
+            {{ item.desc }}
+          </p>
+        </div>
+      }
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+      @for (item of observabilityFeatures(); track item.label) {
+        <div class="p-6 rounded-2xl border border-transparent hover:border-gray-100 hover:bg-white/50 transition-all">
+          <div class="mb-4">
+            <h4 class="font-bold text-[10px] uppercase tracking-widest mb-1">{{ item.label }}</h4>
+            <span class="text-[8px] font-mono text-gray-400 uppercase tracking-tighter">{{ item.tech }}</span>
+          </div>
+          <p class="text-sm text-gray-500 leading-relaxed font-light">
+            {{ item.desc }}
+          </p>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div class="pt-8 space-y-6">
+    <div class="flex items-center gap-3 border-b border-gray-100 pb-4">
+      <div class="space-y-1">
+        <p class="text-[9px] font-bold text-gray-400 uppercase tracking-[0.3em]">Deployment</p>
+        <h2 class="text-2xl font-bold text-gray-900 tracking-tight">Quick Start Guide</h2>
+      </div>
+    </div>
+
+    <div class="relative space-y-4">
+      <div class="absolute left-[20px] top-2 bottom-2 w-px bg-gray-100 hidden md:block"></div>
+
+      @for (step of quickStartSteps(); track step.label; let last = $last) {
+        <div class="relative flex flex-col md:flex-row gap-6 group">
+          <div class="relative z-10 flex items-center justify-center w-[42px] h-[42px] bg-white border border-gray-100 rounded-xl shadow-sm group-hover:bg-gray-900 group-hover:text-white transition-all duration-300">
+            <lucide-icon [name]="step.icon" class="w-4 h-4"></lucide-icon>
+          </div>
+
+          <div class="flex-1 flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4" [class.border-b]="!last" [class.border-gray-50]="!last">
+            <div class="space-y-1">
+              <h4 class="text-[11px] font-bold text-gray-900 uppercase tracking-widest">{{ step.label }}</h4>
+              <p class="text-xs text-gray-500 font-light max-w-xl">
+                {{ step.desc }}
+              </p>
+            </div>
+
+            <button
+              (click)="copyToClipboard(step.command)"
+              title="Click to copy"
+              class="flex items-center gap-3 bg-gray-900 px-4 py-2 rounded-lg hover:bg-gray-800 transition-all active:scale-95 group/btn">
+              <span class="text-[10px] font-mono text-gray-500">$</span>
+              <code class="text-[10px] font-mono text-white tracking-tight">
+                {{ step.command }}
+              </code>
+              <div class="w-px h-3 bg-gray-700 mx-1"></div>
+              <lucide-icon [name]="linkIcon" class="w-3 h-3 text-gray-500 group-hover/btn:text-white transition-colors"></lucide-icon>
+            </button>
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+
+  <div class="pt-6 border-t border-gray-100 text-center">
+    <p class="text-[9px] text-gray-300 uppercase tracking-[0.5em]">
+      &copy; {{ getYear() }} Backup Manager System • High Performance Engineering
+    </p>
+  </div>
+</div>

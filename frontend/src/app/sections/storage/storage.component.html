@@ -1,0 +1,62 @@
+<div class="space-y-8 animate-in fade-in duration-700">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div class="space-y-1">
+      <h2 class="text-2xl font-bold tracking-tight text-gray-900">System Storage</h2>
+      <p class="text-sm text-gray-500 font-light">Real-time disk monitoring for Windows nodes.</p>
+    </div>
+    <button (click)="loadStorageData()" class="p-2 hover:bg-gray-100 rounded-full transition-colors">
+      <lucide-icon name="refresh-cw" class="w-4 h-4 text-gray-400"></lucide-icon>
+    </button>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+    @for (drive of drives(); track drive.driveLetter) {
+      <div class="bg-white border border-gray-100 rounded-[2rem] p-6 shadow-sm hover:shadow-md transition-all group">
+        <div class="flex items-start justify-between mb-8">
+          <div class="p-3 rounded-2xl"
+               [class]="drive.isCritical ? 'bg-red-50 text-red-600' : 'bg-gray-900 text-white'">
+            <lucide-icon [name]="driveIcon" class="w-6 h-6"></lucide-icon>
+          </div>
+          <div class="text-right">
+            <span class="text-lg font-bold text-gray-900">{{ drive.driveLetter }}</span>
+            <p class="text-[10px] text-gray-400 uppercase font-bold tracking-tighter">Local Disk</p>
+          </div>
+        </div>
+
+        <div class="space-y-4">
+          <div class="flex justify-between items-end">
+            <span class="text-[10px] font-bold text-gray-400 uppercase">Usage Intensity</span>
+            <span class="text-sm font-bold" [class.text-red-600]="drive.isCritical">
+              {{ drive.usagePercent }}%
+            </span>
+          </div>
+
+          <div class="h-2.5 w-full bg-gray-50 rounded-full overflow-hidden">
+            <div class="h-full transition-all duration-1000 ease-out"
+                 [style.width.%]="drive.usagePercent"
+                 [class]="drive.isCritical ? 'bg-red-500' : 'bg-blue-500'">
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 pt-4 border-t border-gray-50">
+            <div class="space-y-1">
+              <p class="text-[9px] uppercase text-gray-400 font-black">Used</p>
+              <p class="text-sm font-bold text-gray-900">{{ drive.usedSpaceGB }} GB</p>
+            </div>
+            <div class="space-y-1 text-right">
+              <p class="text-[9px] uppercase text-gray-400 font-black">Free</p>
+              <p class="text-sm font-bold text-gray-900">{{ drive.freeSpaceGB }} GB</p>
+            </div>
+          </div>
+
+          @if (drive.isCritical) {
+            <div class="flex items-center gap-2 pt-2 text-red-600 animate-pulse">
+              <lucide-icon [name]="alertIcon" class="w-3 h-3"></lucide-icon>
+              <span class="text-[9px] font-bold uppercase italic">Critical Space Warning</span>
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+</div>

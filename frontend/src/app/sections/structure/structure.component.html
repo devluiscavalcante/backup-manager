@@ -1,0 +1,78 @@
+<div class="fixed inset-0 -z-10 opacity-[0.03]"
+     style="background-image: radial-gradient(#000 1px, transparent 1px); background-size: 24px 24px;">
+</div>
+
+<div class="max-w-6xl mx-auto space-y-12 animate-in fade-in duration-1000 px-4">
+  <div class="space-y-2 border-l-4 border-gray-900 pl-6">
+    <h2 class="text-4xl font-light tracking-tight text-gray-900">Project <span class="font-semibold">Structure</span></h2>
+    <p class="text-sm text-gray-500 uppercase tracking-[0.3em]">Well-defined layered architecture</p>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+    <div class="group relative bg-white/60 backdrop-blur-xl border border-gray-100 rounded-3xl p-8 shadow-sm hover:shadow-md transition-all">
+      <div class="flex items-center space-x-3 mb-6">
+        <div class="p-2 bg-gray-900 text-white rounded-xl shadow-lg">
+          <lucide-icon [name]="monitorIcon" class="w-5 h-5"></lucide-icon>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 tracking-tight">Frontend UI</h3>
+      </div>
+      <div class="font-mono text-[12px] text-gray-600 bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+        <pre class="whitespace-pre-wrap">{{ frontendTree }}</pre>
+      </div>
+    </div>
+
+    <div class="group relative bg-white/60 backdrop-blur-xl border border-gray-100 rounded-3xl p-8 shadow-sm hover:shadow-md transition-all">
+      <div class="flex items-center space-x-3 mb-6">
+        <div class="p-2 bg-gray-900 text-white rounded-xl shadow-lg">
+          <lucide-icon [name]="serverIcon" class="w-5 h-5"></lucide-icon>
+        </div>
+        <h3 class="text-lg font-bold text-gray-900 tracking-tight">Backend API</h3>
+      </div>
+      <div class="font-mono text-[12px] text-gray-600 bg-gray-50/50 p-5 rounded-2xl border border-gray-100">
+        <pre class="whitespace-pre-wrap">{{ backendTree }}</pre>
+      </div>
+    </div>
+  </div>
+
+  <div class="space-y-6 pt-4">
+    <div class="flex items-center space-x-2">
+      <lucide-icon [name]="layersIcon" class="w-4 h-4 text-gray-300"></lucide-icon>
+      <h3 class="text-xs font-bold text-gray-400 uppercase tracking-widest">Logic Layers</h3>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="bg-white/40 backdrop-blur-md border border-gray-100 rounded-2xl p-5 hover:bg-white transition-all group shadow-sm">
+        <div class="flex items-center space-x-2 mb-3">
+          <lucide-icon [name]="layersIcon" class="w-4 h-4 text-blue-500"></lucide-icon>
+          <p class="text-gray-900 font-bold text-sm">Controller</p>
+        </div>
+        <p class="text-gray-500 text-xs leading-relaxed">Manage HTTP requests and coordinate operations.</p>
+      </div>
+
+      <div class="bg-white/40 backdrop-blur-md border border-gray-100 rounded-2xl p-5 hover:bg-white transition-all group shadow-sm">
+        <div class="flex items-center space-x-2 mb-3">
+          <lucide-icon [name]="settingsIcon" class="w-4 h-4 text-emerald-500"></lucide-icon>
+          <p class="text-gray-900 font-bold text-sm">Service</p>
+        </div>
+        <p class="text-gray-500 text-xs leading-relaxed">Business logic and backup engine.</p>
+      </div>
+
+      <div class="bg-white/40 backdrop-blur-md border border-gray-100 rounded-2xl p-5 hover:bg-white transition-all group shadow-sm">
+        <div class="flex items-center space-x-2 mb-3">
+          <lucide-icon [name]="driveIcon" class="w-4 h-4 text-rose-500"></lucide-icon>
+          <p class="text-gray-900 font-bold text-sm">Repository</p>
+        </div>
+        <p class="text-gray-500 text-xs leading-relaxed">Persistence operations in the database.</p>
+      </div>
+
+      <div class="bg-white/40 backdrop-blur-md border border-gray-100 rounded-2xl p-5 hover:bg-white transition-all group shadow-sm">
+        <div class="flex items-center space-x-2 mb-3">
+          <lucide-icon [name]="boxIcon" class="w-4 h-4 text-amber-500"></lucide-icon>
+          <p class="text-gray-900 font-bold text-sm">Model</p>
+        </div>
+        <p class="text-gray-500 text-xs leading-relaxed">Domain Entities and Data Transfer Objects.</p>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,72 @@
+<div class="max-w-5xl mx-auto space-y-12 animate-in fade-in duration-700">
+  <div class="space-y-2">
+    <h2 class="text-3xl font-light tracking-tight text-gray-900">Project <span class="font-semibold">Specs</span></h2>
+    <p class="text-sm text-gray-500 uppercase tracking-[0.2em]">Technical Architecture & API</p>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+    <div class="group bg-white border border-gray-100 rounded-2xl p-8 shadow-sm hover:shadow-md transition-all duration-300">
+      <div class="flex items-center space-x-3 mb-8">
+        <div class="p-2 bg-gray-50 rounded-lg group-hover:bg-gray-900 group-hover:text-white transition-colors">
+          <lucide-icon [name]="serverIcon" class="w-5 h-5"></lucide-icon>
+        </div>
+        <h3 class="font-medium text-gray-900">Backend</h3>
+      </div>
+      <ul class="space-y-4">
+        <li class="border-l-2 border-gray-100 pl-4 hover:border-gray-900 transition-colors">
+          <p class="text-xs text-gray-400 font-mono uppercase">Language</p>
+          <p class="text-sm text-gray-700">Java 21 / Spring Boot</p>
+        </li>
+        <li class="border-l-2 border-gray-100 pl-4 hover:border-gray-900 transition-colors">
+          <p class="text-xs text-gray-400 font-mono uppercase">Database</p>
+          <p class="text-sm text-gray-700">Embedded PostgreSQL</p>
+        </li>
+        <li class="border-l-2 border-gray-100 pl-4 hover:border-gray-900 transition-colors">
+          <p class="text-xs text-gray-400 font-mono uppercase">Build</p>
+          <p class="text-sm text-gray-700">Maven Ecosystem</p>
+        </li>
+      </ul>
+    </div>
+
+    <div class="group bg-white border border-gray-100 rounded-2xl p-8 shadow-sm hover:shadow-md transition-all duration-300">
+      <div class="flex items-center space-x-3 mb-8">
+        <div class="p-2 bg-gray-50 rounded-lg group-hover:bg-gray-900 group-hover:text-white transition-colors">
+          <lucide-icon [name]="codeIcon" class="w-5 h-5"></lucide-icon>
+        </div>
+        <h3 class="font-medium text-gray-900">Frontend</h3>
+      </div>
+      <ul class="space-y-4">
+        <li class="border-l-2 border-gray-100 pl-4 hover:border-gray-900 transition-colors">
+          <p class="text-xs text-gray-400 font-mono uppercase">Framework</p>
+          <p class="text-sm text-gray-700">Angular 18+ (Signals)</p>
+        </li>
+        <li class="border-l-2 border-gray-100 pl-4 hover:border-gray-900 transition-colors">
+          <p class="text-xs text-gray-400 font-mono uppercase">Styling</p>
+          <p class="text-sm text-gray-700">Tailwind CSS</p>
+        </li>
+        <li class="border-l-2 border-gray-100 pl-4 hover:border-gray-900 transition-colors">
+          <p class="text-xs text-gray-400 font-mono uppercase">Icons</p>
+          <p class="text-sm text-gray-700">Lucide Angular</p>
+        </li>
+      </ul>
+    </div>
+
+    <div class="lg:col-span-1 bg-gray-900 rounded-2xl p-8 shadow-xl text-white overflow-hidden relative">
+      <lucide-icon [name]="settingsIcon" class="absolute -right-4 -top-4 w-32 h-32 text-white/5 rotate-12"></lucide-icon>
+      <h3 class="font-medium mb-6 flex items-center">
+        <span class="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></span>
+        REST Endpoints
+      </h3>
+      <div class="space-y-3 font-mono text-[10px]">
+        @for (endpoint of endpoints; track $index) {
+          <div class="flex items-center space-x-2 border-b border-white/10 pb-2 last:border-0">
+            <span [className]="getMethodClass(endpoint)">{{ endpoint.split(' ')[0] }}</span>
+            <span class="opacity-80">{{ endpoint.split(' ')[1] }}</span>
+          </div>
+        }
+      </div>
+    </div>
+
+  </div>
+</div>
