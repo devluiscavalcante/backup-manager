@@ -216,7 +216,7 @@ public class RestoreService {
         return task.getId();
     }
 
-    @Async
+    @Async("restoreTaskExecutor")
     public void processRestoreAsync(RestoreTask task, boolean overwriteExisting,
                                     List<String> selectedFiles) {
         try {
