@@ -38,11 +38,13 @@ build/
 
 *.class
 *.jar
-.DS_Store               # Mac
-Thumbs.db               # Windows
+# macOS / Windows
+.DS_Store
+Thumbs.db
 
-logs/
-tmp/
+# Ancorados na raiz para nao ignorar pastas de codigo (ex.: frontend/src/app/sections/logs)
+/logs/
+/tmp/
 
 .env
 .env.local
