@@ -35,6 +35,8 @@ import java.util.List;
 public class SecurityConfig {
 
     private static final Logger logger = LoggerFactory.getLogger(SecurityConfig.class);
+    private static final String X_REQUESTED_WITH = "X-Requested-With";
+    private static final String XML_HTTP_REQUEST = "XMLHttpRequest";
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
@@ -48,7 +50,10 @@ public class SecurityConfig {
                 .httpBasic(Customizer.withDefaults())
                 .exceptionHandling(exceptions -> exceptions
                         .authenticationEntryPoint((request, response, ex) -> {
-                            response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"backup-manager\"");
+                            // O frontend tem tela de login propria: sem o desafio Basic o navegador nao abre o popup nativo.
+                            if (!XML_HTTP_REQUEST.equals(request.getHeader(X_REQUESTED_WITH))) {
+                                response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Basic realm=\"backup-manager\"");
+                            }
                             writeSecurityError(
                                     response,
                                     objectMapper,

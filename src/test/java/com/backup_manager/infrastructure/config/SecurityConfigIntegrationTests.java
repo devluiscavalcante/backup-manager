@@ -49,6 +49,15 @@ class SecurityConfigIntegrationTests {
     }
 
     @Test
+    void unauthenticatedXhrRequestShouldNotReceiveBasicChallenge() throws Exception {
+        mockMvc.perform(get("/api/backup/active")
+                        .header("X-Requested-With", "XMLHttpRequest"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().doesNotExist(HttpHeaders.WWW_AUTHENTICATE))
+                .andExpect(jsonPath("$.code").value("authentication_required"));
+    }
+
+    @Test
     void operatorShouldAccessOperationalEndpoints() throws Exception {
         mockMvc.perform(get("/api/backup/active")
                         .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
