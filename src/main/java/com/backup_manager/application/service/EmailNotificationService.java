@@ -7,18 +7,22 @@ import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.mail.MailAuthenticationException;
 import org.springframework.mail.MailException;
+import org.springframework.mail.MailPreparationException;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
-import org.springframework.retry.annotation.Backoff;
-import org.springframework.retry.annotation.Recover;
-import org.springframework.retry.annotation.Retryable;
+import org.springframework.retry.backoff.ExponentialBackOffPolicy;
+import org.springframework.retry.policy.SimpleRetryPolicy;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class EmailNotificationService {
@@ -26,13 +30,51 @@ public class EmailNotificationService {
     private static final Logger logger = LoggerFactory.getLogger(EmailNotificationService.class);
     private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd/MM/yyyy 'as' HH:mm");
 
+    static final int MAX_DELIVERY_ATTEMPTS = 3;
+    private static final long INITIAL_BACKOFF_MS = 2000;
+    private static final double BACKOFF_MULTIPLIER = 2.0;
+
     private final JavaMailSender mailSender;
     private final NotificationProperties notificationProperties;
+    private final RetryTemplate criticalEmailRetry;
 
+    @Autowired
     public EmailNotificationService(JavaMailSender mailSender,
                                     NotificationProperties notificationProperties) {
+        this(mailSender, notificationProperties, INITIAL_BACKOFF_MS);
+    }
+
+    EmailNotificationService(JavaMailSender mailSender,
+                             NotificationProperties notificationProperties,
+                             long initialBackoffMs) {
         this.mailSender = mailSender;
         this.notificationProperties = notificationProperties;
+        this.criticalEmailRetry = buildCriticalEmailRetry(initialBackoffMs);
+    }
+
+    /**
+     * Retry programatico: @Retryable exigiria @EnableRetry e uma chamada via proxy,
+     * o que nao acontece em metodos privados chamados pela propria classe.
+     * Credenciais recusadas nao sao transitorias, entao nao vale repetir.
+     */
+    private static RetryTemplate buildCriticalEmailRetry(long initialBackoffMs) {
+        SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy(
+                MAX_DELIVERY_ATTEMPTS,
+                Map.of(
+                        MailAuthenticationException.class, false,
+                        MailException.class, true
+                ),
+                false
+        );
+
+        ExponentialBackOffPolicy backOffPolicy = new ExponentialBackOffPolicy();
+        backOffPolicy.setInitialInterval(initialBackoffMs);
+        backOffPolicy.setMultiplier(BACKOFF_MULTIPLIER);
+
+        RetryTemplate retryTemplate = new RetryTemplate();
+        retryTemplate.setRetryPolicy(retryPolicy);
+        retryTemplate.setBackOffPolicy(backOffPolicy);
+        return retryTemplate;
     }
 
     @Async
@@ -80,14 +122,7 @@ public class EmailNotificationService {
             return;
         }
 
-        String subject = "Falha no Backup";
-        String body = buildFailureEmail(task, errorMessage);
-
-        try {
-            sendEmailWithRetry(subject, body);
-        } catch (MessagingException e) {
-            logger.error("Falha ao enviar email de falha apos tentativas: {}", e.getMessage());
-        }
+        sendEmailWithRetry("Falha no Backup", buildFailureEmail(task, errorMessage));
     }
 
     @Async
@@ -130,11 +165,7 @@ public class EmailNotificationService {
             return;
         }
 
-        try {
-            sendEmailWithRetry("Falha na Restauracao", buildRestoreFailureEmail(task, errorMessage));
-        } catch (MessagingException e) {
-            logger.error("Falha ao enviar email de restauracao apos tentativas: {}", e.getMessage());
-        }
+        sendEmailWithRetry("Falha na Restauracao", buildRestoreFailureEmail(task, errorMessage));
     }
 
     @Async
@@ -165,41 +196,43 @@ public class EmailNotificationService {
         }
     }
 
+    /** Envio simples: MailException propaga (o envio de teste depende disso para reportar falha). */
     private void sendEmail(String subject, String body) {
-        List<String> recipients = notificationProperties.getEmail().getRecipients();
-
-        if (recipients == null || recipients.isEmpty()) {
-            logger.warn("Nenhum destinatario configurado em notification.email.recipients");
-            return;
-        }
-
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-
-            helper.setFrom(notificationProperties.getEmail().getFrom());
-            helper.setTo(recipients.toArray(new String[0]));
-            helper.setSubject(subject);
-            helper.setText(body, true);
-
-            mailSender.send(message);
-            logger.info("Email enviado: '{}'", subject);
-
+            deliver(subject, body);
         } catch (MessagingException e) {
             logger.error("Erro ao enviar email '{}': {}", subject, e.getMessage());
         }
     }
 
-    @Retryable(
-            retryFor = {MessagingException.class, MailException.class},
-            maxAttempts = 3,
-            backoff = @Backoff(delay = 2000, multiplier = 2)
-    )
-    private void sendEmailWithRetry(String subject, String body) throws MessagingException {
+    /** Envio de notificacoes criticas (falhas): repete erros transitorios e nunca propaga excecao. */
+    private void sendEmailWithRetry(String subject, String body) {
+        criticalEmailRetry.execute(
+                context -> {
+                    if (context.getRetryCount() > 0) {
+                        logger.warn("Reenviando email critico '{}' (tentativa {}/{})",
+                                subject, context.getRetryCount() + 1, MAX_DELIVERY_ATTEMPTS);
+                    }
+                    try {
+                        deliver(subject, body);
+                    } catch (MessagingException e) {
+                        throw new MailPreparationException(e);
+                    }
+                    return null;
+                },
+                context -> {
+                    logger.error("Falha definitiva ao enviar email critico '{}' apos {} tentativa(s): {}",
+                            subject, context.getRetryCount(), context.getLastThrowable().getMessage());
+                    return null;
+                }
+        );
+    }
+
+    private void deliver(String subject, String body) throws MessagingException {
         List<String> recipients = notificationProperties.getEmail().getRecipients();
 
         if (recipients == null || recipients.isEmpty()) {
-            logger.warn("Nenhum destinatario configurado");
+            logger.warn("Nenhum destinatario configurado em notification.email.recipients");
             return;
         }
 
@@ -212,13 +245,7 @@ public class EmailNotificationService {
         helper.setText(body, true);
 
         mailSender.send(message);
-        logger.info("Email critico enviado: '{}'", subject);
-    }
-
-    @Recover
-    public void recoverFromEmailFailure(MessagingException e, String subject, String body) {
-        logger.error("Falha definitiva ao enviar email critico '{}' apos 3 tentativas: {}",
-                subject, e.getMessage());
+        logger.info("Email enviado: '{}'", subject);
     }
 
     private boolean shouldSendEmail() {
