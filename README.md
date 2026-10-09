@@ -2,7 +2,7 @@
 
 # Backup Manager
 
-**API para executar, agendar, restaurar e auditar backups de arquivos com segurança.**
+**API e interface web para executar, agendar, restaurar e auditar backups de arquivos com segurança.**
 
 [![PR Quality Gates](https://github.com/devluiscavalcante/backup-manager/actions/workflows/pr-quality-gates.yml/badge.svg)](https://github.com/devluiscavalcante/backup-manager/actions/workflows/pr-quality-gates.yml)
 [![Container Registry](https://github.com/devluiscavalcante/backup-manager/actions/workflows/container-registry.yml/badge.svg)](https://github.com/devluiscavalcante/backup-manager/actions/workflows/container-registry.yml)
@@ -67,6 +67,16 @@ APP_SECURITY_ALLOWED_PATH_ROOTS=C:\Dados,C:\Backups
 ```bash
 curl http://localhost:8080/api/health/application
 ```
+
+**5. (Opcional) Abra a interface web** — requer **Node.js 20+**
+
+```bash
+cd frontend
+npm ci
+npm start          # http://localhost:4200 (proxy de /api para :8080)
+```
+
+Entre com o usuário e a senha de `APP_SECURITY_USERNAME`/`APP_SECURITY_PASSWORD`. Detalhes em [`frontend/README.md`](frontend/README.md).
 
 > [!TIP]
 > Para desenvolvimento local, o perfil `dev` aceita a senha padrão e habilita endpoints de teste do scheduler:
@@ -405,6 +415,8 @@ A imagem usa build multi-stage e roda em `eclipse-temurin:21-jre-alpine` com usu
 
 ## Desenvolvimento
 
+**Repositório:** a API fica na raiz (`src/`, `pom.xml`) e a interface Angular em [`frontend/`](frontend/README.md), com build e testes próprios.
+
 **Stack:** Java 21 · Spring Boot 4 (Web MVC, Security, Data JPA, Validation, Mail, Actuator) · Spring Retry · PostgreSQL 15 · Flyway · Lombok · Maven · JaCoCo · Checkstyle
 
 ```bash
@@ -427,6 +439,7 @@ A imagem usa build multi-stage e roda em `eclipse-temurin:21-jre-alpine` com usu
 | `pr-quality-gates.yml` | Pull requests e branches principais | Testes com PostgreSQL, Checkstyle e cobertura |
 | `container-registry.yml` | Push em `master` e tags `v*` | Publica a imagem no GHCR |
 | `version-release.yml` | Tags `v*.*.*` | Gera a release no GitHub |
+| `frontend-ci.yml` | Alterações em `frontend/` | Testes (Vitest) e build de produção do Angular |
 
 ### Convenções
 

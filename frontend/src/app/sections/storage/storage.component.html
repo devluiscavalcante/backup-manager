@@ -4,10 +4,16 @@
       <h2 class="text-2xl font-bold tracking-tight text-gray-900">System Storage</h2>
       <p class="text-sm text-gray-500 font-light">Real-time disk monitoring for Windows nodes.</p>
     </div>
-    <button (click)="loadStorageData()" class="p-2 hover:bg-gray-100 rounded-full transition-colors">
-      <lucide-icon name="refresh-cw" class="w-4 h-4 text-gray-400"></lucide-icon>
+    <button (click)="loadStorageData()" title="Refresh" class="p-2 hover:bg-gray-100 rounded-full transition-colors">
+      <lucide-icon [name]="refreshIcon" class="w-4 h-4 text-gray-400" [class.animate-spin]="isLoading()"></lucide-icon>
     </button>
   </div>
+
+  @if (error()) {
+    <p class="text-xs text-red-500 font-medium">{{ error() }}</p>
+  } @else if (!isLoading() && drives().length === 0) {
+    <p class="text-xs text-gray-400 italic">No drives reported by the server.</p>
+  }
 
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
     @for (drive of drives(); track drive.driveLetter) {

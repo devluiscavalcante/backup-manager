@@ -110,10 +110,14 @@
         </div>
 
         <div class="flex justify-center gap-4">
-          <button class="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all">
-            <lucide-icon [name]="pauseIcon" class="w-4 h-4"></lucide-icon>
+          <button (click)="togglePause()" [disabled]="activeTaskIds().length === 0 || isControlBusy()"
+                  [title]="isPaused() ? 'Resume' : 'Pause'"
+                  class="p-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+            <lucide-icon [name]="isPaused() ? resumeIcon : pauseIcon" class="w-4 h-4"></lucide-icon>
           </button>
-          <button class="p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 rounded-2xl transition-all">
+          <button (click)="cancelBackup()" [disabled]="activeTaskIds().length === 0 || isControlBusy()"
+                  title="Cancel"
+                  class="p-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 rounded-2xl transition-all disabled:opacity-30 disabled:cursor-not-allowed">
             <lucide-icon [name]="cancelIcon" class="w-4 h-4"></lucide-icon>
           </button>
         </div>
@@ -137,6 +141,10 @@
         <span>Initialize Backup Engine</span>
       }
     </button>
+
+    @if (!isBackingUp() && currentStatus()) {
+      <p class="text-xs text-gray-500 font-medium text-center max-w-xl">{{ currentStatus() }}</p>
+    }
 
     @if (sources().length !== destinations().length && sources().length > 0 && destinations().length > 0) {
       <p class="text-[10px] text-red-500 font-bold uppercase tracking-tighter animate-bounce">

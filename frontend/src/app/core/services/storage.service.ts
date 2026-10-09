@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
+import { CollectionResponse } from '../api/api.models';
 
 export interface DriveInfo {
   driveLetter: string;
@@ -14,9 +15,9 @@ export interface DriveInfo {
 @Injectable({ providedIn: 'root' })
 export class StorageService {
   private http = inject(HttpClient);
-  private readonly API = 'http://localhost:8080/api/system/storage';
+  private readonly apiUrl = '/api/system/storage';
 
   getStorageStats(): Observable<DriveInfo[]> {
-    return this.http.get<DriveInfo[]>(this.API);
+    return this.http.get<CollectionResponse<DriveInfo>>(this.apiUrl).pipe(map(res => res.items));
   }
 }

@@ -34,3 +34,5 @@ tmp/
 
 # Docker
 docker-compose.override.yml
+# Frontend (buildado e publicado separadamente)
+frontend/

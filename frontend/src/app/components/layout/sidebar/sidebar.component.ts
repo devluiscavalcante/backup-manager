@@ -1,6 +1,8 @@
 import { Component, signal, inject } from '@angular/core';
 import { Router, ActivatedRoute } from '@angular/router';
-import { CommonModule, ViewportScroller } from '@angular/common';
+import { ViewportScroller } from '@angular/common';
+import { AuthService } from '../../../core/auth/auth.service';
+import { AppInfoService } from '../../../core/services/app-info.service';
 
 import {
   LucideAngularModule,
@@ -14,13 +16,22 @@ import {
   Menu,
   X,
   Shield,
-  Github, HardDrive
+  Github,
+  HardDrive,
+  LogOut,
+  LucideIconData
 } from 'lucide-angular';
+
+interface MenuItem {
+  id: string;
+  title: string;
+  icon: LucideIconData;
+  fragment: string | null;
+}
 
 @Component({
   selector: 'app-sidebar',
-  standalone: true,
-  imports: [CommonModule, LucideAngularModule],
+  imports: [LucideAngularModule],
   template: `
     <nav class="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-100 z-[60] px-6 flex items-center justify-between">
       <div class="flex items-center gap-2">
@@ -81,7 +92,14 @@ import {
             <span class="text-[9px] opacity-60 uppercase tracking-tighter">Open Source</span>
           </div>
         </a>
-        <p class="mt-4 text-[9px] text-gray-300 text-center font-bold tracking-widest uppercase">v1.2.0 stable</p>
+        <button (click)="logout()"
+                class="mt-3 w-full flex items-center gap-3 px-3 py-2 rounded-xl text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-all">
+          <lucide-icon [name]="logoutIcon" class="w-4 h-4"></lucide-icon>
+          <span class="text-xs font-medium truncate">Sign out{{ auth.username() ? ' (' + auth.username() + ')' : '' }}</span>
+        </button>
+        @if (appInfo.version()) {
+          <p class="mt-4 text-[9px] text-gray-300 text-center font-bold tracking-widest uppercase">v{{ appInfo.version() }}</p>
+        }
       </div>
     </aside>
   `
@@ -90,15 +108,18 @@ export class SidebarComponent {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
   private scroller = inject(ViewportScroller);
+  protected readonly auth = inject(AuthService);
+  protected readonly appInfo = inject(AppInfoService);
 
   readonly menuIcon = Menu;
   readonly closeIcon = X;
   readonly shieldIcon = Shield;
   readonly githubIcon = Github;
+  readonly logoutIcon = LogOut;
 
   isMenuOpen = signal(false);
 
-  readonly menuItems = [
+  readonly menuItems: MenuItem[] = [
     { id: 'inicio', title: 'Home', icon: Database, fragment: 'inicio' },
     { id: 'sobre', title: 'About', icon: FileText, fragment: 'sobre' },
     { id: 'especificacoes', title: 'Specs', icon: Settings, fragment: 'especificacoes' },
@@ -109,7 +130,7 @@ export class SidebarComponent {
     { id: 'storage', title: 'Storage', icon: HardDrive, fragment: null }
   ];
 
-  isItemActive(item: any): boolean {
+  isItemActive(item: MenuItem): boolean {
     const currentUrl = this.router.url;
     const currentFragment = this.route.snapshot.fragment;
 
@@ -121,7 +142,7 @@ export class SidebarComponent {
     return currentUrl.includes(item.id);
   }
 
-  navigateTo(item: any) {
+  navigateTo(item: MenuItem) {
     this.closeMenu();
 
     if (item.fragment) {
@@ -141,4 +162,9 @@ export class SidebarComponent {
 
   toggleMenu() { this.isMenuOpen.update(v => !v); }
   closeMenu() { this.isMenuOpen.set(false); }
+
+  logout() {
+    this.closeMenu();
+    this.auth.logout();
+  }
 }

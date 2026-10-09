@@ -41,6 +41,15 @@ public class ProgressEmitter {
             emitters.remove(emitter);
         });
 
+        // Sem um primeiro evento o servlet nao envia os cabecalhos, e clientes baseados em fetch
+        // ficam aguardando a resposta ate o proximo progresso de backup.
+        try {
+            emitter.send(SseEmitter.event().name("connected").data("{}"));
+        } catch (IOException | IllegalStateException e) {
+            logger.debug("SSE client disconnected before handshake: {}", e.getMessage());
+            emitters.remove(emitter);
+        }
+
         return emitter;
     }
 
