@@ -4,6 +4,7 @@ import { authGuard } from './core/auth/auth.guard';
 export const routes: Routes = [
   {
     path: 'login',
+    title: 'Entrar · Backup Manager',
     loadComponent: () => import('./sections/login/login.component').then(m => m.LoginComponent)
   },
   {
@@ -17,34 +18,27 @@ export const routes: Routes = [
       },
       {
         path: 'inicio',
-        loadComponent: () => import('./sections/initial/initial.component').then(m => m.InitialComponent)
+        title: 'Painel · Backup Manager',
+        loadComponent: () => import('./sections/dashboard/dashboard.component').then(m => m.DashboardComponent)
       },
       {
         path: 'backup',
+        title: 'Novo backup · Backup Manager',
         loadComponent: () => import('./sections/backup/backup.component').then(m => m.BackupComponent)
       },
       {
         path: 'historico',
+        title: 'Histórico · Backup Manager',
         loadComponent: () => import('./sections/history/history.component').then(m => m.HistoryComponent)
       },
       {
         path: 'storage',
+        title: 'Armazenamento · Backup Manager',
         loadComponent: () => import('./sections/storage/storage.component').then(m => m.StorageComponent)
       },
       {
-        path: 'sobre',
-        loadComponent: () => import('./sections/about/about.component').then(m => m.AboutComponent)
-      },
-      {
-        path: 'especificacoes',
-        loadComponent: () => import('./sections/specs/specs.component').then(m => m.SpecsComponent)
-      },
-      {
-        path: 'estrutura',
-        loadComponent: () => import('./sections/structure/structure.component').then(m => m.StructureComponent)
-      },
-      {
         path: 'logs',
+        title: 'Alertas · Backup Manager',
         loadComponent: () => import('./sections/logs/logs.component').then(m => m.LogsComponent)
       }
     ]

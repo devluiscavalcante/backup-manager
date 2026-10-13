@@ -29,6 +29,11 @@ export interface BackupRecord {
   duration?: string;
 }
 
+/** Item de /api/backup/active (BackupTaskSummaryResponse). */
+export interface ActiveTask extends BackupRecord {
+  id: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class BackupService {
   private http = inject(HttpClient);
@@ -56,6 +61,13 @@ export class BackupService {
   getHistory(): Observable<BackupRecord[]> {
     return this.http
       .get<CollectionResponse<BackupRecord>>(`${this.apiUrl}/history`)
+      .pipe(map(res => res.items));
+  }
+
+  /** Tarefas em andamento ou pausadas no servidor. */
+  getActiveTasks(): Observable<ActiveTask[]> {
+    return this.http
+      .get<CollectionResponse<ActiveTask>>(`${this.apiUrl}/active`)
       .pipe(map(res => res.items));
   }
 

@@ -38,6 +38,26 @@ O backend exige **HTTP Basic** em todos os endpoints `/api/**`, exceto `GET /api
 | `npm run test:watch` | Testes em modo watch |
 | `npm run build` | Build de produção em `dist/backup-manager-frontend/browser` |
 
+## Interface
+
+A interface contém apenas a aplicação. A documentação do projeto (arquitetura, API, configuração) fica no [README principal](../README.md).
+
+| Seção | Rota | Conteúdo |
+|---|---|---|
+| Painel | `/inicio` | Indicadores, atividade recente e resumo dos discos |
+| Novo backup | `/backup` | Fila de pares origem → destino, progresso, pausa e cancelamento |
+| Histórico | `/historico` | Execuções com filtro por status e busca |
+| Armazenamento | `/storage` | Uso de cada disco (somente administrador) |
+| Alertas | `/logs` | Avisos do último backup, com filtro e exportação (somente administrador) |
+
+### Privacidade na tela
+
+- Os caminhos aparecem reduzidos à unidade e ao último segmento (`C:\Users\ana\Documentos` vira `C:\…\Documentos`), via [`shared/format/path.ts`](src/app/shared/format/path.ts). Isso vale para o histórico, a fila de backup, as mensagens de erro e os alertas.
+- O progresso mostra só o nome do arquivo que está sendo copiado.
+- A exportação de alertas gera um arquivo com os caminhos já mascarados.
+- O bundle não leva credenciais, variáveis de ambiente, URL do backend nem a estrutura do código.
+- Depois do login, o `returnUrl` só aceita rotas internas.
+
 ## Estrutura
 
 ```
@@ -47,10 +67,23 @@ src/app
 │   ├── auth/       AuthService, guard e interceptor
 │   ├── http/       leitor de Server-Sent Events via fetch
 │   └── services/   BackupService, StorageService, LogsService, AppInfoService
+├── shared/
+│   ├── format/     mascaramento de caminhos e pipes
+│   └── ui/         cabeçalho de página, badge de status, estados vazio/erro/carregando
 ├── components/layout/sidebar
-└── sections/       páginas (login, inicio, backup, historico, storage, logs, sobre...)
+└── sections/       páginas (login, dashboard, backup, history, storage, logs)
 ```
+
+Os estilos base (`.card`, `.btn-*`, `.input`, `.chip-*`) ficam em [`src/styles.scss`](src/styles.scss).
 
 ## Deploy
 
 O frontend é publicado separadamente da API. Como os services usam caminhos relativos (`/api/...`), sirva `dist/backup-manager-frontend/browser` e a API **na mesma origem**: um proxy reverso (nginx, Caddy, IIS) entrega os arquivos estáticos e encaminha `/api` ao backend. Configure o fallback de rotas para `index.html`.
+
+Configure também os cabeçalhos de segurança no proxy, por exemplo:
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'
+X-Content-Type-Options: nosniff
+Referrer-Policy: no-referrer
+```

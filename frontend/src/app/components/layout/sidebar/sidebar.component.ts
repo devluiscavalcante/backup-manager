@@ -1,170 +1,148 @@
-import { Component, signal, inject } from '@angular/core';
-import { Router, ActivatedRoute } from '@angular/router';
-import { ViewportScroller } from '@angular/common';
+import { Component, HostListener, inject, signal } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../../core/auth/auth.service';
 import { AppInfoService } from '../../../core/services/app-info.service';
-
 import {
   LucideAngularModule,
-  Database,
-  FileText,
-  Settings,
-  FolderTree,
+  LucideIconData,
+  LayoutDashboard,
   Play,
   History,
-  List,
-  Menu,
-  X,
-  Shield,
-  Github,
   HardDrive,
+  ScrollText,
+  ShieldCheck,
   LogOut,
-  LucideIconData
+  Menu,
+  X
 } from 'lucide-angular';
 
-interface MenuItem {
-  id: string;
-  title: string;
+interface NavItem {
+  path: string;
+  label: string;
   icon: LucideIconData;
-  fragment: string | null;
+}
+
+interface NavGroup {
+  label: string;
+  items: NavItem[];
 }
 
 @Component({
   selector: 'app-sidebar',
-  imports: [LucideAngularModule],
+  imports: [LucideAngularModule, NgTemplateOutlet, RouterLink, RouterLinkActive],
   template: `
-    <nav class="lg:hidden fixed top-0 left-0 right-0 h-16 bg-white border-b border-gray-100 z-[60] px-6 flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <div class="bg-gray-900 p-1.5 rounded-lg text-white shadow-sm">
-          <lucide-icon [name]="shieldIcon" class="w-4 h-4"></lucide-icon>
-        </div>
-        <span class="font-bold tracking-tighter text-gray-900 italic">BKM</span>
-      </div>
-
-      <button (click)="toggleMenu()" class="p-2 text-gray-600 active:scale-95 transition-transform">
-        <lucide-icon [name]="isMenuOpen() ? closeIcon : menuIcon" class="w-6 h-6"></lucide-icon>
+    <!-- Barra superior (mobile) -->
+    <header class="fixed inset-x-0 top-0 z-40 flex h-14 items-center justify-between border-b border-zinc-200/80 bg-white/90 px-4 backdrop-blur lg:hidden">
+      <ng-container *ngTemplateOutlet="brand"></ng-container>
+      <button type="button" class="btn-icon" (click)="toggle()"
+              [attr.aria-expanded]="isOpen()" aria-controls="app-sidebar"
+              [attr.aria-label]="isOpen() ? 'Fechar menu' : 'Abrir menu'">
+        <lucide-icon [name]="isOpen() ? closeIcon : menuIcon" class="h-5 w-5"></lucide-icon>
       </button>
-    </nav>
+    </header>
 
-    @if (isMenuOpen()) {
-      <div (click)="closeMenu()"
-           class="lg:hidden fixed inset-0 bg-black/5 backdrop-blur-[2px] z-40 animate-in fade-in duration-300">
-      </div>
+    @if (isOpen()) {
+      <div class="fixed inset-0 z-40 bg-zinc-900/20 backdrop-blur-sm lg:hidden" (click)="close()" aria-hidden="true"></div>
     }
 
-    <aside
-      [class.translate-x-0]="isMenuOpen()"
-      [class.-translate-x-full]="!isMenuOpen()"
-      class="fixed inset-y-0 left-0 w-64 bg-white border-r border-gray-100 z-50 transition-transform duration-300
-             lg:translate-x-0 lg:static lg:w-56 lg:h-screen flex flex-col pt-20 lg:pt-8"
-    >
-      <div class="hidden lg:flex items-center gap-3 px-8 mb-10">
-        <div class="bg-gray-900 p-2 rounded-xl text-white shadow-lg">
-          <lucide-icon [name]="shieldIcon" class="w-5 h-5"></lucide-icon>
-        </div>
-        <h1 class="text-xl font-bold tracking-tighter italic text-gray-900">BKM</h1>
+    <aside id="app-sidebar"
+           class="fixed inset-y-0 left-0 z-50 flex w-64 flex-col border-r border-zinc-200/80 bg-white transition-transform duration-200 lg:translate-x-0"
+           [class.-translate-x-full]="!isOpen()"
+           aria-label="Navegação principal">
+      <div class="flex h-14 items-center px-5 lg:h-16">
+        <ng-container *ngTemplateOutlet="brand"></ng-container>
       </div>
 
-      <nav class="flex-1 px-4 space-y-1">
-        @for (item of menuItems; track item.id) {
-          <a
-            (click)="navigateTo(item)"
-            [class.bg-gray-900]="isItemActive(item)"
-            [class.text-white]="isItemActive(item)"
-            [class.shadow-md]="isItemActive(item)"
-            class="w-full text-left px-4 py-2.5 rounded-xl text-sm flex items-center space-x-3 transition-all cursor-pointer decoration-none group"
-            [class.text-gray-600]="!isItemActive(item)"
-            [class.hover:text-gray-900]="!isItemActive(item)"
-            [class.hover:bg-gray-50]="!isItemActive(item)"
-          >
-            <lucide-icon [name]="item.icon" class="w-4 h-4" [class.text-white]="isItemActive(item)"></lucide-icon>
-            <span class="font-medium">{{ item.title }}</span>
-          </a>
+      <nav class="custom-scrollbar flex-1 space-y-6 overflow-y-auto px-3 py-4">
+        @for (group of groups; track group.label) {
+          <div>
+            <p class="px-3 pb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{{ group.label }}</p>
+            <ul class="space-y-0.5">
+              @for (item of group.items; track item.path) {
+                <li>
+                  <a [routerLink]="item.path" routerLinkActive="!bg-zinc-100 !text-zinc-900"
+                     ariaCurrentWhenActive="page" (click)="close()"
+                     class="flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 transition-colors hover:bg-zinc-50 hover:text-zinc-900">
+                    <lucide-icon [name]="item.icon" class="h-4 w-4"></lucide-icon>
+                    {{ item.label }}
+                  </a>
+                </li>
+              }
+            </ul>
+          </div>
         }
       </nav>
 
-      <div class="p-6 border-t border-gray-50 mt-auto">
-        <a href="https://github.com/devluiscavalcante/backup-manager" target="_blank"
-           class="flex items-center gap-3 p-3 bg-gray-50 rounded-2xl hover:bg-gray-900 hover:text-white transition-all group">
-          <lucide-icon [name]="githubIcon" class="w-4 h-4"></lucide-icon>
-          <div class="flex flex-col overflow-hidden">
-            <span class="text-[10px] font-bold truncate">BKM Repository</span>
-            <span class="text-[9px] opacity-60 uppercase tracking-tighter">Open Source</span>
+      <div class="border-t border-zinc-100 p-3">
+        <div class="flex items-center gap-3 rounded-lg px-3 py-2">
+          <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-zinc-900 text-xs font-semibold uppercase text-white">
+            {{ initial() }}
           </div>
-        </a>
-        <button (click)="logout()"
-                class="mt-3 w-full flex items-center gap-3 px-3 py-2 rounded-xl text-gray-500 hover:text-gray-900 hover:bg-gray-50 transition-all">
-          <lucide-icon [name]="logoutIcon" class="w-4 h-4"></lucide-icon>
-          <span class="text-xs font-medium truncate">Sign out{{ auth.username() ? ' (' + auth.username() + ')' : '' }}</span>
-        </button>
-        @if (appInfo.version()) {
-          <p class="mt-4 text-[9px] text-gray-300 text-center font-bold tracking-widest uppercase">v{{ appInfo.version() }}</p>
-        }
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-medium text-zinc-900">{{ auth.username() }}</p>
+            @if (appInfo.version()) {
+              <p class="text-xs text-zinc-400">v{{ appInfo.version() }}</p>
+            }
+          </div>
+          <button type="button" class="btn-icon" (click)="logout()" aria-label="Sair" title="Sair">
+            <lucide-icon [name]="logoutIcon" class="h-4 w-4"></lucide-icon>
+          </button>
+        </div>
       </div>
     </aside>
+
+    <ng-template #brand>
+      <a routerLink="/inicio" class="flex items-center gap-2.5" (click)="close()">
+        <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-900 text-white">
+          <lucide-icon [name]="brandIcon" class="h-4 w-4"></lucide-icon>
+        </span>
+        <span class="text-sm font-semibold tracking-tight text-zinc-900">Backup Manager</span>
+      </a>
+    </ng-template>
   `
 })
 export class SidebarComponent {
-  private router = inject(Router);
-  private route = inject(ActivatedRoute);
-  private scroller = inject(ViewportScroller);
   protected readonly auth = inject(AuthService);
   protected readonly appInfo = inject(AppInfoService);
 
   readonly menuIcon = Menu;
   readonly closeIcon = X;
-  readonly shieldIcon = Shield;
-  readonly githubIcon = Github;
+  readonly brandIcon = ShieldCheck;
   readonly logoutIcon = LogOut;
 
-  isMenuOpen = signal(false);
-
-  readonly menuItems: MenuItem[] = [
-    { id: 'inicio', title: 'Home', icon: Database, fragment: 'inicio' },
-    { id: 'sobre', title: 'About', icon: FileText, fragment: 'sobre' },
-    { id: 'especificacoes', title: 'Specs', icon: Settings, fragment: 'especificacoes' },
-    { id: 'estrutura', title: 'Structure', icon: FolderTree, fragment: 'estrutura' },
-    { id: 'backup', title: 'Backup', icon: Play, fragment: null },
-    { id: 'historico', title: 'History', icon: History, fragment: null },
-    { id: 'logs', title: 'Logs', icon: List, fragment: null },
-    { id: 'storage', title: 'Storage', icon: HardDrive, fragment: null }
+  readonly groups: NavGroup[] = [
+    {
+      label: 'Operação',
+      items: [
+        { path: '/inicio', label: 'Painel', icon: LayoutDashboard },
+        { path: '/backup', label: 'Novo backup', icon: Play },
+        { path: '/historico', label: 'Histórico', icon: History }
+      ]
+    },
+    {
+      label: 'Sistema',
+      items: [
+        { path: '/storage', label: 'Armazenamento', icon: HardDrive },
+        { path: '/logs', label: 'Alertas', icon: ScrollText }
+      ]
+    }
   ];
 
-  isItemActive(item: MenuItem): boolean {
-    const currentUrl = this.router.url;
-    const currentFragment = this.route.snapshot.fragment;
+  readonly isOpen = signal(false);
 
-    if (item.fragment) {
-      if (currentUrl.includes('/inicio') && !currentFragment && item.fragment === 'inicio') return true;
-      return currentFragment === item.fragment;
-    }
-
-    return currentUrl.includes(item.id);
+  initial(): string {
+    return (this.auth.username() ?? '?').charAt(0);
   }
 
-  navigateTo(item: MenuItem) {
-    this.closeMenu();
+  toggle() { this.isOpen.update(v => !v); }
+  close() { this.isOpen.set(false); }
 
-    if (item.fragment) {
-      if (item.fragment === 'inicio') {
-        this.router.navigate(['/inicio']).then(() => {
-          this.scroller.scrollToPosition([0, 0]);
-        });
-      } else {
-        this.router.navigate(['/inicio'], { fragment: item.fragment }).then(() => {
-          this.scroller.scrollToAnchor(item.fragment!);
-        });
-      }
-    } else {
-      this.router.navigate(['/' + item.id]);
-    }
-  }
-
-  toggleMenu() { this.isMenuOpen.update(v => !v); }
-  closeMenu() { this.isMenuOpen.set(false); }
+  @HostListener('document:keydown.escape')
+  onEscape() { this.close(); }
 
   logout() {
-    this.closeMenu();
+    this.close();
     this.auth.logout();
   }
 }
