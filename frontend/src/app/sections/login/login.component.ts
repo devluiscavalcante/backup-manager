@@ -2,7 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { HttpErrorResponse } from '@angular/common/http';
-import { LucideAngularModule, Shield, LogIn } from 'lucide-angular';
+import { LucideAngularModule, ShieldCheck, LogIn } from 'lucide-angular';
 import { AuthService } from '../../core/auth/auth.service';
 import { apiErrorMessage } from '../../core/api/api.models';
 
@@ -16,7 +16,7 @@ export class LoginComponent {
   private router = inject(Router);
   private route = inject(ActivatedRoute);
 
-  readonly shieldIcon = Shield;
+  readonly shieldIcon = ShieldCheck;
   readonly loginIcon = LogIn;
 
   username = '';
@@ -25,7 +25,11 @@ export class LoginComponent {
   error = signal<string | null>(null);
 
   submit(): void {
-    if (!this.username.trim() || !this.password || this.isSubmitting()) {
+    if (this.isSubmitting()) {
+      return;
+    }
+    if (!this.username.trim() || !this.password) {
+      this.error.set('Informe usuário e senha.');
       return;
     }
 
@@ -34,17 +38,26 @@ export class LoginComponent {
 
     this.auth.login(this.username.trim(), this.password).subscribe({
       next: () => {
-        const returnUrl = this.route.snapshot.queryParamMap.get('returnUrl') || '/inicio';
-        this.router.navigateByUrl(returnUrl);
+        this.password = '';
+        this.router.navigateByUrl(safeReturnUrl(this.route.snapshot.queryParamMap.get('returnUrl')));
       },
       error: (err: unknown) => {
         this.isSubmitting.set(false);
+        this.password = '';
         this.error.set(
           err instanceof HttpErrorResponse && err.status === 401
-            ? 'Usuario ou senha invalidos.'
-            : apiErrorMessage(err, 'Nao foi possivel entrar.')
+            ? 'Usuário ou senha inválidos.'
+            : apiErrorMessage(err, 'Não foi possível entrar.')
         );
       }
     });
   }
+}
+
+/** Aceita apenas caminhos internos da aplicacao, evitando redirecionamento para outro site. */
+function safeReturnUrl(value: string | null): string {
+  if (!value || !value.startsWith('/') || value.startsWith('//') || value.startsWith('/\\') || value.startsWith('/login')) {
+    return '/inicio';
+  }
+  return value;
 }

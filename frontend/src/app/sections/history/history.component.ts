@@ -1,31 +1,62 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { LucideAngularModule, History, ArrowRight } from 'lucide-angular';
+import { FormsModule } from '@angular/forms';
+import { LucideAngularModule, RefreshCw, Search, ArrowRight } from 'lucide-angular';
 import { BackupService, BackupRecord, BackupStatus } from '../../core/services/backup.service';
 import { apiErrorMessage } from '../../core/api/api.models';
+import { PageHeaderComponent } from '../../shared/ui/page-header.component';
+import { STATUS_LABELS, StatusBadgeComponent } from '../../shared/ui/status-badge.component';
+import { StateMessageComponent } from '../../shared/ui/state-message.component';
+import { MaskPathPipe, MaskPathsPipe } from '../../shared/format/mask-path.pipe';
+import { maskPath } from '../../shared/format/path';
 
-const STATUS_STYLES: Record<BackupStatus, { label: string; css: string }> = {
-  EM_ANDAMENTO: { label: 'In progress', css: 'bg-blue-50 text-blue-600 border-blue-100/50' },
-  PAUSADO: { label: 'Paused', css: 'bg-amber-50 text-amber-600 border-amber-100/50' },
-  CONCLUIDO: { label: 'Completed', css: 'bg-emerald-50 text-emerald-600 border-emerald-100/50' },
-  FALHA: { label: 'Failed', css: 'bg-red-50 text-red-600 border-red-100/50' },
-  CANCELADO: { label: 'Cancelled', css: 'bg-gray-100 text-gray-500 border-gray-200/50' }
-};
+type StatusFilter = 'all' | BackupStatus;
 
 @Component({
   selector: 'app-history',
-  imports: [DatePipe, DecimalPipe, LucideAngularModule],
+  imports: [
+    DatePipe,
+    DecimalPipe,
+    FormsModule,
+    LucideAngularModule,
+    PageHeaderComponent,
+    StatusBadgeComponent,
+    StateMessageComponent,
+    MaskPathPipe,
+    MaskPathsPipe
+  ],
   templateUrl: './history.component.html'
 })
 export class HistoryComponent implements OnInit {
   private backupService = inject(BackupService);
 
-  readonly historyIcon = History;
+  readonly refreshIcon = RefreshCw;
+  readonly searchIcon = Search;
   readonly arrowIcon = ArrowRight;
+
+  readonly filters: { value: StatusFilter; label: string }[] = [
+    { value: 'all', label: 'Todos' },
+    { value: 'CONCLUIDO', label: STATUS_LABELS.CONCLUIDO },
+    { value: 'FALHA', label: STATUS_LABELS.FALHA },
+    { value: 'CANCELADO', label: STATUS_LABELS.CANCELADO },
+    { value: 'EM_ANDAMENTO', label: STATUS_LABELS.EM_ANDAMENTO }
+  ];
 
   historyRecords = signal<BackupRecord[]>([]);
   isLoading = signal(true);
   error = signal<string | null>(null);
+  filter = signal<StatusFilter>('all');
+  search = signal('');
+
+  filteredRecords = computed(() => {
+    const status = this.filter();
+    // A busca considera apenas o que esta visivel (caminhos mascarados).
+    const term = this.search().trim().toLowerCase();
+    return this.historyRecords().filter(r =>
+      (status === 'all' || r.status === status) &&
+      (!term || `${maskPath(r.sourcePath)} ${maskPath(r.destinationPath)}`.toLowerCase().includes(term))
+    );
+  });
 
   ngOnInit() {
     this.loadHistory();
@@ -43,17 +74,9 @@ export class HistoryComponent implements OnInit {
         this.isLoading.set(false);
       },
       error: (err: unknown) => {
-        this.error.set(apiErrorMessage(err, 'Nao foi possivel carregar o historico.'));
+        this.error.set(apiErrorMessage(err, 'Não foi possível carregar o histórico.'));
         this.isLoading.set(false);
       }
     });
-  }
-
-  statusLabel(status: BackupStatus): string {
-    return STATUS_STYLES[status]?.label ?? status;
-  }
-
-  statusClass(status: BackupStatus): string {
-    return STATUS_STYLES[status]?.css ?? 'bg-gray-100 text-gray-500 border-gray-200/50';
   }
 }

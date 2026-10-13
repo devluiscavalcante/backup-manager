@@ -1,17 +1,26 @@
 import { Component, signal, computed, OnDestroy, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { LucideAngularModule, Plus, Trash2, Play, Folder, ShieldCheck, Zap, XCircle, Pause, RefreshCw } from 'lucide-angular';
+import { LucideAngularModule, Plus, Trash2, Play, Pause, CircleX, ArrowRight, FolderInput, FolderOutput } from 'lucide-angular';
 import { Observable, Subscription, forkJoin } from 'rxjs';
 import { BackupService, BackupStreamEvent } from '../../core/services/backup.service';
 import { OperationResponse, apiErrorMessage } from '../../core/api/api.models';
+import { PageHeaderComponent } from '../../shared/ui/page-header.component';
+import { MaskPathPipe } from '../../shared/format/mask-path.pipe';
+import { baseName, maskPathsInText } from '../../shared/format/path';
 
 type TaskOutcome = 'running' | 'done' | 'failed';
+
+/** Origem e destino de um backup; o backend recebe as duas listas pareadas por indice. */
+export interface BackupPair {
+  source: string;
+  destination: string;
+}
 
 const STREAM_OPEN_TIMEOUT_MS = 10_000;
 
 @Component({
   selector: 'app-backup',
-  imports: [FormsModule, LucideAngularModule],
+  imports: [FormsModule, LucideAngularModule, PageHeaderComponent, MaskPathPipe],
   templateUrl: './backup.component.html'
 })
 export class BackupComponent implements OnDestroy {
@@ -20,17 +29,16 @@ export class BackupComponent implements OnDestroy {
   readonly plusIcon = Plus;
   readonly trashIcon = Trash2;
   readonly playIcon = Play;
-  readonly folderIcon = Folder;
-  readonly shieldIcon = ShieldCheck;
-  readonly zapIcon = Zap;
-  readonly cancelIcon = XCircle;
   readonly pauseIcon = Pause;
-  readonly resumeIcon = RefreshCw;
+  readonly cancelIcon = CircleX;
+  readonly arrowIcon = ArrowRight;
+  readonly sourceIcon = FolderInput;
+  readonly destinationIcon = FolderOutput;
 
-  sources = signal<string[]>([]);
-  destinations = signal<string[]>([]);
+  pairs = signal<BackupPair[]>([]);
   newSource = '';
   newDestination = '';
+  pairError = signal<string | null>(null);
 
   isBackingUp = signal(false);
   isPaused = signal(false);
@@ -55,33 +63,32 @@ export class BackupComponent implements OnDestroy {
   private resetTimer?: ReturnType<typeof setTimeout>;
   private openTimer?: ReturnType<typeof setTimeout>;
 
-  canStart = computed(() =>
-    this.sources().length > 0 &&
-    this.destinations().length > 0 &&
-    this.sources().length === this.destinations().length &&
-    !this.isBackingUp()
-  );
+  canStart = computed(() => this.pairs().length > 0 && !this.isBackingUp());
 
-  addSource() {
-    if (this.newSource.trim()) {
-      this.sources.update(s => [...s, this.newSource.trim()]);
-      this.newSource = '';
+  addPair() {
+    const source = this.newSource.trim();
+    const destination = this.newDestination.trim();
+    if (!source || !destination) {
+      this.pairError.set('Informe a origem e o destino.');
+      return;
     }
-  }
-
-  addDestination() {
-    if (this.newDestination.trim()) {
-      this.destinations.update(d => [...d, this.newDestination.trim()]);
-      this.newDestination = '';
+    if (normalize(source) === normalize(destination)) {
+      this.pairError.set('A origem e o destino precisam ser pastas diferentes.');
+      return;
     }
+    if (this.pairs().some(p => normalize(p.source) === normalize(source) && normalize(p.destination) === normalize(destination))) {
+      this.pairError.set('Esse par já está na lista.');
+      return;
+    }
+
+    this.pairs.update(list => [...list, { source, destination }]);
+    this.newSource = '';
+    this.newDestination = '';
+    this.pairError.set(null);
   }
 
-  removeSource(index: number) {
-    this.sources.update(s => s.filter((_, i) => i !== index));
-  }
-
-  removeDestination(index: number) {
-    this.destinations.update(d => d.filter((_, i) => i !== index));
+  removePair(index: number) {
+    this.pairs.update(list => list.filter((_, i) => i !== index));
   }
 
   startBackup() {
@@ -93,22 +100,22 @@ export class BackupComponent implements OnDestroy {
     this.activeTaskIds.set([]);
     this.taskPercent.set({});
     this.taskOutcome.set({});
-    this.currentStatus.set('Validando caminhos de seguranca...');
+    this.currentStatus.set('Validando pastas...');
 
     // O stream e aberto antes do POST para nao perder eventos de backups rapidos.
     this.streamSubscription?.unsubscribe();
     clearTimeout(this.openTimer);
     this.openTimer = setTimeout(
-      () => this.finalizeProcess('O servidor de progresso nao respondeu. Nenhum backup foi iniciado.', 0),
+      () => this.finalizeProcess('O servidor de progresso não respondeu. Nenhum backup foi iniciado.', 0),
       STREAM_OPEN_TIMEOUT_MS
     );
     this.streamSubscription = this.backupService.progressEvents().subscribe({
       next: evt => this.handleStreamEvent(evt),
       error: () => {
         if (this.activeTaskIds().length === 0) {
-          this.finalizeProcess('Nao foi possivel conectar ao servidor de progresso.');
+          this.finalizeProcess('Não foi possível conectar ao servidor de progresso.');
         } else {
-          this.finalizeProcess('Conexao de progresso perdida; o backup continua no servidor. Consulte o historico.');
+          this.finalizeProcess('Conexão de progresso perdida; o backup continua no servidor. Consulte o histórico.');
         }
       }
     });
@@ -120,17 +127,17 @@ export class BackupComponent implements OnDestroy {
       id => (resume ? this.backupService.resumeBackup(id) : this.backupService.pauseBackup(id)),
       () => {
         this.isPaused.set(!resume);
-        this.currentStatus.set(resume ? 'Retomando backup...' : 'Backup pausado pelo usuario.');
+        this.currentStatus.set(resume ? 'Retomando backup...' : 'Backup pausado.');
       },
-      resume ? 'Nao foi possivel retomar o backup.' : 'Nao foi possivel pausar o backup.'
+      resume ? 'Não foi possível retomar o backup.' : 'Não foi possível pausar o backup.'
     );
   }
 
   cancelBackup() {
     this.runControl(
       id => this.backupService.cancelBackup(id),
-      () => this.finalizeProcess('Operacao cancelada pelo usuario.'),
-      'Nao foi possivel cancelar o backup.'
+      () => this.finalizeProcess('Backup cancelado.'),
+      'Não foi possível cancelar o backup.'
     );
   }
 
@@ -144,7 +151,9 @@ export class BackupComponent implements OnDestroy {
         if (!this.isTracked(evt.taskId)) return;
         this.taskPercent.update(p => ({ ...p, [evt.taskId]: evt.percent }));
         if (!this.isPaused()) {
-          this.currentStatus.set(`Copiando: ${evt.currentFile || 'Processando arquivos...'}`);
+          // Mostra apenas o nome do arquivo, nunca o caminho completo.
+          const file = baseName(evt.currentFile);
+          this.currentStatus.set(file ? `Copiando ${file}` : 'Processando arquivos...');
         }
         return;
       case 'control':
@@ -157,7 +166,7 @@ export class BackupComponent implements OnDestroy {
         return;
       case 'error':
         if (evt.message) {
-          this.currentStatus.set(evt.message);
+          this.currentStatus.set(maskPathsInText(evt.message));
         }
         return;
       case 'complete':
@@ -166,7 +175,8 @@ export class BackupComponent implements OnDestroy {
   }
 
   private submitBackupRequest() {
-    this.backupService.startBackup(this.sources(), this.destinations()).subscribe({
+    const pairs = this.pairs();
+    this.backupService.startBackup(pairs.map(p => p.source), pairs.map(p => p.destination)).subscribe({
       next: (res: OperationResponse) => {
         const ids = res.taskIds ?? [];
         this.activeTaskIds.set(ids);
@@ -176,7 +186,7 @@ export class BackupComponent implements OnDestroy {
           this.finalizeProcess(res.message || 'Nenhuma tarefa foi iniciada.');
         }
       },
-      error: err => this.finalizeProcess(apiErrorMessage(err, 'Erro na validacao do backup.'), 0)
+      error: err => this.finalizeProcess(maskPathsInText(apiErrorMessage(err, 'Não foi possível iniciar o backup.')), 0)
     });
   }
 
@@ -196,7 +206,7 @@ export class BackupComponent implements OnDestroy {
       },
       error: err => {
         this.isControlBusy.set(false);
-        this.currentStatus.set(apiErrorMessage(err, failureMessage));
+        this.currentStatus.set(maskPathsInText(apiErrorMessage(err, failureMessage)));
       }
     });
   }
@@ -225,8 +235,8 @@ export class BackupComponent implements OnDestroy {
     const failed = ids.filter(id => outcomes[id] === 'failed').length;
     this.finalizeProcess(
       failed === 0
-        ? 'Backup concluido com sucesso!'
-        : `${failed} de ${ids.length} backup(s) falharam. Consulte o historico.`
+        ? 'Backup concluído com sucesso.'
+        : `${failed} de ${ids.length} backup(s) falharam. Consulte o histórico.`
     );
   }
 
@@ -251,4 +261,8 @@ export class BackupComponent implements OnDestroy {
     clearTimeout(this.openTimer);
     this.streamSubscription?.unsubscribe();
   }
+}
+
+function normalize(path: string): string {
+  return path.replace(/[\\/]+$/, '').toLowerCase();
 }

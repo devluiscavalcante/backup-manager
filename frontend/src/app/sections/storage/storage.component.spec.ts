@@ -38,6 +38,6 @@ describe('StorageComponent', () => {
       { status: 403, statusText: 'Forbidden' }
     );
 
-    expect(fixture.componentInstance.error()).toContain('administrator');
+    expect(fixture.componentInstance.error()).toContain('administradores');
   });
 });

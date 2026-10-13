@@ -1,41 +1,55 @@
 import { Component, OnInit, computed, signal, OnDestroy, inject } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
-import { LucideAngularModule, Search, Download, AlertCircle, Info, XCircle, FileText, RefreshCw, Terminal } from 'lucide-angular';
+import { LucideAngularModule, Search, Download, RefreshCw, TriangleAlert, CircleX, Info } from 'lucide-angular';
 import { LogsService, LogEntry, LogLevel } from '../../core/services/logs.service';
 import { apiErrorMessage } from '../../core/api/api.models';
+import { PageHeaderComponent } from '../../shared/ui/page-header.component';
+import { StateMessageComponent } from '../../shared/ui/state-message.component';
+import { maskPathsInText } from '../../shared/format/path';
 
 type LevelFilter = 'all' | LogLevel;
 
 const POLLING_INTERVAL_MS = 10_000;
 
+const LEVEL_LABELS: Record<LogLevel, string> = { warning: 'Aviso', error: 'Erro', info: 'Info' };
+
 @Component({
   selector: 'app-logs',
-  imports: [LucideAngularModule, FormsModule],
+  imports: [LucideAngularModule, FormsModule, PageHeaderComponent, StateMessageComponent],
   templateUrl: './logs.component.html'
 })
 export class LogsComponent implements OnInit, OnDestroy {
   private logsService = inject(LogsService);
 
-  readonly terminalIcon = Terminal; readonly searchIcon = Search; readonly refreshIcon = RefreshCw;
-  readonly downloadIcon = Download; readonly infoIcon = Info;
-  readonly errorIcon = XCircle; readonly warningIcon = AlertCircle; readonly fileIcon = FileText;
+  readonly searchIcon = Search;
+  readonly refreshIcon = RefreshCw;
+  readonly downloadIcon = Download;
+  readonly warningIcon = TriangleAlert;
+  readonly errorIcon = CircleX;
+  readonly infoIcon = Info;
 
-  readonly filters: LevelFilter[] = ['all', 'warning', 'error', 'info'];
+  readonly filters: { value: LevelFilter; label: string }[] = [
+    { value: 'all', label: 'Todos' },
+    { value: 'warning', label: 'Avisos' },
+    { value: 'error', label: 'Erros' },
+    { value: 'info', label: 'Info' }
+  ];
 
+  /** Entradas ja com os caminhos mascarados: nada do arquivo original chega ao DOM. */
   logs = signal<LogEntry[]>([]);
-  rawContent = signal('');
   filter = signal<LevelFilter>('all');
   search = signal('');
   isLoading = signal(true);
   /** Nenhum warnings.log gerado ainda (backend responde 404). */
   isEmpty = signal(false);
+  forbidden = signal(false);
   error = signal<string | null>(null);
   private intervalId?: ReturnType<typeof setInterval>;
 
   filteredLogs = computed(() => {
     const currentFilter = this.filter();
-    const searchTerm = this.search().toLowerCase();
+    const searchTerm = this.search().trim().toLowerCase();
 
     return this.logs().filter(log =>
       (currentFilter === 'all' || log.level === currentFilter) &&
@@ -45,7 +59,10 @@ export class LogsComponent implements OnInit, OnDestroy {
 
   ngOnInit() {
     this.loadLogs();
-    this.intervalId = setInterval(() => this.loadLogs(), POLLING_INTERVAL_MS);
+    // Nao consulta o servidor enquanto a aba estiver em segundo plano.
+    this.intervalId = setInterval(() => {
+      if (!document.hidden) this.loadLogs();
+    }, POLLING_INTERVAL_MS);
   }
 
   ngOnDestroy() {
@@ -56,46 +73,52 @@ export class LogsComponent implements OnInit, OnDestroy {
     this.isLoading.set(true);
     this.logsService.getWarningsLog().subscribe({
       next: log => {
-        this.logs.set(log.entries);
-        this.rawContent.set(log.raw);
+        this.logs.set(log.entries.map(e => ({ ...e, message: maskPathsInText(e.message) })));
         this.isEmpty.set(false);
         this.error.set(null);
         this.isLoading.set(false);
       },
       error: (err: unknown) => {
         this.logs.set([]);
-        this.rawContent.set('');
         if (err instanceof HttpErrorResponse && err.status === 404) {
           this.isEmpty.set(true);
           this.error.set(null);
         } else if (err instanceof HttpErrorResponse && err.status === 403) {
-          this.error.set('Logs are only available to administrator accounts.');
+          this.forbidden.set(true);
+          this.error.set('Os alertas são exclusivos para administradores.');
           clearInterval(this.intervalId);
         } else {
-          this.error.set(apiErrorMessage(err, 'Failed to load logs.'));
+          this.error.set(apiErrorMessage(err, 'Não foi possível carregar os alertas.'));
         }
         this.isLoading.set(false);
       }
     });
   }
 
+  /** Exporta a versao exibida (filtrada e com caminhos mascarados). */
   exportLogs() {
-    const content = this.rawContent();
-    if (!content) return;
+    const lines = this.filteredLogs().map(l =>
+      `${l.timestamp ? `[${l.timestamp}] ` : ''}[${l.level.toUpperCase()}] ${l.message}`
+    );
+    if (lines.length === 0) return;
 
-    const url = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+    const url = URL.createObjectURL(new Blob([lines.join('\n') + '\n'], { type: 'text/plain;charset=utf-8' }));
     const link = document.createElement('a');
     link.href = url;
-    link.download = 'warnings.log';
+    link.download = 'alertas-backup.log';
     link.click();
     URL.revokeObjectURL(url);
   }
 
-  getLevelColor(level: LogLevel): string {
+  levelLabel(level: LogLevel): string {
+    return LEVEL_LABELS[level];
+  }
+
+  levelClass(level: LogLevel): string {
     switch (level) {
-      case 'warning': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'error': return 'bg-red-100 text-red-800 border-red-200';
-      default: return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'warning': return 'bg-amber-50 text-amber-600';
+      case 'error': return 'bg-rose-50 text-rose-600';
+      default: return 'bg-sky-50 text-sky-600';
     }
   }
 }

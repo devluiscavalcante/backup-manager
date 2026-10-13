@@ -1,15 +1,11 @@
 @if (auth.isAuthenticated()) {
-  <div class="flex flex-col lg:flex-row min-h-screen bg-white">
-    <app-sidebar></app-sidebar>
+  <app-sidebar></app-sidebar>
 
-    <main class="flex-1 min-w-0">
-      <div class="h-16 lg:hidden"></div>
-
-      <div class="p-4 md:p-8 lg:p-12">
-        <router-outlet></router-outlet>
-      </div>
-    </main>
-  </div>
+  <main class="min-h-screen pt-14 lg:pl-64 lg:pt-0">
+    <div class="mx-auto w-full max-w-6xl px-4 py-8 sm:px-6 lg:px-10 lg:py-10">
+      <router-outlet></router-outlet>
+    </div>
+  </main>
 } @else {
   <router-outlet></router-outlet>
 }
