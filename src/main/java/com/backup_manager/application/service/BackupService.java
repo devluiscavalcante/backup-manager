@@ -10,7 +10,6 @@ import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
-import com.backup_manager.infrastructure.logging.BackupContext;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.slf4j.Logger;
@@ -44,7 +43,6 @@ public class BackupService {
 
     private final BackupManager backupManager;
     private final BackupRepository backupRepository;
-    private final BackupContext backupContext;
     private final ProgressEmitter progressEmitter;
     private final BackupTaskManager taskManager;
     private final FileStorageOperations storageOps;
@@ -59,7 +57,6 @@ public class BackupService {
     public BackupService(
             BackupManager backupManager,
             BackupRepository backupRepository,
-            BackupContext backupContext,
             ProgressEmitter progressEmitter,
             BackupTaskManager taskManager,
             FileStorageOperations storageOps,
@@ -70,7 +67,6 @@ public class BackupService {
     ) {
         this.backupManager = backupManager;
         this.backupRepository = backupRepository;
-        this.backupContext = backupContext;
         this.progressEmitter = progressEmitter;
         this.taskManager = taskManager;
         this.storageOps = storageOps;
@@ -163,8 +159,6 @@ public class BackupService {
                 long fileCount = backupManager.countFiles(sourceFolder);
                 Path source = sourceFolder.toPath();
                 Path destination = Paths.get(task.getDestinationPath());
-
-                backupContext.setLastDestination(destination.toString());
 
                 if (!Files.exists(destination)) {
                     Files.createDirectories(destination);
