@@ -1,29 +1,44 @@
 version: 2
 updates:
+  # Saltos de versao major (Spring Boot, Angular, TypeScript, Tailwind...) exigem migracao
+  # planejada e ficam fora. Patch e minor chegam juntos num unico PR por ecossistema.
   - package-ecosystem: maven
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]
     groups:
-      spring:
-        patterns: [ "org.springframework*" ]
+      maven-minor-patch:
+        update-types: [ "minor", "patch" ]
 
   - package-ecosystem: npm
     directory: /frontend
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: [ "version-update:semver-major" ]
     groups:
-      angular:
-        patterns: [ "@angular/*", "@angular-devkit/*" ]
+      npm-minor-patch:
+        update-types: [ "minor", "patch" ]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: monthly
+    groups:
+      actions:
+        patterns: [ "*" ]
 
+  # As tags das imagens (3.9-eclipse-temurin-21, 25-jre-alpine) ja recebem patches a cada build.
+  # A imagem de build fica presa ao JDK 21 do projeto; o runtime nao troca de versao major sozinho.
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: monthly
+    ignore:
+      - dependency-name: "maven"
+      - dependency-name: "eclipse-temurin"
+        update-types: [ "version-update:semver-major" ]
