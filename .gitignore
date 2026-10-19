@@ -1,15 +1,21 @@
-HELP.md
+### Maven / Build ###
 target/
-.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+HELP.md
 
-### STS ###
+### STS / Eclipse ###
 .apt_generated
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
 .sts4-cache
 
@@ -25,27 +31,21 @@ target/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
 ### VS Code ###
 .vscode/
-# Maven / Build
-*.log
 
-.settings/
-
-*.class
-*.jar
-# macOS / Windows
+### OS ###
 .DS_Store
 Thumbs.db
 
+### Logs / temp ###
+*.log
 # Ancorados na raiz para nao ignorar pastas de codigo (ex.: frontend/src/app/sections/logs)
 /logs/
 /tmp/
 
+### Ambiente (use .env.example como modelo) ###
 .env
 .env.local
 .env.development
