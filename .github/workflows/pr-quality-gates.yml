@@ -41,40 +41,10 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Setup PostgreSQL test environment
-        run: |
-          echo "DB_HOST=localhost" >> $GITHUB_ENV
-          echo "DB_PORT=5432" >> $GITHUB_ENV
-          echo "DB_NAME=backup_manager_test" >> $GITHUB_ENV
-          echo "DB_USERNAME=test" >> $GITHUB_ENV
-          echo "DB_PASSWORD=test" >> $GITHUB_ENV
-          echo "APP_PORT=8080" >> $GITHUB_ENV
-          echo "APP_DEBUG=false" >> $GITHUB_ENV
-
-          echo "DB_HOST=localhost" > .env
-          echo "DB_PORT=5432" >> .env
-          echo "DB_NAME=backup_manager_test" >> .env
-          echo "DB_USERNAME=test" >> .env
-          echo "DB_PASSWORD=test" >> .env
-          echo "APP_PORT=8080" >> .env
-          echo "APP_DEBUG=false" >> .env
-
-      - name: Wait for PostgreSQL to be ready
-        run: |
-          echo "Waiting for PostgreSQL to start..."
-          sleep 5
-
-      - name: Validate Maven Project
-        run: mvn validate
-
-      - name: Compile Source Code
-        run: mvn clean compile
-
-      - name: Checkstyle Analysis
-        run: mvn checkstyle:check
-
-      - name: Run Unit Tests
-        run: mvn test
+      # O service postgres so fica disponivel depois do health-cmd passar, entao nao ha espera manual.
+      # verify cobre checkstyle (validate), compilacao, testes, relatorio do JaCoCo e empacotamento.
+      - name: Build, test and package
+        run: mvn -B verify
         env:
           DB_HOST: localhost
           DB_PORT: 5432
@@ -90,12 +60,6 @@ jobs:
           NOTIFICATION_EMAIL_RECIPIENTS: ${{ secrets.NOTIFICATION_EMAIL_RECIPIENTS }}
           NOTIFICATION_NOTIFY_SUCCESS: "true"
           NOTIFICATION_NOTIFY_FAILURE: "true"
-
-      - name: Test Coverage Report
-        run: mvn jacoco:report
-
-      - name: Create Package
-        run: mvn package -DskipTests
 
       - name: Ensure report directories exist
         if: always()
