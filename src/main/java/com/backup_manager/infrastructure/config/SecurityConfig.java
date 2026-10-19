@@ -30,6 +30,7 @@ import org.springframework.security.web.authentication.www.BasicAuthenticationFi
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 
 @Configuration
 public class SecurityConfig {
@@ -37,6 +38,15 @@ public class SecurityConfig {
     private static final Logger logger = LoggerFactory.getLogger(SecurityConfig.class);
     private static final String X_REQUESTED_WITH = "X-Requested-With";
     private static final String XML_HTTP_REQUEST = "XMLHttpRequest";
+
+    // Defaults do codigo e senhas de exemplo publicadas no repositorio (README e .env.example).
+    private static final Set<String> KNOWN_PLACEHOLDER_PASSWORDS = Set.of(
+            "change-me-now",
+            "change-me-operator",
+            "troque-esta-senha",
+            "uma-senha-forte",
+            "senha-do-operador"
+    );
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http,
@@ -144,7 +154,7 @@ public class SecurityConfig {
                                          boolean allowDefaultPassword,
                                          String environmentVariable,
                                          String warningMessage) {
-        if (!"change-me-now".equals(configuredPassword) && !"change-me-operator".equals(configuredPassword)) {
+        if (!KNOWN_PLACEHOLDER_PASSWORDS.contains(configuredPassword)) {
             return;
         }
 
