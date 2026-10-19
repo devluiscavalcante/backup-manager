@@ -8,7 +8,7 @@ COPY src ./src
 
 RUN mvn -B clean package -DskipTests -Dcheckstyle.skip=true
 
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 RUN addgroup -S spring && adduser -S spring -G spring
 
