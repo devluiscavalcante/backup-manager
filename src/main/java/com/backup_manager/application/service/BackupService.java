@@ -30,6 +30,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -404,7 +405,7 @@ public class BackupService {
 
     private long calculateDuration(BackupTask task) {
         if (task.getStartedAt() != null && task.getFinishedAt() != null) {
-            return java.time.temporal.ChronoUnit.SECONDS.between(task.getStartedAt(), task.getFinishedAt());
+            return ChronoUnit.SECONDS.between(task.getStartedAt(), task.getFinishedAt());
         }
         return 0;
     }
