@@ -21,14 +21,6 @@ jobs:
     create-release:
       name: Create GitHub Release
       runs-on: ubuntu-latest
-      env:
-        MAIL_HOST: ${{ secrets.MAIL_HOST }}
-        MAIL_PORT: ${{ secrets.MAIL_PORT }}
-        MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
-        MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
-        NOTIFICATION_ENABLED: "true"
-        NOTIFICATION_EMAIL_FROM: ${{ secrets.NOTIFICATION_EMAIL_FROM }}
-        NOTIFICATION_EMAIL_RECIPIENTS: ${{ secrets.NOTIFICATION_EMAIL_RECIPIENTS }}
 
       steps:
         - name: Checkout code
@@ -39,22 +31,26 @@ jobs:
           with:
             java-version: '21'
             distribution: 'temurin'
+            cache: maven
 
         - name: Build Release Artifacts
           run: |
-            mvn clean package -DskipTests
+            mvn -B clean package -DskipTests
             echo "JAR file:"
             ls -lh target/*.jar
 
         - name: Get Version from Tag
           id: get_version
+          env:
+            INPUT_VERSION: ${{ github.event.inputs.release_version }}
           run: |
             if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-              echo "version=${{ github.event.inputs.release_version }}" >> $GITHUB_OUTPUT
+              VERSION="$INPUT_VERSION"
             else
-              echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+              VERSION="${GITHUB_REF#refs/tags/}"
             fi
-            echo "Releasing version: ${{ steps.get_version.outputs.version }}"
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+            echo "Releasing version: $VERSION"
 
         - name: Create GitHub Release
           uses: softprops/action-gh-release@v3
