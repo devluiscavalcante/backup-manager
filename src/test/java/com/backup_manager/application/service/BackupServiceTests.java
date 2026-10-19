@@ -6,7 +6,6 @@ import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
-import com.backup_manager.infrastructure.logging.BackupContext;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.junit.jupiter.api.Test;
@@ -68,7 +67,6 @@ class BackupServiceTests {
         BackupService service = new BackupService(
                 backupManager,
                 mock(BackupRepository.class),
-                mock(BackupContext.class),
                 progressEmitter,
                 taskManager,
                 storageOps,
@@ -107,7 +105,6 @@ class BackupServiceTests {
         return new BackupService(
                 mock(BackupManager.class),
                 mock(BackupRepository.class),
-                mock(BackupContext.class),
                 progressEmitter,
                 mock(BackupTaskManager.class),
                 mock(FileStorageOperations.class),

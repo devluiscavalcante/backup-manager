@@ -16,34 +16,37 @@ import java.util.List;
 public class BackupCleanupRunner implements CommandLineRunner {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupCleanupRunner.class);
+    private static final String INTERRUPTED_MESSAGE = "Interrompido devido ao reinício ou fechamento da aplicação";
+
     private final BackupRepository repository;
 
-    public BackupCleanupRunner(BackupRepository repository){
+    public BackupCleanupRunner(BackupRepository repository) {
         this.repository = repository;
     }
 
     @Override
     @Transactional
-    public void run(String... args){
+    public void run(String... args) {
         logger.info("Iniciando verificação de integridade pós-boot");
 
-        List<BackupTask> orfaoTasks = repository.findByStatusIn(List.of(Status.EM_ANDAMENTO, Status.PAUSADO));
+        List<BackupTask> orphanTasks = repository.findByStatusIn(List.of(Status.EM_ANDAMENTO, Status.PAUSADO));
 
-        if (orfaoTasks.isEmpty()){
+        if (orphanTasks.isEmpty()) {
             logger.info("Nenhuma tarefa órfã encontrada.");
             return;
         }
 
-        logger.warn("Detectadas {} tarefas interrompidas.", orfaoTasks.size());
+        logger.warn("Detectadas {} tarefas interrompidas.", orphanTasks.size());
 
-        orfaoTasks.forEach(task ->{
+        LocalDateTime now = LocalDateTime.now();
+        orphanTasks.forEach(task -> {
             task.setStatus(Status.FALHA);
-            task.setErrorMessage("Interrompido devido ao reinício ou fechamento da aplicação");
-            task.setFinishedAt(LocalDateTime.now());
-            repository.save(task);
+            task.setErrorMessage(INTERRUPTED_MESSAGE);
+            task.setFinishedAt(now);
             logger.debug("Tarefa ID {} marcada como falha", task.getId());
         });
+        repository.saveAll(orphanTasks);
 
-        logger.info("Verificação de integridade conclúida.");
+        logger.info("Verificação de integridade concluída.");
     }
 }

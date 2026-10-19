@@ -10,7 +10,6 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,6 +19,20 @@ public class CronValidationService {
 
     private static final Logger logger = LoggerFactory.getLogger(CronValidationService.class);
     private static final int DEFAULT_NEXT_EXECUTIONS_COUNT = 5;
+
+    private static final List<CronTemplateResponse> TEMPLATES = List.of(
+            template("daily_2am", "0 0 2 * * *", "Todos os dias as 2:00 AM", "Diario"),
+            template("daily_midnight", "0 0 0 * * *", "Todos os dias a meia-noite", "Diario"),
+            template("daily_noon", "0 0 12 * * *", "Todos os dias ao meio-dia", "Diario"),
+            template("weekly_sunday_3am", "0 0 3 ? * SUN", "Toda semana aos domingos as 3:00 AM", "Semanal"),
+            template("weekly_monday_2am", "0 0 2 ? * MON", "Toda semana as segundas-feiras as 2:00 AM", "Semanal"),
+            template("weekly_friday_6pm", "0 0 18 ? * FRI", "Toda semana as sextas-feiras as 18:00", "Semanal"),
+            template("monthly_first_midnight", "0 0 0 1 * *", "Primeiro dia de cada mes a meia-noite", "Mensal"),
+            template("monthly_last_11pm", "0 0 23 L * *", "Ultimo dia de cada mes as 23:00", "Mensal"),
+            template("every_6_hours", "0 0 */6 * * *", "A cada 6 horas", "Intervalo"),
+            template("every_12_hours", "0 0 */12 * * *", "A cada 12 horas", "Intervalo"),
+            template("every_hour", "0 0 * * * *", "A cada hora", "Intervalo")
+    );
 
     public CronValidationResponse validateCronExpression(String cronExpression) {
         logger.debug("Validando expressao cron: {}", cronExpression);
@@ -77,84 +90,7 @@ public class CronValidationService {
 
     public Map<String, CronTemplateResponse> getCronTemplates() {
         Map<String, CronTemplateResponse> templates = new LinkedHashMap<>();
-
-        templates.put("daily_2am", new CronTemplateResponse(
-                "daily_2am",
-                "0 0 2 * * *",
-                "Todos os dias as 2:00 AM",
-                "Diario"
-        ));
-
-        templates.put("daily_midnight", new CronTemplateResponse(
-                "daily_midnight",
-                "0 0 0 * * *",
-                "Todos os dias a meia-noite",
-                "Diario"
-        ));
-
-        templates.put("daily_noon", new CronTemplateResponse(
-                "daily_noon",
-                "0 0 12 * * *",
-                "Todos os dias ao meio-dia",
-                "Diario"
-        ));
-
-        templates.put("weekly_sunday_3am", new CronTemplateResponse(
-                "weekly_sunday_3am",
-                "0 0 3 ? * SUN",
-                "Toda semana aos domingos as 3:00 AM",
-                "Semanal"
-        ));
-
-        templates.put("weekly_monday_2am", new CronTemplateResponse(
-                "weekly_monday_2am",
-                "0 0 2 ? * MON",
-                "Toda semana as segundas-feiras as 2:00 AM",
-                "Semanal"
-        ));
-
-        templates.put("weekly_friday_6pm", new CronTemplateResponse(
-                "weekly_friday_6pm",
-                "0 0 18 ? * FRI",
-                "Toda semana as sextas-feiras as 18:00",
-                "Semanal"
-        ));
-
-        templates.put("monthly_first_midnight", new CronTemplateResponse(
-                "monthly_first_midnight",
-                "0 0 0 1 * *",
-                "Primeiro dia de cada mes a meia-noite",
-                "Mensal"
-        ));
-
-        templates.put("monthly_last_11pm", new CronTemplateResponse(
-                "monthly_last_11pm",
-                "0 0 23 L * *",
-                "Ultimo dia de cada mes as 23:00",
-                "Mensal"
-        ));
-
-        templates.put("every_6_hours", new CronTemplateResponse(
-                "every_6_hours",
-                "0 0 */6 * * *",
-                "A cada 6 horas",
-                "Intervalo"
-        ));
-
-        templates.put("every_12_hours", new CronTemplateResponse(
-                "every_12_hours",
-                "0 0 */12 * * *",
-                "A cada 12 horas",
-                "Intervalo"
-        ));
-
-        templates.put("every_hour", new CronTemplateResponse(
-                "every_hour",
-                "0 0 * * * *",
-                "A cada hora",
-                "Intervalo"
-        ));
-
+        TEMPLATES.forEach(template -> templates.put(template.getKey(), template));
         return templates;
     }
 
@@ -174,24 +110,15 @@ public class CronValidationService {
     }
 
     private String generateDescription(String cronExpression) {
-        Map<String, String> commonPatterns = new HashMap<>();
-        commonPatterns.put("0 0 0 * * *", "Todos os dias a meia-noite");
-        commonPatterns.put("0 0 2 * * *", "Todos os dias as 2:00 AM");
-        commonPatterns.put("0 0 12 * * *", "Todos os dias ao meio-dia");
-        commonPatterns.put("0 0 3 ? * SUN", "Toda semana aos domingos as 3:00 AM");
-        commonPatterns.put("0 0 2 ? * MON", "Toda semana as segundas-feiras as 2:00 AM");
-        commonPatterns.put("0 0 18 ? * FRI", "Toda semana as sextas-feiras as 18:00");
-        commonPatterns.put("0 0 0 1 * *", "Primeiro dia de cada mes a meia-noite");
-        commonPatterns.put("0 0 23 L * *", "Ultimo dia de cada mes as 23:00");
-        commonPatterns.put("0 0 */6 * * *", "A cada 6 horas");
-        commonPatterns.put("0 0 */12 * * *", "A cada 12 horas");
-        commonPatterns.put("0 0 * * * *", "A cada hora");
+        return TEMPLATES.stream()
+                .filter(template -> template.getExpression().equals(cronExpression))
+                .map(CronTemplateResponse::getDescription)
+                .findFirst()
+                .orElse("Expressao cron customizada: " + cronExpression);
+    }
 
-        if (commonPatterns.containsKey(cronExpression)) {
-            return commonPatterns.get(cronExpression);
-        }
-
-        return "Expressao cron customizada: " + cronExpression;
+    private static CronTemplateResponse template(String key, String expression, String description, String category) {
+        return new CronTemplateResponse(key, expression, description, category);
     }
 
     public String getExpressionByTemplateKey(String templateKey) {

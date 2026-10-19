@@ -12,19 +12,17 @@
 	<artifactId>backup-manager</artifactId>
 	<version>1.5.0-SNAPSHOT</version>
 	<name>backup-manager</name>
-	<description>Demo project for Spring Boot</description>
-	<url/>
+	<description>API and web UI to run, schedule, restore and audit file backups</description>
+	<url>https://github.com/devluiscavalcante/backup-manager</url>
 	<licenses>
-		<license/>
+		<license>
+			<name>MIT License</name>
+			<url>https://opensource.org/licenses/MIT</url>
+		</license>
 	</licenses>
-	<developers>
-		<developer/>
-	</developers>
 	<scm>
-		<connection/>
-		<developerConnection/>
-		<tag/>
-		<url/>
+		<connection>scm:git:https://github.com/devluiscavalcante/backup-manager.git</connection>
+		<url>https://github.com/devluiscavalcante/backup-manager</url>
 	</scm>
 	<properties>
 		<java.version>21</java.version>
@@ -163,26 +161,26 @@
 					</execution>
 				</executions>
 			</plugin>
-				<plugin>
-					<groupId>org.apache.maven.plugins</groupId>
-					<artifactId>maven-checkstyle-plugin</artifactId>
-					<version>3.3.0</version>
-					<configuration>
-						<configLocation>${checkstyle.config.location}</configLocation>
-						<includeTestSourceDirectory>false</includeTestSourceDirectory>
-						<failOnViolation>false</failOnViolation>
-						<logViolationsToConsole>true</logViolationsToConsole>
-					</configuration>
-					<executions>
-						<execution>
-							<id>checkstyle-validation</id>
-							<phase>validate</phase>
-							<goals>
-								<goal>check</goal>
-							</goals>
-						</execution>
-					</executions>
-				</plugin>
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-checkstyle-plugin</artifactId>
+				<version>3.3.0</version>
+				<configuration>
+					<configLocation>${checkstyle.config.location}</configLocation>
+					<includeTestSourceDirectory>false</includeTestSourceDirectory>
+					<failOnViolation>false</failOnViolation>
+					<logViolationsToConsole>true</logViolationsToConsole>
+				</configuration>
+				<executions>
+					<execution>
+						<id>checkstyle-validation</id>
+						<phase>validate</phase>
+						<goals>
+							<goal>check</goal>
+						</goals>
+					</execution>
+				</executions>
+			</plugin>
 		</plugins>
 	</build>
 

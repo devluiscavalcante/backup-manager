@@ -10,7 +10,6 @@ import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
-import com.backup_manager.infrastructure.logging.BackupContext;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.slf4j.Logger;
@@ -31,6 +30,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -44,7 +44,6 @@ public class BackupService {
 
     private final BackupManager backupManager;
     private final BackupRepository backupRepository;
-    private final BackupContext backupContext;
     private final ProgressEmitter progressEmitter;
     private final BackupTaskManager taskManager;
     private final FileStorageOperations storageOps;
@@ -59,7 +58,6 @@ public class BackupService {
     public BackupService(
             BackupManager backupManager,
             BackupRepository backupRepository,
-            BackupContext backupContext,
             ProgressEmitter progressEmitter,
             BackupTaskManager taskManager,
             FileStorageOperations storageOps,
@@ -70,7 +68,6 @@ public class BackupService {
     ) {
         this.backupManager = backupManager;
         this.backupRepository = backupRepository;
-        this.backupContext = backupContext;
         this.progressEmitter = progressEmitter;
         this.taskManager = taskManager;
         this.storageOps = storageOps;
@@ -148,7 +145,7 @@ public class BackupService {
             logger.info("Iniciando processamento assincrono: ID={}, Status={}", task.getId(), task.getStatus());
 
             BackupTask activeTask = taskManager.activateQueuedTask(task.getId(), task);
-            if (activeTask.isCancelled() || activeTask.getStatus() == Status.CANCELADO) {
+            if (isCancelled(activeTask)) {
                 logger.info("Backup {} cancelado enquanto aguardava na fila, execucao ignorada", task.getId());
                 taskManager.unregisterTask(task.getId());
                 return;
@@ -163,8 +160,6 @@ public class BackupService {
                 long fileCount = backupManager.countFiles(sourceFolder);
                 Path source = sourceFolder.toPath();
                 Path destination = Paths.get(task.getDestinationPath());
-
-                backupContext.setLastDestination(destination.toString());
 
                 if (!Files.exists(destination)) {
                     Files.createDirectories(destination);
@@ -182,50 +177,12 @@ public class BackupService {
 
                 BackupTask memoryTask = taskManager.getTask(task.getId());
                 BackupTask dbTask = backupRepository.findById(task.getId()).orElse(null);
+                logger.debug("Pre-finalizacao do backup {}: memoria={}, banco={}",
+                        task.getId(), describeState(memoryTask), describeState(dbTask));
 
-                logger.info(
-                        "PRE-FINALIZE CHECK - ID={}: memoryTask exists={}, memory.isCancelled={}, memory.status={}",
-                        task.getId(),
-                        memoryTask != null,
-                        memoryTask != null ? memoryTask.isCancelled() : "N/A",
-                        memoryTask != null ? memoryTask.getStatus() : "N/A"
-                );
-
-                logger.info(
-                        "PRE-FINALIZE CHECK - ID={}: dbTask exists={}, db.isCancelled={}, db.status={}",
-                        task.getId(),
-                        dbTask != null,
-                        dbTask != null ? dbTask.isCancelled() : "N/A",
-                        dbTask != null ? dbTask.getStatus() : "N/A"
-                );
-
-                boolean wasCancelled = false;
-                String cancelSource = "";
-
-                if (memoryTask != null && memoryTask.isCancelled()) {
-                    wasCancelled = true;
-                    cancelSource = "memory.isCancelled";
-                }
-
-                if (memoryTask != null && memoryTask.getStatus() == Status.CANCELADO) {
-                    wasCancelled = true;
-                    cancelSource = cancelSource.isEmpty() ? "memory.status" : cancelSource + " + memory.status";
-                }
-
-                if (dbTask != null && dbTask.isCancelled()) {
-                    wasCancelled = true;
-                    cancelSource = cancelSource.isEmpty() ? "db.isCancelled" : cancelSource + " + db.isCancelled";
-                }
-
-                if (dbTask != null && dbTask.getStatus() == Status.CANCELADO) {
-                    wasCancelled = true;
-                    cancelSource = cancelSource.isEmpty() ? "db.status" : cancelSource + " + db.status";
-                }
-
-                if (wasCancelled) {
-                    logger.info("DECISAO: Backup {} CANCELADO (fonte: {}), pulando finalizacao", task.getId(), cancelSource);
+                if (isCancelled(memoryTask) || isCancelled(dbTask)) {
+                    logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
                 } else {
-                    logger.info("DECISAO: Backup {} NAO CANCELADO, prosseguindo com finalizacao", task.getId());
                     finalizeTask(dbTask != null ? dbTask : task, fileCount, sizeMB, warnings);
                 }
 
@@ -233,15 +190,7 @@ public class BackupService {
                 BackupTask memoryTask = taskManager.getTask(task.getId());
                 BackupTask dbTask = backupRepository.findById(task.getId()).orElse(null);
 
-                boolean wasCancelled = false;
-                if (memoryTask != null && (memoryTask.isCancelled() || memoryTask.getStatus() == Status.CANCELADO)) {
-                    wasCancelled = true;
-                }
-                if (dbTask != null && (dbTask.isCancelled() || dbTask.getStatus() == Status.CANCELADO)) {
-                    wasCancelled = true;
-                }
-
-                if (wasCancelled) {
+                if (isCancelled(memoryTask) || isCancelled(dbTask)) {
                     logger.info("Backup {} cancelado (exception capturada), pulando tratamento de falha", task.getId());
                 } else {
                     handleBackupFailure(dbTask != null ? dbTask : task, e);
@@ -249,8 +198,7 @@ public class BackupService {
             } finally {
                 BackupTask memoryTask = taskManager.getTask(task.getId());
 
-                if (memoryTask != null &&
-                        (memoryTask.isCancelled() || memoryTask.getStatus() == Status.CANCELADO)) {
+                if (isCancelled(memoryTask)) {
                     logger.info("Finally: Backup {} cancelado, nao sobrescreve estado", task.getId());
                     taskManager.unregisterTask(task.getId());
                     return;
@@ -268,6 +216,14 @@ public class BackupService {
         } catch (Exception e) {
             logger.error("Erro critico no processamento assincrono da task {}: {}", task.getId(), e.getMessage(), e);
         }
+    }
+
+    private static boolean isCancelled(BackupTask task) {
+        return task != null && (task.isCancelled() || task.getStatus() == Status.CANCELADO);
+    }
+
+    private static String describeState(BackupTask task) {
+        return task == null ? "ausente" : task.getStatus() + (task.isCancelled() ? "/cancelado" : "");
     }
 
     private int executeStorageOperation(Path source, Path destination, Long taskId, int totalFiles) throws IOException {
@@ -449,7 +405,7 @@ public class BackupService {
 
     private long calculateDuration(BackupTask task) {
         if (task.getStartedAt() != null && task.getFinishedAt() != null) {
-            return java.time.temporal.ChronoUnit.SECONDS.between(task.getStartedAt(), task.getFinishedAt());
+            return ChronoUnit.SECONDS.between(task.getStartedAt(), task.getFinishedAt());
         }
         return 0;
     }

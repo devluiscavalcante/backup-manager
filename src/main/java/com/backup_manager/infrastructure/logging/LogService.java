@@ -7,7 +7,9 @@ import java.io.IOException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.nio.file.*;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -28,7 +30,7 @@ public class LogService {
         this.basePaths = parseBasePaths(configuredBasePaths);
     }
 
-    public String readLog(Path logPath) throws java.io.IOException {
+    public String readLog(Path logPath) throws IOException {
         if (!Files.exists(logPath)) {
             return "O arquivo log ainda nao foi gerado em " + logPath;
         }
@@ -86,16 +88,16 @@ public class LogService {
             return walk
                     .filter(p -> p.getFileName().toString().equalsIgnoreCase("warnings.log"))
                     .max(Comparator.comparing(this::safeLastModified));
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             return Optional.empty();
         }
     }
 
-    private java.nio.file.attribute.FileTime safeLastModified(Path p) {
+    private FileTime safeLastModified(Path p) {
         try {
             return Files.getLastModifiedTime(p);
-        } catch (java.io.IOException e) {
-            return java.nio.file.attribute.FileTime.fromMillis(0);
+        } catch (IOException e) {
+            return FileTime.fromMillis(0);
         }
     }
 }

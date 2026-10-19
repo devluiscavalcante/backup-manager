@@ -14,34 +14,15 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  MAIL_HOST: ${{ secrets.MAIL_HOST }}
-  MAIL_PORT: ${{ secrets.MAIL_PORT }}
-  MAIL_USERNAME: ${{ secrets.MAIL_USERNAME }}
-  MAIL_PASSWORD: ${{ secrets.MAIL_PASSWORD }}
-  NOTIFICATION_ENABLED: "true"
-  NOTIFICATION_EMAIL_FROM: ${{ secrets.NOTIFICATION_EMAIL_FROM }}
-  NOTIFICATION_EMAIL_RECIPIENTS: ${{ secrets.NOTIFICATION_EMAIL_RECIPIENTS }}
-  NOTIFICATION_NOTIFY_SUCCESS: "true"
-  NOTIFICATION_NOTIFY_FAILURE: "true"
 
 jobs:
   build-and-push:
     name: Build and Push Container
     runs-on: ubuntu-latest
 
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v5
-        with:
-          java-version: '21'
-          distribution: 'temurin'
-
-      - name: Build Application
-        run: mvn clean package -DskipTests
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -53,15 +34,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long,prefix=
+            type=semver,pattern={{raw}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      # O Dockerfile compila o projeto no estagio builder; nao ha build Maven separado aqui.
       - name: Build and Push Docker Image
         uses: docker/build-push-action@v7
         with:
           context: .
           push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-          labels: |
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
