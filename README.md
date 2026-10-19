@@ -46,15 +46,18 @@ O **Backup Manager** troca scripts manuais e tarefas soltas do sistema operacion
 docker compose up -d postgres
 ```
 
-**2. Crie um `.env` na raiz do projeto** (carregado automaticamente)
+**2. Crie um `.env` na raiz do projeto** (carregado automaticamente; parta do [`.env.example`](.env.example))
 
 ```env
 DB_PASSWORD=postgres
 
 APP_SECURITY_USERNAME=admin
 APP_SECURITY_PASSWORD=uma-senha-forte
-APP_SECURITY_ALLOWED_PATH_ROOTS=C:\Dados,C:\Backups
+APP_SECURITY_ALLOWED_PATH_ROOTS=C:/Dados,C:/Backups
 ```
+
+> [!IMPORTANT]
+> O `.env` é lido como arquivo `.properties`, onde `\` é caractere de escape: `C:\Dados` vira `C:Dados`. No Windows, use `/` ou `\\` nos caminhos.
 
 **3. Rode a aplicação**
 
