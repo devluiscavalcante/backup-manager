@@ -4,17 +4,24 @@ import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.PendingScheduledBackupResponse;
 import com.backup_manager.application.dto.SchedulerStatus;
 import com.backup_manager.domain.event.ScheduledBackupFailedEvent;
+import com.backup_manager.domain.model.OneTimeBackupEntity;
+import com.backup_manager.domain.model.OneTimeBackupStatus;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties.ScheduledBackupConfig;
+import com.backup_manager.infrastructure.persistence.OneTimeBackupRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -22,9 +29,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ScheduledFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class BackupScheduler {
@@ -38,21 +43,24 @@ public class BackupScheduler {
     private final BackupSchedulerProperties schedulerProperties;
     private final ThreadPoolTaskScheduler backupOneTimeScheduler;
     private final ApplicationEventPublisher eventPublisher;
+    private final OneTimeBackupRepository oneTimeBackupRepository;
 
     private final Map<String, LocalDateTime> lastExecutionMap = new ConcurrentHashMap<>();
+    // Futuros em memoria das execucoes unicas; a fonte de verdade e a tabela one_time_backups.
     private final Map<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
-    private final AtomicLong taskIdCounter = new AtomicLong(1000);
 
     public BackupScheduler(BackupService backupService,
                            BackupRequestValidationService backupRequestValidationService,
                            @Qualifier("backupOneTimeScheduler") ThreadPoolTaskScheduler backupOneTimeScheduler,
                            BackupSchedulerProperties schedulerProperties,
-                           ApplicationEventPublisher eventPublisher) {
+                           ApplicationEventPublisher eventPublisher,
+                           OneTimeBackupRepository oneTimeBackupRepository) {
         this.backupService = backupService;
         this.backupRequestValidationService = backupRequestValidationService;
         this.backupOneTimeScheduler = backupOneTimeScheduler;
         this.schedulerProperties = schedulerProperties;
         this.eventPublisher = eventPublisher;
+        this.oneTimeBackupRepository = oneTimeBackupRepository;
     }
 
     @Scheduled(cron = "${backup.scheduler.cron-expression:0 0 2 * * *}",
@@ -139,25 +147,74 @@ public class BackupScheduler {
 
         backupRequestValidationService.validateExecutableRequest(request.getSources(), request.getDestination());
 
-        Long taskId = taskIdCounter.incrementAndGet();
-        LocalDateTime scheduledTime = LocalDateTime.now().plusMinutes(minutesFromNow);
+        OneTimeBackupEntity oneTime = new OneTimeBackupEntity();
+        oneTime.setName(backupName);
+        oneTime.setSources(new ArrayList<>(request.getSources()));
+        oneTime.setDestinations(new ArrayList<>(request.getDestination()));
+        oneTime.setScheduledFor(LocalDateTime.now().plusMinutes(minutesFromNow));
+        oneTime = oneTimeBackupRepository.save(oneTime);
 
-        logger.info("Agendando backup unico ID {} para {}", taskId, scheduledTime);
+        logger.info("Agendando backup unico ID {} para {}", oneTime.getId(), oneTime.getScheduledFor());
+        scheduleExecution(oneTime.getId(), toInstant(oneTime.getScheduledFor()));
+        return oneTime.getId();
+    }
 
-        ScheduledFuture<?> future = backupOneTimeScheduler.schedule(() -> {
-            try {
-                logger.info("Executando backup unico agendado ID {}: {}", taskId, backupName);
-                List<Long> taskIds = executeScheduledRun(request, backupName);
-                if (taskIds.isEmpty()) {
-                    logger.warn("Backup unico agendado ID {} nao iniciou nenhuma tarefa", taskId);
-                }
-            } finally {
-                scheduledTasks.remove(taskId);
+    // Execucoes unicas ficam no banco: no boot as pendentes voltam a ser agendadas, e as que venceram
+    // com a aplicacao parada rodam na hora (o pedido era "faca este backup", nao "so se eu estiver no ar").
+    @EventListener(ApplicationReadyEvent.class)
+    public void reschedulePendingOneTimeBackups() {
+        Instant now = Instant.now();
+        for (OneTimeBackupEntity pending
+                : oneTimeBackupRepository.findByStatusOrderByScheduledForAsc(OneTimeBackupStatus.PENDENTE)) {
+            Instant when = toInstant(pending.getScheduledFor());
+            if (when.isBefore(now)) {
+                logger.warn("Backup unico ID {} venceu em {} com a aplicacao parada: executando agora",
+                        pending.getId(), pending.getScheduledFor());
+                when = now;
             }
-        }, scheduledTime.atZone(ZoneId.systemDefault()).toInstant());
+            scheduleExecution(pending.getId(), when);
+        }
+    }
 
-        scheduledTasks.put(taskId, future);
-        return taskId;
+    private void scheduleExecution(Long oneTimeId, Instant when) {
+        ScheduledFuture<?> future = backupOneTimeScheduler.schedule(() -> runOneTime(oneTimeId), when);
+        if (future != null) {
+            scheduledTasks.put(oneTimeId, future);
+        }
+    }
+
+    void runOneTime(Long oneTimeId) {
+        try {
+            OneTimeBackupEntity oneTime = oneTimeBackupRepository.findById(oneTimeId).orElse(null);
+            if (oneTime == null || oneTime.getStatus() != OneTimeBackupStatus.PENDENTE) {
+                logger.info("Backup unico ID {} nao esta mais pendente, execucao ignorada", oneTimeId);
+                return;
+            }
+
+            logger.info("Executando backup unico agendado ID {}: {}", oneTimeId, oneTime.getName());
+            BackupRequest request = new BackupRequest();
+            request.setSources(oneTime.getSources());
+            request.setDestination(oneTime.getDestinations());
+
+            List<Long> taskIds = executeScheduledRun(request, oneTime.getName());
+            oneTime.setExecutedAt(LocalDateTime.now());
+            if (taskIds.isEmpty()) {
+                logger.warn("Backup unico agendado ID {} nao iniciou nenhuma tarefa", oneTimeId);
+                oneTime.setStatus(OneTimeBackupStatus.FALHA);
+                oneTime.setErrorMessage("Nenhuma tarefa de backup foi iniciada.");
+            } else {
+                oneTime.setStatus(OneTimeBackupStatus.EXECUTADO);
+            }
+            oneTimeBackupRepository.save(oneTime);
+        } catch (RuntimeException e) {
+            logger.error("Erro no backup unico agendado ID {}: {}", oneTimeId, e.getMessage(), e);
+        } finally {
+            scheduledTasks.remove(oneTimeId);
+        }
+    }
+
+    private static Instant toInstant(LocalDateTime localDateTime) {
+        return localDateTime.atZone(ZoneId.systemDefault()).toInstant();
     }
 
     /**
@@ -228,29 +285,32 @@ public class BackupScheduler {
     }
 
     public boolean cancelScheduledBackup(Long taskId) {
-        ScheduledFuture<?> future = scheduledTasks.get(taskId);
-        if (future != null && !future.isDone() && !future.isCancelled()) {
-            boolean cancelled = future.cancel(false);
-            scheduledTasks.remove(taskId);
-            return cancelled;
+        OneTimeBackupEntity oneTime = oneTimeBackupRepository.findById(taskId).orElse(null);
+        if (oneTime == null || oneTime.getStatus() != OneTimeBackupStatus.PENDENTE) {
+            return false;
         }
-        return false;
+
+        // Status primeiro: se o futuro ja estiver disparando, runOneTime rele o banco e desiste.
+        oneTime.setStatus(OneTimeBackupStatus.CANCELADO);
+        oneTimeBackupRepository.save(oneTime);
+
+        ScheduledFuture<?> future = scheduledTasks.remove(taskId);
+        if (future != null) {
+            future.cancel(false);
+        }
+        return true;
     }
 
     public List<PendingScheduledBackupResponse> getPendingScheduledBackups() {
-        List<PendingScheduledBackupResponse> pendingTasks = new java.util.ArrayList<>();
-        scheduledTasks.forEach((taskId, future) -> {
-            if (!future.isDone() && !future.isCancelled()) {
-                long delaySeconds = future.getDelay(TimeUnit.SECONDS);
-                pendingTasks.add(new PendingScheduledBackupResponse(
-                        taskId,
-                        "PENDENTE",
-                        formatRemainingTime(delaySeconds),
-                        "/api/backup/scheduler/schedule/" + taskId + "/cancel"
-                ));
-            }
-        });
-        return pendingTasks;
+        LocalDateTime now = LocalDateTime.now();
+        return oneTimeBackupRepository.findByStatusOrderByScheduledForAsc(OneTimeBackupStatus.PENDENTE).stream()
+                .map(pending -> new PendingScheduledBackupResponse(
+                        pending.getId(),
+                        OneTimeBackupStatus.PENDENTE.name(),
+                        formatRemainingTime(Duration.between(now, pending.getScheduledFor()).toSeconds()),
+                        "/api/backup/scheduler/schedule/" + pending.getId() + "/cancel"
+                ))
+                .toList();
     }
 
     private String formatRemainingTime(long seconds) {
