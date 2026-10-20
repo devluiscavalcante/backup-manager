@@ -256,7 +256,7 @@ Toda resposta inclui o cabeçalho `X-Request-Id`. Envie o seu próprio valor nes
 | `POST` | `/api/backup/{taskId}/pause` | Pausa |
 | `POST` | `/api/backup/{taskId}/resume` | Retoma |
 | `POST` | `/api/backup/{taskId}/cancel` | Cancela (inclusive na fila) |
-| `GET` | `/api/backup/history` | Histórico completo |
+| `GET` | `/api/backup/history?limit=N` | Execuções mais recentes primeiro (padrão 500, máximo 1000) |
 | `GET` | `/api/backup/history/search` | Busca no histórico |
 | `GET` | `/api/backup/history/stats` | Estatísticas |
 | `GET` | `/api/backup/history/recent` | Execuções recentes |

@@ -46,13 +46,16 @@ public class BackupManager {
     }
 
     public BigDecimal calculateFolderSizeMB(File folder) {
-        long totalBytes = scanRegularFiles(folder).totalBytes();
-        double sizeInMB = totalBytes / (1024.0 * 1024.0);
-        return BigDecimal.valueOf(sizeInMB).setScale(2, RoundingMode.HALF_UP);
+        return scan(folder).sizeMB();
     }
 
     public long countFiles(File folder) {
-        return scanRegularFiles(folder).fileCount();
+        return scan(folder).fileCount();
+    }
+
+    /** Quantidade e tamanho numa unica passada: cada varredura percorre a arvore inteira em disco. */
+    public FolderScan scan(File folder) {
+        return scanRegularFiles(folder);
     }
 
     // Percorre a arvore sem seguir symlinks/junctions (evita contar conteudo externo e loops por links ciclicos).
@@ -103,6 +106,10 @@ public class BackupManager {
         }
     }
 
-    private record FolderScan(long fileCount, long totalBytes) {
+    public record FolderScan(long fileCount, long totalBytes) {
+
+        public BigDecimal sizeMB() {
+            return BigDecimal.valueOf(totalBytes / (1024.0 * 1024.0)).setScale(2, RoundingMode.HALF_UP);
+        }
     }
 }

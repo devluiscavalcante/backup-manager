@@ -21,6 +21,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.task.TaskRejectedException;
 import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -185,8 +186,9 @@ public class BackupService {
 
             try {
                 File sourceFolder = backupManager.validateSource(task.getSourcePath());
-                BigDecimal sizeMB = backupManager.calculateFolderSizeMB(sourceFolder);
-                long fileCount = backupManager.countFiles(sourceFolder);
+                BackupManager.FolderScan scan = backupManager.scan(sourceFolder);
+                BigDecimal sizeMB = scan.sizeMB();
+                long fileCount = scan.fileCount();
                 Path source = sourceFolder.toPath();
                 Path destination = Paths.get(task.getDestinationPath());
 
@@ -280,22 +282,11 @@ public class BackupService {
             }
         }
 
+        // O espaco livre ja foi conferido em BackupRequestValidationService.validateExecutableRequest, que
+        // precede todo runBackup; repetir aqui custava mais uma varredura completa da origem na requisicao.
         File destRoot = dest.getRoot().toFile();
         if (!destRoot.exists()) {
             throw new IllegalStateException("O disco de destino " + dest.getRoot() + " nao esta acessivel.");
-        }
-
-        long requiredSpace = backupManager.calculateFolderSizeMB(src.toFile()).longValue() * 1024 * 1024;
-        long availableSpace = destRoot.getUsableSpace();
-
-        if (requiredSpace > availableSpace) {
-            String error = String.format(
-                    "Espaco insuficiente no disco %s. Necessario: %d MB, Disponivel: %d MB",
-                    dest.getRoot(),
-                    requiredSpace / (1024 * 1024),
-                    availableSpace / (1024 * 1024)
-            );
-            throw new IOException(error);
         }
     }
 
@@ -419,8 +410,9 @@ public class BackupService {
         });
     }
 
-    public List<BackupTask> getAllTasks() {
-        return backupRepository.findAll();
+    /** Mais recentes primeiro; sem limite o historico inteiro ia para a memoria (e para a resposta). */
+    public List<BackupTask> getRecentTasks(int limit) {
+        return backupRepository.findTopNByOrderByStartedAtDesc(PageRequest.of(0, limit));
     }
 
     public boolean pauseBackup(Long id) {

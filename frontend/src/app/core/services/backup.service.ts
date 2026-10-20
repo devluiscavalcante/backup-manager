@@ -29,6 +29,16 @@ export interface BackupRecord {
   duration?: string;
 }
 
+/** Totais de /api/backup/history/stats (BackupStatsResponse), calculados sobre todo o historico. */
+export interface BackupStats {
+  totalBackups: number;
+  completedBackups: number;
+  failedBackups: number;
+  cancelledBackups: number;
+  inProgressBackups: number;
+  pausedBackups: number;
+}
+
 /** Item de /api/backup/active (BackupTaskSummaryResponse). */
 export interface ActiveTask extends BackupRecord {
   id: number;
@@ -58,10 +68,16 @@ export class BackupService {
     );
   }
 
-  getHistory(): Observable<BackupRecord[]> {
+  /** Execucoes mais recentes primeiro; sem limite o backend devolve as 500 ultimas. */
+  getHistory(limit?: number): Observable<BackupRecord[]> {
+    const params = limit ? { limit } : undefined;
     return this.http
-      .get<CollectionResponse<BackupRecord>>(`${this.apiUrl}/history`)
+      .get<CollectionResponse<BackupRecord>>(`${this.apiUrl}/history`, { params })
       .pipe(map(res => res.items));
+  }
+
+  getStats(): Observable<BackupStats> {
+    return this.http.get<BackupStats>(`${this.apiUrl}/history/stats`);
   }
 
   /** Tarefas em andamento ou pausadas no servidor. */

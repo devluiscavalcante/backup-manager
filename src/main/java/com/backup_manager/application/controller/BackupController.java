@@ -46,6 +46,8 @@ public class BackupController {
     private static final Logger logger = LoggerFactory.getLogger(BackupController.class);
     private static final String BACKUP_START_PATH = "/api/backup/start";
     private static final String BACKUP_HISTORY_PATH = "/api/backup/history";
+    private static final int DEFAULT_HISTORY_LIMIT = 500;
+    private static final int MAX_HISTORY_LIMIT = 1000;
     private static final String BACKUP_HISTORY_SEARCH_PATH = "/api/backup/history/search";
     private static final String BACKUP_HISTORY_STATS_PATH = "/api/backup/history/stats";
     private static final String BACKUP_HISTORY_RECENT_PATH = "/api/backup/history/recent";
@@ -190,9 +192,22 @@ public class BackupController {
     }
 
     @GetMapping("/history")
-    public ResponseEntity<Object> getBackupHistory() {
+    public ResponseEntity<Object> getBackupHistory(
+            @RequestParam(defaultValue = "" + DEFAULT_HISTORY_LIMIT) int limit
+    ) {
+        if (limit < 1 || limit > MAX_HISTORY_LIMIT) {
+            return ResponseEntity.badRequest()
+                    .body(invalidRangeResponse(
+                            "limit_out_of_range",
+                            "Limite deve estar entre 1 e " + MAX_HISTORY_LIMIT + ".",
+                            "limit",
+                            limit,
+                            BACKUP_HISTORY_PATH
+                    ));
+        }
+
         try {
-            List<BackupTask> tasks = backupService.getAllTasks();
+            List<BackupTask> tasks = backupService.getRecentTasks(limit);
             List<BackupResponse> responseList = new ArrayList<>();
 
             for (BackupTask task : tasks) {
