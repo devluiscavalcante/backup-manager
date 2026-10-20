@@ -1,12 +1,17 @@
 package com.backup_manager.application.service;
 
 import com.backup_manager.domain.model.ScheduledBackupEntity;
+import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.Trigger;
 import org.springframework.scheduling.support.CronTrigger;
+import org.springframework.scheduling.support.SimpleTriggerContext;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ScheduledFuture;
@@ -32,7 +37,7 @@ class DynamicSchedulerServiceTests {
         DynamicSchedulerService service = createService(repository, backupScheduler);
         ScheduledBackupEntity config = scheduledBackup();
 
-        when(backupScheduler.executeBackupWithRequest(any(), eq(config.getName())))
+        when(backupScheduler.executeScheduledRun(any(), eq(config.getName())))
                 .thenReturn(List.of());
 
         service.executeScheduledBackup(config);
@@ -48,7 +53,7 @@ class DynamicSchedulerServiceTests {
         DynamicSchedulerService service = createService(repository, backupScheduler);
         ScheduledBackupEntity config = scheduledBackup();
 
-        when(backupScheduler.executeBackupWithRequest(any(), eq(config.getName())))
+        when(backupScheduler.executeScheduledRun(any(), eq(config.getName())))
                 .thenReturn(List.of(42L));
         when(repository.findById(config.getId())).thenReturn(Optional.of(config));
 
@@ -66,7 +71,8 @@ class DynamicSchedulerServiceTests {
                 repository,
                 mock(BackupScheduler.class),
                 mock(BackupRequestValidationService.class),
-                taskScheduler
+                taskScheduler,
+                new BackupSchedulerProperties()
         );
         ScheduledBackupEntity config = scheduledBackup();
 
@@ -80,6 +86,32 @@ class DynamicSchedulerServiceTests {
     }
 
     @Test
+    void shouldScheduleCronInConfiguredTimeZoneInsteadOfServerZone() {
+        ScheduledBackupRepository repository = mock(ScheduledBackupRepository.class);
+        TaskScheduler taskScheduler = mock(TaskScheduler.class);
+        BackupSchedulerProperties properties = new BackupSchedulerProperties();
+        properties.setTimeZone("Asia/Tokyo");
+        DynamicSchedulerService service = new DynamicSchedulerService(
+                repository,
+                mock(BackupScheduler.class),
+                mock(BackupRequestValidationService.class),
+                taskScheduler,
+                properties
+        );
+
+        when(repository.findByEnabledTrue()).thenReturn(List.of(scheduledBackup()));
+        doReturn(mock(ScheduledFuture.class)).when(taskScheduler).schedule(any(Runnable.class), any(Trigger.class));
+
+        service.refreshAllTasks();
+
+        // 00:00 UTC = 09:00 em Toquio: o proximo "01:00" no fuso configurado e 16:00 UTC.
+        SimpleTriggerContext context = new SimpleTriggerContext(
+                Clock.fixed(Instant.parse("2026-01-01T00:00:00Z"), ZoneOffset.UTC));
+        verify(taskScheduler).schedule(any(Runnable.class), argThat((Trigger trigger) ->
+                Instant.parse("2026-01-01T16:00:00Z").equals(trigger.nextExecution(context))));
+    }
+
+    @Test
     void shouldCancelPreviousSchedulesOnRefresh() {
         ScheduledBackupRepository repository = mock(ScheduledBackupRepository.class);
         TaskScheduler taskScheduler = mock(TaskScheduler.class);
@@ -88,7 +120,8 @@ class DynamicSchedulerServiceTests {
                 repository,
                 mock(BackupScheduler.class),
                 mock(BackupRequestValidationService.class),
-                taskScheduler
+                taskScheduler,
+                new BackupSchedulerProperties()
         );
 
         when(repository.findByEnabledTrue()).thenReturn(List.of(scheduledBackup()));
@@ -110,13 +143,14 @@ class DynamicSchedulerServiceTests {
                 repository,
                 mock(BackupScheduler.class),
                 validationService,
-                taskScheduler
+                taskScheduler,
+                new BackupSchedulerProperties()
         );
         ScheduledBackupEntity config = scheduledBackup();
 
         when(repository.findByEnabledTrue()).thenReturn(List.of(config));
         doThrow(new SecurityException("fora da allowlist"))
-                .when(validationService).validateSchedulableRequest(config.getSources(), config.getDestinations());
+                .when(validationService).validatePathPolicy(config.getSources(), config.getDestinations());
 
         service.refreshAllTasks();
 
@@ -131,7 +165,8 @@ class DynamicSchedulerServiceTests {
                 repository,
                 mock(BackupScheduler.class),
                 mock(BackupRequestValidationService.class),
-                taskScheduler
+                taskScheduler,
+                new BackupSchedulerProperties()
         );
         ScheduledBackupEntity impossible = scheduledBackup();
         impossible.setCronExpression("0 0 0 30 2 *");
@@ -155,7 +190,8 @@ class DynamicSchedulerServiceTests {
                 repository,
                 backupScheduler,
                 mock(BackupRequestValidationService.class),
-                mock(TaskScheduler.class)
+                mock(TaskScheduler.class),
+                new BackupSchedulerProperties()
         );
     }
 

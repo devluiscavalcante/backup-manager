@@ -3,6 +3,7 @@ package com.backup_manager.infrastructure.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,6 +38,11 @@ public class BackupSchedulerProperties {
 
     public void setTimeZone(String timeZone) {
         this.timeZone = timeZone;
+    }
+
+    // Fuso unico para todos os crons (global e dinamicos), independente do fuso do servidor/container.
+    public ZoneId zoneId() {
+        return ZoneId.of(timeZone);
     }
 
     public List<ScheduledBackupConfig> getScheduledBackups() {

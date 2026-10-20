@@ -68,6 +68,37 @@ class BackupRequestValidationServiceTests {
     }
 
     @Test
+    void pathPolicyShouldAcceptUnavailableSourceAndDestinationInsideAllowlist() {
+        // Disco externo desmontado no boot: o agendamento precisa continuar registrado.
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        assertDoesNotThrow(() ->
+                service.validatePathPolicy(
+                        List.of(tempDir.resolve("missing-source").toString()),
+                        List.of(tempDir.resolve("missing-destination").toString())
+                )
+        );
+    }
+
+    @Test
+    void pathPolicyShouldStillRejectPathsOutsideAllowlistAndOverlaps() {
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        assertThrows(SecurityException.class, () ->
+                service.validatePathPolicy(
+                        List.of(tempDir.getParent().resolve("outside-source").toString()),
+                        List.of(tempDir.resolve("destination").toString())
+                )
+        );
+        assertThrows(IllegalArgumentException.class, () ->
+                service.validatePathPolicy(
+                        List.of(tempDir.resolve("source").toString()),
+                        List.of(tempDir.resolve("source").resolve("backup").toString())
+                )
+        );
+    }
+
+    @Test
     void shouldRejectEmptySourceDirectory() throws IOException {
         Path sourceDir = Files.createDirectories(tempDir.resolve("empty-source"));
         Path destinationDir = Files.createDirectories(tempDir.resolve("destination"));

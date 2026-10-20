@@ -3,11 +3,13 @@ package com.backup_manager.application.service;
 import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.PendingScheduledBackupResponse;
 import com.backup_manager.application.dto.SchedulerStatus;
+import com.backup_manager.domain.event.ScheduledBackupFailedEvent;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties.ScheduledBackupConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
@@ -16,7 +18,6 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -36,19 +37,22 @@ public class BackupScheduler {
     private final BackupRequestValidationService backupRequestValidationService;
     private final BackupSchedulerProperties schedulerProperties;
     private final ThreadPoolTaskScheduler backupOneTimeScheduler;
+    private final ApplicationEventPublisher eventPublisher;
 
-    private final Map<String, LocalDateTime> lastExecutionMap = new HashMap<>();
+    private final Map<String, LocalDateTime> lastExecutionMap = new ConcurrentHashMap<>();
     private final Map<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
     private final AtomicLong taskIdCounter = new AtomicLong(1000);
 
     public BackupScheduler(BackupService backupService,
                            BackupRequestValidationService backupRequestValidationService,
                            @Qualifier("backupOneTimeScheduler") ThreadPoolTaskScheduler backupOneTimeScheduler,
-                           BackupSchedulerProperties schedulerProperties) {
+                           BackupSchedulerProperties schedulerProperties,
+                           ApplicationEventPublisher eventPublisher) {
         this.backupService = backupService;
         this.backupRequestValidationService = backupRequestValidationService;
         this.backupOneTimeScheduler = backupOneTimeScheduler;
         this.schedulerProperties = schedulerProperties;
+        this.eventPublisher = eventPublisher;
     }
 
     @Scheduled(cron = "${backup.scheduler.cron-expression:0 0 2 * * *}",
@@ -113,7 +117,7 @@ public class BackupScheduler {
             request.setSources(config.getSources());
             request.setDestination(config.getDestinations());
 
-            List<Long> taskIds = executeBackupWithRequest(request, config.getName());
+            List<Long> taskIds = executeScheduledRun(request, config.getName());
             if (taskIds.isEmpty()) {
                 logger.warn("Backup agendado '{}' nao iniciou nenhuma tarefa", config.getName());
                 return false;
@@ -143,13 +147,11 @@ public class BackupScheduler {
         ScheduledFuture<?> future = backupOneTimeScheduler.schedule(() -> {
             try {
                 logger.info("Executando backup unico agendado ID {}: {}", taskId, backupName);
-                List<Long> taskIds = executeBackupWithRequest(request, backupName);
+                List<Long> taskIds = executeScheduledRun(request, backupName);
                 if (taskIds.isEmpty()) {
                     logger.warn("Backup unico agendado ID {} nao iniciou nenhuma tarefa", taskId);
                 }
-                scheduledTasks.remove(taskId);
-            } catch (Exception e) {
-                logger.error("Erro no backup agendado ID {}: {}", taskId, e.getMessage());
+            } finally {
                 scheduledTasks.remove(taskId);
             }
         }, scheduledTime.atZone(ZoneId.systemDefault()).toInstant());
@@ -158,7 +160,35 @@ public class BackupScheduler {
         return taskId;
     }
 
+    /**
+     * Execucao disparada pelo agendador: nunca propaga excecao (nao ha quem a receba) e notifica
+     * os pares que nao iniciaram, ja que sem tarefa criada nenhum BackupFailedEvent e publicado.
+     */
+    public List<Long> executeScheduledRun(BackupRequest request, String backupName) {
+        List<String> failures = new ArrayList<>();
+        List<Long> taskIds = List.of();
+
+        try {
+            taskIds = startPairs(request, backupName, failures);
+        } catch (RuntimeException e) {
+            logger.error("Execucao agendada '{}' nao iniciou: {}", backupName, e.getMessage());
+            // Falhas por par ja foram registradas; vazio significa que a validacao previa recusou o pedido.
+            if (failures.isEmpty()) {
+                failures.add(e.getMessage());
+            }
+        }
+
+        if (!failures.isEmpty()) {
+            eventPublisher.publishEvent(new ScheduledBackupFailedEvent(backupName, failures));
+        }
+        return taskIds;
+    }
+
     public List<Long> executeBackupWithRequest(BackupRequest request, String backupName) {
+        return startPairs(request, backupName, new ArrayList<>());
+    }
+
+    private List<Long> startPairs(BackupRequest request, String backupName, List<String> failures) {
         List<String> sources = request.getSources();
         List<String> destinations = request.getDestination();
         List<Long> taskIds = new ArrayList<>();
@@ -183,6 +213,7 @@ public class BackupScheduler {
 
             } catch (RuntimeException e) {
                 logger.error("Agendador pulou o par [{} -> {}] devido a erro: {}", source, destination, e.getMessage());
+                failures.add(source + " -> " + destination + ": " + e.getMessage());
                 if (firstFailure == null) {
                     firstFailure = e;
                 }

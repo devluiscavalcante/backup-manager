@@ -1,6 +1,8 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.domain.model.ScheduledBackupEntity;
+import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,16 +27,19 @@ public class DynamicSchedulerService {
     private final BackupScheduler backupScheduler;
     private final BackupRequestValidationService backupRequestValidationService;
     private final TaskScheduler taskScheduler;
+    private final BackupSchedulerProperties schedulerProperties;
     private final ConcurrentHashMap<Long, ScheduledFuture<?>> scheduledTasks = new ConcurrentHashMap<>();
 
     public DynamicSchedulerService(ScheduledBackupRepository repository,
                                    BackupScheduler backupScheduler,
                                    BackupRequestValidationService backupRequestValidationService,
-                                   @Qualifier("backupOneTimeScheduler") TaskScheduler taskScheduler) {
+                                   @Qualifier("backupOneTimeScheduler") TaskScheduler taskScheduler,
+                                   BackupSchedulerProperties schedulerProperties) {
         this.repository = repository;
         this.backupScheduler = backupScheduler;
         this.backupRequestValidationService = backupRequestValidationService;
         this.taskScheduler = taskScheduler;
+        this.schedulerProperties = schedulerProperties;
     }
 
     // O carregamento ocorre apos o boot completo: o scheduler e injetado diretamente,
@@ -65,7 +70,7 @@ public class DynamicSchedulerService {
         }
 
         try {
-            backupRequestValidationService.validateSchedulableRequest(
+            backupRequestValidationService.validatePathPolicy(
                     config.getSources(),
                     config.getDestinations()
             );
@@ -77,7 +82,7 @@ public class DynamicSchedulerService {
         try {
             ScheduledFuture<?> future = taskScheduler.schedule(
                     () -> executeScheduledBackup(config),
-                    new CronTrigger(config.getCronExpression())
+                    new CronTrigger(config.getCronExpression(), schedulerProperties.zoneId())
             );
 
             if (future == null) {
@@ -99,12 +104,11 @@ public class DynamicSchedulerService {
     void executeScheduledBackup(ScheduledBackupEntity config) {
         logger.info("Iniciando execucao agendada: {}", config.getName());
         try {
-            com.backup_manager.application.dto.BackupRequest request =
-                    new com.backup_manager.application.dto.BackupRequest();
+            BackupRequest request = new BackupRequest();
             request.setSources(config.getSources());
             request.setDestination(config.getDestinations());
 
-            List<Long> taskIds = backupScheduler.executeBackupWithRequest(request, config.getName());
+            List<Long> taskIds = backupScheduler.executeScheduledRun(request, config.getName());
             if (taskIds.isEmpty()) {
                 logger.warn("Execucao agendada '{}' nao iniciou nenhuma tarefa", config.getName());
                 return;

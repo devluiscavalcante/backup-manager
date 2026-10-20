@@ -20,6 +20,20 @@ public class BackupRequestValidationService {
     }
 
     public void validateSchedulableRequest(List<String> sources, List<String> destinations) {
+        validatePathPolicy(sources, destinations);
+
+        for (int i = 0; i < sources.size(); i++) {
+            Path sourcePath = pathSecurityService.validateManagedPath(sources.get(i), "backup");
+            Path destinationPath = pathSecurityService.validateManagedPath(destinations.get(i), "backup");
+
+            backupManager.validateSource(sourcePath.toString());
+            validateDestinationRoot(destinationPath);
+        }
+    }
+
+    // Apenas regras estaticas (pareamento, allowlist, sobreposicao): um disco externo desmontado no boot
+    // nao pode descartar o agendamento; a disponibilidade e verificada na hora de executar.
+    public void validatePathPolicy(List<String> sources, List<String> destinations) {
         validatePairing(sources, destinations);
 
         for (int i = 0; i < sources.size(); i++) {
@@ -27,8 +41,6 @@ public class BackupRequestValidationService {
             Path destinationPath = pathSecurityService.validateManagedPath(destinations.get(i), "backup");
 
             pathSecurityService.ensureNotOverlapping(sourcePath, destinationPath, "backup");
-            backupManager.validateSource(sourcePath.toString());
-            validateDestinationRoot(destinationPath);
         }
     }
 

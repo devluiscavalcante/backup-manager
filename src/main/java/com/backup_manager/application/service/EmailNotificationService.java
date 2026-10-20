@@ -126,6 +126,16 @@ public class EmailNotificationService {
     }
 
     @Async
+    public void sendScheduledFailureNotification(String backupName, List<String> failures) {
+        if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnFailure()) {
+            logger.debug("Notificacao de falha de agendamento desabilitada");
+            return;
+        }
+
+        sendEmailWithRetry("Falha no Backup Agendado", buildScheduledFailureEmail(backupName, failures));
+    }
+
+    @Async
     public void sendCancellationNotification(BackupTask task) {
         if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnCancellation()) {
             logger.debug("Notificacao de cancelamento desabilitada");
@@ -379,6 +389,36 @@ public class EmailNotificationService {
             """,
                 task.getId(), task.getSourcePath(), startedAt,
                 errorMessage != null ? errorMessage : "Erro desconhecido"
+        );
+    }
+
+    private String buildScheduledFailureEmail(String backupName, List<String> failures) {
+        StringBuilder items = new StringBuilder();
+        failures.forEach(failure -> items.append("<li>").append(failure).append("</li>"));
+
+        return String.format("""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: #f44336; color: white; padding: 20px; border-radius: 5px;">
+                        <h1>Falha no Backup Agendado</h1>
+                    </div>
+                    <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                        <p><strong>Agendamento:</strong> %s</p>
+                        <p><strong>Horario:</strong> %s</p>
+                        <div style="background: #ffebee; border-left: 4px solid #f44336; padding: 15px; margin: 15px 0;">
+                            <strong>Nao foi possivel iniciar:</strong>
+                            <ul>%s</ul>
+                        </div>
+                    </div>
+                    <p style="color: #666; font-size: 12px; text-align: center; margin-top: 20px;">
+                        Sistema de Backups Automaticos
+                    </p>
+                </div>
+            </body>
+            </html>
+            """,
+                backupName, LocalDateTime.now().format(DATE_FORMATTER), items
         );
     }
 
