@@ -6,11 +6,14 @@ import jakarta.mail.Session;
 import jakarta.mail.internet.MimeMessage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.mail.MailAuthenticationException;
 import org.springframework.mail.MailException;
 import org.springframework.mail.MailSendException;
 import org.springframework.mail.javamail.JavaMailSender;
 
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Properties;
 
@@ -41,6 +44,23 @@ class EmailNotificationServiceTests {
 
         // Backoff de 1 ms para o teste nao esperar os 2 s reais entre tentativas.
         service = new EmailNotificationService(mailSender, properties, 1);
+    }
+
+    @Test
+    void notificationShouldEscapeHtmlFromPathsAndErrorMessages() throws Exception {
+        ArgumentCaptor<MimeMessage> message = ArgumentCaptor.forClass(MimeMessage.class);
+        doNothing().when(mailSender).send(message.capture());
+        BackupTask task = new BackupTask();
+        task.setId(1L);
+        task.setSourcePath("C:/Dados/<img src=x onerror=alert(1)>");
+
+        service.sendFailureNotification(task, "Falha em <script>alert(1)</script>.txt");
+
+        ByteArrayOutputStream raw = new ByteArrayOutputStream();
+        message.getValue().writeTo(raw);
+        String body = raw.toString(StandardCharsets.UTF_8);
+        assertThat(body).doesNotContain("<img").doesNotContain("<script>");
+        assertThat(body).contains("&lt;img").contains("&lt;script&gt;");
     }
 
     @Test

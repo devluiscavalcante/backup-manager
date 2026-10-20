@@ -229,9 +229,11 @@ O usuário `OPERATOR` é opcional e habilitado com `APP_SECURITY_OPERATOR_ENABLE
 **Proteção do sistema de arquivos.** Todo caminho de origem, destino ou restauração passa por validação:
 
 - precisa estar dentro de uma raiz de `APP_SECURITY_ALLOWED_PATH_ROOTS`;
-- path traversal (`..`) e áreas protegidas do sistema são bloqueados;
+- path traversal (`..`) e áreas protegidas do sistema são bloqueados (no Windows: pasta do sistema, `System32`, `Program Files` e raízes de unidade; no Linux: `/`, `/etc`, `/proc`, `/sys`, `/usr` e similares);
 - symlinks e junctions são resolvidos para o caminho real antes da checagem e **não são seguidos** durante cópia, restauração ou contagem de arquivos;
 - origem e destino não podem se sobrepor.
+
+**Limite de tentativas de login.** Depois de `APP_SECURITY_MAX_FAILED_LOGINS` credenciais recusadas (padrão 10) vindas do mesmo IP, esse IP recebe `429` com `Retry-After` durante `APP_SECURITY_FAILED_LOGIN_LOCKOUT` (padrão `5m`), mesmo com a senha correta. Atrás de um proxy reverso, todos os clientes compartilham o IP do proxy.
 
 **Proteção contra requisições de outra origem.** Escritas (`POST`, `PUT`, `PATCH`, `DELETE`) enviadas por navegador a partir de uma origem fora de `APP_SECURITY_ALLOWED_ORIGINS` recebem `403`, mesmo com credenciais em cache. Clientes fora do navegador, como `curl` e scripts, não são afetados.
 
@@ -373,6 +375,8 @@ Todas as opções vêm de variáveis de ambiente ou de um arquivo `.env` na raiz
 | `APP_SECURITY_ALLOW_DEFAULT_PASSWORD` | `false` | Permite iniciar com senhas padrão |
 | `APP_SECURITY_ALLOWED_PATH_ROOTS` | diretório do usuário | Raízes permitidas, separadas por vírgula |
 | `APP_SECURITY_ALLOWED_ORIGINS` | `http://localhost:4200` | Origens de navegador aceitas (CORS e escrita), separadas por vírgula |
+| `APP_SECURITY_MAX_FAILED_LOGINS` | `10` | Credenciais recusadas por IP antes do bloqueio temporário |
+| `APP_SECURITY_FAILED_LOGIN_LOCKOUT` | `5m` | Janela de contagem e duração do bloqueio |
 
 </details>
 

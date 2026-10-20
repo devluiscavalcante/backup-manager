@@ -1,6 +1,7 @@
 package com.backup_manager.domain.exception.handler;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
+import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupResourceNotFoundException;
 import com.backup_manager.domain.exception.BackupStorageNotFoundException;
 import com.backup_manager.domain.exception.DestinationNotFoundException;
@@ -114,6 +115,20 @@ public class GlobalExceptionHandler {
                         ex.getMessage(),
                         "operation_validation_failed",
                         null,
+                        extractPath(request)
+                )
+        );
+    }
+
+    @ExceptionHandler(ActiveBackupConflictException.class)
+    public ResponseEntity<ApiErrorResponse> handleActiveBackupConflict(ActiveBackupConflictException ex,
+                                                                       WebRequest request) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                ApiErrorResponse.of(
+                        HttpStatus.CONFLICT,
+                        ex.getMessage(),
+                        "active_backup_conflict",
+                        Map.of("taskId", ex.getConflictingTaskId()),
                         extractPath(request)
                 )
         );
