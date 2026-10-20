@@ -85,7 +85,9 @@ public class RestoreService {
 
         List<Path> backupEntries;
         try (Stream<Path> stream = Files.list(backupPath)) {
-            backupEntries = stream.toList();
+            backupEntries = stream
+                    .filter(path -> !FileRestoreOperations.isBackupWarningsLog(path, backupPath))
+                    .toList();
         }
 
         if (backupEntries.isEmpty()) {

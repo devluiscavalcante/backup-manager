@@ -57,6 +57,12 @@ public class BackupTask {
     @Column(name = "is_cancelled", nullable = false)
     private boolean cancelled = false;
 
+    // Pausa, cancelamento e finalizacao vem de threads diferentes: sem versao, o ultimo save vencia
+    // (ex.: o worker gravando CONCLUIDO por cima de um CANCELADO feito instantes antes).
+    @Version
+    @Column(name = "version", nullable = false)
+    private long version;
+
     @PrePersist
     public void prePersist() {
         if (status == null) {
