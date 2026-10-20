@@ -1,8 +1,11 @@
 package com.backup_manager.infrastructure.config;
 
-import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.model.BackupTask;
+import com.backup_manager.domain.model.RestoreStatus;
+import com.backup_manager.domain.model.RestoreTask;
+import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.persistence.RestoreRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
@@ -19,9 +22,11 @@ public class BackupCleanupRunner implements CommandLineRunner {
     private static final String INTERRUPTED_MESSAGE = "Interrompido devido ao reinício ou fechamento da aplicação";
 
     private final BackupRepository repository;
+    private final RestoreRepository restoreRepository;
 
-    public BackupCleanupRunner(BackupRepository repository) {
+    public BackupCleanupRunner(BackupRepository repository, RestoreRepository restoreRepository) {
         this.repository = repository;
+        this.restoreRepository = restoreRepository;
     }
 
     @Override
@@ -29,10 +34,17 @@ public class BackupCleanupRunner implements CommandLineRunner {
     public void run(String... args) {
         logger.info("Iniciando verificação de integridade pós-boot");
 
+        failInterruptedBackups();
+        failInterruptedRestores();
+
+        logger.info("Verificação de integridade concluída.");
+    }
+
+    private void failInterruptedBackups() {
         List<BackupTask> orphanTasks = repository.findByStatusIn(List.of(Status.EM_ANDAMENTO, Status.PAUSADO));
 
         if (orphanTasks.isEmpty()) {
-            logger.info("Nenhuma tarefa órfã encontrada.");
+            logger.info("Nenhum backup órfão encontrado.");
             return;
         }
 
@@ -46,7 +58,25 @@ public class BackupCleanupRunner implements CommandLineRunner {
             logger.debug("Tarefa ID {} marcada como falha", task.getId());
         });
         repository.saveAll(orphanTasks);
+    }
 
-        logger.info("Verificação de integridade concluída.");
+    // Restauracoes rodam em memoria como os backups: um restart deixa a tarefa EM_ANDAMENTO para sempre.
+    private void failInterruptedRestores() {
+        List<RestoreTask> orphanRestores = restoreRepository.findByStatus(RestoreStatus.EM_ANDAMENTO);
+
+        if (orphanRestores.isEmpty()) {
+            logger.info("Nenhuma restauração órfã encontrada.");
+            return;
+        }
+
+        logger.warn("Detectadas {} restaurações interrompidas.", orphanRestores.size());
+
+        LocalDateTime now = LocalDateTime.now();
+        orphanRestores.forEach(task -> {
+            task.setStatus(RestoreStatus.FALHA);
+            task.setErrorMessage(INTERRUPTED_MESSAGE);
+            task.setFinishedAt(now);
+        });
+        restoreRepository.saveAll(orphanRestores);
     }
 }

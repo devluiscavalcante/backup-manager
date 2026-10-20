@@ -2,6 +2,7 @@ package com.backup_manager.application.service;
 
 import com.backup_manager.application.dto.CronTemplateResponse;
 import com.backup_manager.application.dto.CronValidationResponse;
+import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
@@ -15,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CronValidationServiceTests {
 
-    private final CronValidationService service = new CronValidationService();
+    private final CronValidationService service = new CronValidationService(new BackupSchedulerProperties());
 
     @Test
     void acceptsValidExpressionAndListsFiveFutureRuns() {

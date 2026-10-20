@@ -12,7 +12,7 @@ import {
   ArrowRight,
   ChevronRight
 } from 'lucide-angular';
-import { BackupRecord, BackupService } from '../../core/services/backup.service';
+import { BackupRecord, BackupService, BackupStats } from '../../core/services/backup.service';
 import { DriveInfo, StorageService } from '../../core/services/storage.service';
 import { apiErrorMessage } from '../../core/api/api.models';
 import { PageHeaderComponent } from '../../shared/ui/page-header.component';
@@ -59,13 +59,21 @@ export class DashboardComponent implements OnInit {
   storageForbidden = signal(false);
   storageError = signal<string | null>(null);
 
+  // Totais vem do servidor: contar no cliente exigia baixar o historico inteiro.
+  stats = signal<BackupStats | null>(null);
+
   recent = computed(() => this.history().slice(0, RECENT_LIMIT));
-  completedCount = computed(() => this.history().filter(r => r.status === 'CONCLUIDO').length);
-  failedCount = computed(() => this.history().filter(r => r.status === 'FALHA').length);
+  completedCount = computed(() => this.stats()?.completedBackups ?? null);
+  failedCount = computed(() => this.stats()?.failedBackups ?? null);
   lastRun = computed(() => this.history()[0]?.startedAt ?? null);
 
   ngOnInit(): void {
-    this.backupService.getHistory().subscribe({
+    this.backupService.getStats().subscribe({
+      next: stats => this.stats.set(stats),
+      error: () => this.stats.set(null)
+    });
+
+    this.backupService.getHistory(RECENT_LIMIT).subscribe({
       next: records => {
         this.history.set([...records].sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? '')));
         this.historyLoading.set(false);

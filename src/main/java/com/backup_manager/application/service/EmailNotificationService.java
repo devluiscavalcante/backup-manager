@@ -18,6 +18,7 @@ import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.web.util.HtmlUtils;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -123,6 +124,16 @@ public class EmailNotificationService {
         }
 
         sendEmailWithRetry("Falha no Backup", buildFailureEmail(task, errorMessage));
+    }
+
+    @Async
+    public void sendScheduledFailureNotification(String backupName, List<String> failures) {
+        if (!shouldSendEmail() || !notificationProperties.getEmail().isNotifyOnFailure()) {
+            logger.debug("Notificacao de falha de agendamento desabilitada");
+            return;
+        }
+
+        sendEmailWithRetry("Falha no Backup Agendado", buildScheduledFailureEmail(backupName, failures));
     }
 
     @Async
@@ -280,7 +291,7 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                task.getId(), type, task.getSourcePath(), task.getDestinationPath(), startedAt
+                task.getId(), type, esc(task.getSourcePath()), esc(task.getDestinationPath()), startedAt
         );
     }
 
@@ -314,7 +325,7 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                backupName, sourcesStr, destinationsStr, cronExpression, nextExec
+                esc(backupName), esc(sourcesStr), esc(destinationsStr), esc(cronExpression), nextExec
         );
     }
 
@@ -347,7 +358,7 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                task.getId(), task.getSourcePath(), task.getDestinationPath(),
+                task.getId(), esc(task.getSourcePath()), esc(task.getDestinationPath()),
                 finishedAt, duration, size, fileCount
         );
     }
@@ -377,8 +388,38 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                task.getId(), task.getSourcePath(), startedAt,
-                errorMessage != null ? errorMessage : "Erro desconhecido"
+                task.getId(), esc(task.getSourcePath()), startedAt,
+                errorMessage != null ? esc(errorMessage) : "Erro desconhecido"
+        );
+    }
+
+    private String buildScheduledFailureEmail(String backupName, List<String> failures) {
+        StringBuilder items = new StringBuilder();
+        failures.forEach(failure -> items.append("<li>").append(esc(failure)).append("</li>"));
+
+        return String.format("""
+            <html>
+            <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <div style="background: #f44336; color: white; padding: 20px; border-radius: 5px;">
+                        <h1>Falha no Backup Agendado</h1>
+                    </div>
+                    <div style="background: #f9f9f9; padding: 20px; border-radius: 5px; margin-top: 20px;">
+                        <p><strong>Agendamento:</strong> %s</p>
+                        <p><strong>Horario:</strong> %s</p>
+                        <div style="background: #ffebee; border-left: 4px solid #f44336; padding: 15px; margin: 15px 0;">
+                            <strong>Nao foi possivel iniciar:</strong>
+                            <ul>%s</ul>
+                        </div>
+                    </div>
+                    <p style="color: #666; font-size: 12px; text-align: center; margin-top: 20px;">
+                        Sistema de Backups Automaticos
+                    </p>
+                </div>
+            </body>
+            </html>
+            """,
+                esc(backupName), LocalDateTime.now().format(DATE_FORMATTER), items
         );
     }
 
@@ -404,7 +445,7 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                task.getId(), task.getSourcePath(), startedAt
+                task.getId(), esc(task.getSourcePath()), startedAt
         );
     }
 
@@ -431,7 +472,7 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                task.getId(), restoreType, backupPath, task.getTargetPath(), startedAt
+                task.getId(), restoreType, esc(backupPath), esc(task.getTargetPath()), startedAt
         );
     }
 
@@ -459,7 +500,7 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                task.getId(), task.getTargetPath(), finishedAt, formatDuration(durationSeconds),
+                task.getId(), esc(task.getTargetPath()), finishedAt, formatDuration(durationSeconds),
                 restoredFiles, size
         );
     }
@@ -486,8 +527,8 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                task.getId(), task.getTargetPath(), startedAt,
-                errorMessage != null ? errorMessage : "Erro desconhecido"
+                task.getId(), esc(task.getTargetPath()), startedAt,
+                errorMessage != null ? esc(errorMessage) : "Erro desconhecido"
         );
     }
 
@@ -510,7 +551,7 @@ public class EmailNotificationService {
             </body>
             </html>
             """,
-                task.getId(), task.getTargetPath(), startedAt
+                task.getId(), esc(task.getTargetPath()), startedAt
         );
     }
 
@@ -535,6 +576,12 @@ public class EmailNotificationService {
             </body>
             </html>
             """;
+    }
+
+    // Caminhos, nomes de agendamento e mensagens de erro (que podem citar nomes de arquivos) entram no
+    // corpo HTML: sem escape, um nome como "<img src=...>" viraria marcacao no cliente de e-mail.
+    private static String esc(String value) {
+        return value == null ? "" : HtmlUtils.htmlEscape(value);
     }
 
     private String formatDuration(long seconds) {

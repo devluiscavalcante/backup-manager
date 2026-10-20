@@ -1,6 +1,7 @@
 package com.backup_manager.application.service;
 
 import com.backup_manager.application.progress.ProgressEmitter;
+import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
@@ -9,17 +10,26 @@ import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Optional;
 import java.util.concurrent.Executor;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -85,6 +95,108 @@ class BackupServiceTests {
         verify(taskManager).unregisterTask(queuedTask.getId());
         verify(eventPublisher, never()).publishEvent(any());
         verifyNoInteractions(backupManager, storageOps, progressEmitter);
+    }
+
+    @Test
+    void updateShouldPreserveCancellationThatWonTheRace() {
+        BackupRepository repository = mock(BackupRepository.class);
+        BackupTaskManager taskManager = mock(BackupTaskManager.class);
+        BackupService service = new BackupService(mock(BackupManager.class), repository, mock(ProgressEmitter.class),
+                taskManager, mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
+                mock(PathSecurityService.class), Runnable::run, mock(BackupService.class));
+
+        // Le "em andamento", mas o cancelamento grava antes: o save do worker e recusado pelo @Version.
+        when(repository.findById(7L))
+                .thenReturn(Optional.of(backupTask(Status.EM_ANDAMENTO, false)))
+                .thenReturn(Optional.of(backupTask(Status.CANCELADO, true)));
+        when(repository.save(any(BackupTask.class)))
+                .thenThrow(new ObjectOptimisticLockingFailureException(BackupTask.class, 7L));
+
+        Optional<BackupTask> result = service.updateUnlessCancelled(7L, task -> task.setStatus(Status.CONCLUIDO));
+
+        assertThat(result).isEmpty();
+        verify(repository, times(1)).save(any(BackupTask.class));
+    }
+
+    @Test
+    void runBackupShouldRejectPairAlreadyActiveUnderAnotherSpelling() throws IOException {
+        BackupRepository repository = mock(BackupRepository.class);
+        PathSecurityService pathSecurity = realPaths();
+        BackupService service = spy(new BackupService(mock(BackupManager.class), repository, mock(ProgressEmitter.class),
+                mock(BackupTaskManager.class), mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
+                pathSecurity, Runnable::run, mock(BackupService.class)));
+        BackupTask active = backupTask(Status.EM_ANDAMENTO, false);
+
+        doNothing().when(service).validatePathAndDriveSpace("c:/dados/", "e:/backup");
+        when(repository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
+                eq(REAL_SOURCE.toString()), eq(REAL_DESTINATION.toString()), any()))
+                .thenReturn(Optional.of(active));
+
+        assertThatThrownBy(() -> service.runBackup("c:/dados/", "e:/backup"))
+                .isInstanceOf(ActiveBackupConflictException.class)
+                .extracting("conflictingTaskId").isEqualTo(7L);
+        verify(repository, never()).save(any(BackupTask.class));
+    }
+
+    @Test
+    void runBackupShouldPersistRealPathsInsteadOfRawInput() throws IOException {
+        BackupRepository repository = mock(BackupRepository.class);
+        BackupService service = spy(new BackupService(mock(BackupManager.class), repository, mock(ProgressEmitter.class),
+                mock(BackupTaskManager.class), mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
+                realPaths(), Runnable::run, mock(BackupService.class)));
+
+        doNothing().when(service).validatePathAndDriveSpace("c:/dados/", "e:/backup");
+        when(repository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(repository.save(any(BackupTask.class))).thenAnswer(invocation -> {
+            BackupTask task = invocation.getArgument(0);
+            task.setId(9L);
+            return task;
+        });
+
+        assertThat(service.runBackup("c:/dados/", "e:/backup")).isEqualTo(9L);
+
+        ArgumentCaptor<BackupTask> saved = ArgumentCaptor.forClass(BackupTask.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getSourcePath()).isEqualTo(REAL_SOURCE.toString());
+        assertThat(saved.getValue().getDestinationPath()).isEqualTo(REAL_DESTINATION.toString());
+    }
+
+    @Test
+    void runBackupShouldFailTaskWhenExecutorQueueIsFull() throws IOException {
+        BackupRepository repository = mock(BackupRepository.class);
+        BackupService self = mock(BackupService.class);
+        BackupService service = spy(new BackupService(mock(BackupManager.class), repository, mock(ProgressEmitter.class),
+                mock(BackupTaskManager.class), mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
+                realPaths(), Runnable::run, self));
+        BackupTask saved = backupTask(Status.EM_ANDAMENTO, false);
+
+        doNothing().when(service).validatePathAndDriveSpace("source", "destination");
+        when(repository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(any(), any(), any()))
+                .thenReturn(Optional.empty());
+        when(repository.save(any(BackupTask.class))).thenReturn(saved);
+        when(repository.findById(7L)).thenReturn(Optional.of(saved));
+        doThrow(new TaskRejectedException("fila cheia")).when(self).processBackupAsync(saved);
+
+        assertThatThrownBy(() -> service.runBackup("source", "destination"))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Fila de backups cheia");
+
+        assertThat(saved.getStatus()).isEqualTo(Status.FALHA);
+        assertThat(saved.getFinishedAt()).isNotNull();
+    }
+
+    private static final Path REAL_SOURCE = Path.of("real", "Dados");
+    private static final Path REAL_DESTINATION = Path.of("real", "Backup");
+
+    // Simula a resolucao para o caminho real: grafias diferentes da mesma pasta viram o mesmo Path.
+    private PathSecurityService realPaths() {
+        PathSecurityService pathSecurity = mock(PathSecurityService.class);
+        when(pathSecurity.validateManagedPath(any(), eq("backup"))).thenAnswer(invocation -> {
+            String raw = invocation.getArgument(0);
+            return raw.toLowerCase().contains("dados") || raw.equals("source") ? REAL_SOURCE : REAL_DESTINATION;
+        });
+        return pathSecurity;
     }
 
     private BackupTask backupTask(Status status, boolean cancelled) {

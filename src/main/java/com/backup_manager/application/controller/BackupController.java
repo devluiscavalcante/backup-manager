@@ -13,6 +13,7 @@ import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.BackupService;
 import com.backup_manager.application.service.SecurityAuditService;
+import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
 import com.backup_manager.domain.exception.DestinationNotFoundException;
 import com.backup_manager.domain.exception.FolderEmptyException;
@@ -45,6 +46,8 @@ public class BackupController {
     private static final Logger logger = LoggerFactory.getLogger(BackupController.class);
     private static final String BACKUP_START_PATH = "/api/backup/start";
     private static final String BACKUP_HISTORY_PATH = "/api/backup/history";
+    private static final int DEFAULT_HISTORY_LIMIT = 500;
+    private static final int MAX_HISTORY_LIMIT = 1000;
     private static final String BACKUP_HISTORY_SEARCH_PATH = "/api/backup/history/search";
     private static final String BACKUP_HISTORY_STATS_PATH = "/api/backup/history/stats";
     private static final String BACKUP_HISTORY_RECENT_PATH = "/api/backup/history/recent";
@@ -139,6 +142,21 @@ public class BackupController {
                     )
             );
 
+        } catch (ActiveBackupConflictException e) {
+            // Corrida: outra requisicao criou a tarefa entre a checagem acima e o runBackup.
+            securityAuditService.recordFailure("backup.start", "backup_request", "active_backup_conflict",
+                    Map.of("conflictingTaskId", e.getConflictingTaskId(),
+                            "sourceCount", sources.size(), "destinationCount", destinations.size()));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    ApiErrorResponse.of(
+                            HttpStatus.CONFLICT,
+                            e.getMessage(),
+                            "active_backup_conflict",
+                            conflictDetails(e.getSourcePath(), e.getDestinationPath(), e.getConflictingTaskId()),
+                            "/api/backup/start",
+                            e.getConflictingTaskId()
+                    )
+            );
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca ao iniciar backup: {}", e.getMessage());
             securityAuditService.recordFailure("backup.start", "backup_request", "security_denied",
@@ -174,9 +192,22 @@ public class BackupController {
     }
 
     @GetMapping("/history")
-    public ResponseEntity<Object> getBackupHistory() {
+    public ResponseEntity<Object> getBackupHistory(
+            @RequestParam(defaultValue = "" + DEFAULT_HISTORY_LIMIT) int limit
+    ) {
+        if (limit < 1 || limit > MAX_HISTORY_LIMIT) {
+            return ResponseEntity.badRequest()
+                    .body(invalidRangeResponse(
+                            "limit_out_of_range",
+                            "Limite deve estar entre 1 e " + MAX_HISTORY_LIMIT + ".",
+                            "limit",
+                            limit,
+                            BACKUP_HISTORY_PATH
+                    ));
+        }
+
         try {
-            List<BackupTask> tasks = backupService.getAllTasks();
+            List<BackupTask> tasks = backupService.getRecentTasks(limit);
             List<BackupResponse> responseList = new ArrayList<>();
 
             for (BackupTask task : tasks) {

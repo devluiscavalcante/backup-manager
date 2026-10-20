@@ -2,6 +2,7 @@ package com.backup_manager.application.service;
 
 import com.backup_manager.application.dto.CronTemplateResponse;
 import com.backup_manager.application.dto.CronValidationResponse;
+import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.support.CronExpression;
@@ -33,6 +34,12 @@ public class CronValidationService {
             template("every_12_hours", "0 0 */12 * * *", "A cada 12 horas", "Intervalo"),
             template("every_hour", "0 0 * * * *", "A cada hora", "Intervalo")
     );
+
+    private final BackupSchedulerProperties schedulerProperties;
+
+    public CronValidationService(BackupSchedulerProperties schedulerProperties) {
+        this.schedulerProperties = schedulerProperties;
+    }
 
     public CronValidationResponse validateCronExpression(String cronExpression) {
         logger.debug("Validando expressao cron: {}", cronExpression);
@@ -96,7 +103,8 @@ public class CronValidationService {
 
     private List<LocalDateTime> calculateNextExecutions(CronExpression cron, int count) {
         List<LocalDateTime> executions = new ArrayList<>();
-        LocalDateTime next = LocalDateTime.now();
+        // Mesmo fuso usado pelo agendador, para que a previa bata com as execucoes reais.
+        LocalDateTime next = LocalDateTime.now(schedulerProperties.zoneId());
 
         for (int i = 0; i < count; i++) {
             next = cron.next(next);

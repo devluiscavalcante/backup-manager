@@ -2,6 +2,7 @@ package com.backup_manager.application.service;
 
 import com.backup_manager.application.dto.Progress;
 import com.backup_manager.application.progress.ProgressEmitter;
+import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
 import com.backup_manager.domain.event.BackupCompletedEvent;
 import com.backup_manager.domain.event.BackupFailedEvent;
@@ -18,6 +19,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.task.TaskRejectedException;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -36,11 +40,13 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 @Service
 public class BackupService {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupService.class);
+    private static final int MAX_UPDATE_ATTEMPTS = 3;
 
     private final BackupManager backupManager;
     private final BackupRepository backupRepository;
@@ -51,6 +57,9 @@ public class BackupService {
     private final PathSecurityService pathSecurityService;
     private final Executor backupDispatchExecutor;
     private final BackupService self;
+    // Verificacao de backup ativo + criacao da tarefa precisam ser atomicas: duas requisicoes simultaneas
+    // para o mesmo par passavam ambas pela checagem antes de qualquer uma gravar.
+    private final Object startLock = new Object();
 
     @Value("${backup.exclusions:AppData,Temp,node_modules,.git,$RECYCLE.BIN}")
     private List<String> excludedFolders;
@@ -102,16 +111,37 @@ public class BackupService {
             pathSecurityService.ensureNotOverlapping(validatedSource, validatedDestination, "backup");
             validatePathAndDriveSpace(sourcePath, destinationPath);
 
-            BackupTask task = createInitialTask(sourcePath, destinationPath);
-            task = backupRepository.save(task);
+            // Persiste o caminho real: "C:/Dados", "c:\dados\" e uma junction para ele sao o mesmo par.
+            BackupTask task;
+            synchronized (startLock) {
+                Optional<BackupTask> active = findActiveTask(validatedSource, validatedDestination);
+                if (active.isPresent()) {
+                    throw new ActiveBackupConflictException(
+                            active.get().getId(), validatedSource.toString(), validatedDestination.toString());
+                }
+                task = backupRepository.save(
+                        createInitialTask(validatedSource.toString(), validatedDestination.toString()));
+            }
 
             final Long taskId = task.getId();
             logger.info("Backup criado com ID={}, iniciando processamento assincrono", taskId);
 
             // A chamada via proxy garante que a anotacao @Async seja aplicada de fato.
-            self.processBackupAsync(task);
+            try {
+                self.processBackupAsync(task);
+            } catch (TaskRejectedException rejected) {
+                // Sem isso a tarefa ja salva ficaria EM_ANDAMENTO ate o proximo restart.
+                markRejected(task);
+                throw new IllegalStateException(
+                        "Fila de backups cheia. Aguarde a conclusao de backups em andamento e tente novamente.",
+                        rejected
+                );
+            }
             return taskId;
 
+        } catch (ActiveBackupConflictException conflict) {
+            logger.warn("Backup duplicado recusado: ja existe a tarefa {} para o par", conflict.getConflictingTaskId());
+            throw conflict;
         } catch (SecurityException se) {
             logger.error("BLOQUEIO DE SEGURANCA: {}", se.getMessage());
             progressEmitter.sendError("Erro de Seguranca: " + se.getMessage());
@@ -156,8 +186,9 @@ public class BackupService {
 
             try {
                 File sourceFolder = backupManager.validateSource(task.getSourcePath());
-                BigDecimal sizeMB = backupManager.calculateFolderSizeMB(sourceFolder);
-                long fileCount = backupManager.countFiles(sourceFolder);
+                BackupManager.FolderScan scan = backupManager.scan(sourceFolder);
+                BigDecimal sizeMB = scan.sizeMB();
+                long fileCount = scan.fileCount();
                 Path source = sourceFolder.toPath();
                 Path destination = Paths.get(task.getDestinationPath());
 
@@ -175,41 +206,20 @@ public class BackupService {
 
                 int warnings = executeStorageOperation(source, destination, task.getId(), (int) fileCount);
 
-                BackupTask memoryTask = taskManager.getTask(task.getId());
-                BackupTask dbTask = backupRepository.findById(task.getId()).orElse(null);
-                logger.debug("Pre-finalizacao do backup {}: memoria={}, banco={}",
-                        task.getId(), describeState(memoryTask), describeState(dbTask));
-
-                if (isCancelled(memoryTask) || isCancelled(dbTask)) {
+                if (finalizeTask(task.getId(), fileCount, sizeMB, warnings).isEmpty()) {
                     logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
-                } else {
-                    finalizeTask(dbTask != null ? dbTask : task, fileCount, sizeMB, warnings);
                 }
 
             } catch (Exception e) {
-                BackupTask memoryTask = taskManager.getTask(task.getId());
-                BackupTask dbTask = backupRepository.findById(task.getId()).orElse(null);
-
-                if (isCancelled(memoryTask) || isCancelled(dbTask)) {
+                if (handleBackupFailure(task.getId(), e).isEmpty()) {
                     logger.info("Backup {} cancelado (exception capturada), pulando tratamento de falha", task.getId());
-                } else {
-                    handleBackupFailure(dbTask != null ? dbTask : task, e);
                 }
             } finally {
-                BackupTask memoryTask = taskManager.getTask(task.getId());
-
-                if (isCancelled(memoryTask)) {
-                    logger.info("Finally: Backup {} cancelado, nao sobrescreve estado", task.getId());
-                    taskManager.unregisterTask(task.getId());
-                    return;
-                }
-
-                BackupTask finalTask = backupRepository.findById(task.getId()).orElse(task);
-                if (finalTask.getFinishedAt() == null) {
-                    finalTask.setFinishedAt(LocalDateTime.now());
-                    backupRepository.save(finalTask);
-                }
-
+                updateUnlessCancelled(task.getId(), finalTask -> {
+                    if (finalTask.getFinishedAt() == null) {
+                        finalTask.setFinishedAt(LocalDateTime.now());
+                    }
+                });
                 taskManager.unregisterTask(task.getId());
             }
 
@@ -222,13 +232,11 @@ public class BackupService {
         return task != null && (task.isCancelled() || task.getStatus() == Status.CANCELADO);
     }
 
-    private static String describeState(BackupTask task) {
-        return task == null ? "ausente" : task.getStatus() + (task.isCancelled() ? "/cancelado" : "");
-    }
-
     private int executeStorageOperation(Path source, Path destination, Long taskId, int totalFiles) throws IOException {
         AtomicInteger processed = new AtomicInteger(0);
-        Path logFile = destination.resolve("warnings.log");
+        Path logFile = destination.resolve(FileStorageOperations.WARNINGS_LOG);
+        // O arquivo acumula execucoes: o cabecalho separa os alertas de cada uma.
+        appendLog(logFile, String.format("%n=== Backup #%d iniciado em %s ===%n", taskId, LocalDateTime.now()));
 
         return storageOps.copyDirectoryIncremental(
                 source,
@@ -274,22 +282,11 @@ public class BackupService {
             }
         }
 
+        // O espaco livre ja foi conferido em BackupRequestValidationService.validateExecutableRequest, que
+        // precede todo runBackup; repetir aqui custava mais uma varredura completa da origem na requisicao.
         File destRoot = dest.getRoot().toFile();
         if (!destRoot.exists()) {
             throw new IllegalStateException("O disco de destino " + dest.getRoot() + " nao esta acessivel.");
-        }
-
-        long requiredSpace = backupManager.calculateFolderSizeMB(src.toFile()).longValue() * 1024 * 1024;
-        long availableSpace = destRoot.getUsableSpace();
-
-        if (requiredSpace > availableSpace) {
-            String error = String.format(
-                    "Espaco insuficiente no disco %s. Necessario: %d MB, Disponivel: %d MB",
-                    dest.getRoot(),
-                    requiredSpace / (1024 * 1024),
-                    availableSpace / (1024 * 1024)
-            );
-            throw new IOException(error);
         }
     }
 
@@ -329,17 +326,22 @@ public class BackupService {
         return task;
     }
 
-    private void finalizeTask(BackupTask task, long fileCount, BigDecimal sizeMB, int warnings) {
-        task.setFinishedAt(LocalDateTime.now());
-        task.setFileCount(fileCount);
-        task.setTotalSizeMB(sizeMB);
-        task.setStatus(Status.CONCLUIDO);
-        task.setErrorMessage(warnings > 0
-                ? "Concluido com " + warnings + " alertas. Verifique warnings.log."
-                : null);
+    private Optional<BackupTask> finalizeTask(Long taskId, long fileCount, BigDecimal sizeMB, int warnings) {
+        Optional<BackupTask> finalized = updateUnlessCancelled(taskId, task -> {
+            task.setFinishedAt(LocalDateTime.now());
+            task.setFileCount(fileCount);
+            task.setTotalSizeMB(sizeMB);
+            task.setStatus(Status.CONCLUIDO);
+            task.setErrorMessage(warnings > 0
+                    ? "Concluido com " + warnings + " alertas. Verifique " + FileStorageOperations.WARNINGS_LOG + "."
+                    : null);
+        });
+        if (finalized.isEmpty()) {
+            return finalized;
+        }
 
-        long durationSeconds = calculateDuration(task);
-        BackupTask persistedTask = backupRepository.save(task);
+        BackupTask persistedTask = finalized.get();
+        long durationSeconds = calculateDuration(persistedTask);
 
         progressEmitter.sendControlEvent("complete", persistedTask.getId(), "CONCLUIDO");
         progressEmitter.sendProgress(new Progress(
@@ -351,24 +353,66 @@ public class BackupService {
         ));
 
         eventPublisher.publishEvent(new BackupCompletedEvent(persistedTask, durationSeconds));
+        return finalized;
     }
 
-    private void handleBackupFailure(BackupTask task, Exception e) {
-        logger.error("Falha no backup {}: {}", task.getId(), e.getMessage());
+    private Optional<BackupTask> handleBackupFailure(Long taskId, Exception e) {
+        logger.error("Falha no backup {}: {}", taskId, e.getMessage());
 
-        task.setStatus(Status.FALHA);
-        task.setErrorMessage(e.getMessage());
-        task.setFinishedAt(LocalDateTime.now());
+        Optional<BackupTask> failed = updateUnlessCancelled(taskId, task -> {
+            task.setStatus(Status.FALHA);
+            task.setErrorMessage(e.getMessage());
+            task.setFinishedAt(LocalDateTime.now());
+        });
+        if (failed.isEmpty()) {
+            return failed;
+        }
 
-        BackupTask persistedTask = backupRepository.save(task);
+        BackupTask persistedTask = failed.get();
         progressEmitter.sendControlEvent("error", persistedTask.getId(), "FALHA");
         progressEmitter.sendError("Falha: " + e.getMessage());
 
         eventPublisher.publishEvent(new BackupFailedEvent(persistedTask, e.getMessage()));
+        return failed;
     }
 
-    public List<BackupTask> getAllTasks() {
-        return backupRepository.findAll();
+    /**
+     * Grava sobre a versao atual do banco, nunca sobre um snapshot antigo. Se um cancelamento chegar
+     * entre a leitura e o save, o @Version recusa a gravacao e a releitura encontra a tarefa cancelada,
+     * que entao e preservada. Vazio significa que a tarefa foi cancelada (ou removida).
+     */
+    Optional<BackupTask> updateUnlessCancelled(Long taskId, Consumer<BackupTask> change) {
+        for (int attempt = 1; attempt <= MAX_UPDATE_ATTEMPTS; attempt++) {
+            BackupTask current = backupRepository.findById(taskId).orElse(null);
+            if (current == null || isCancelled(current) || isCancelled(taskManager.getTask(taskId))) {
+                return Optional.empty();
+            }
+
+            change.accept(current);
+            try {
+                return Optional.of(backupRepository.save(current));
+            } catch (OptimisticLockingFailureException conflict) {
+                logger.info("Backup {} alterado concorrentemente, relendo (tentativa {}/{})",
+                        taskId, attempt, MAX_UPDATE_ATTEMPTS);
+            }
+        }
+
+        logger.warn("Backup {} nao atualizado: conflito de concorrencia persistente", taskId);
+        return Optional.empty();
+    }
+
+    private void markRejected(BackupTask task) {
+        logger.error("Fila de backups cheia: tarefa {} recusada", task.getId());
+        updateUnlessCancelled(task.getId(), rejected -> {
+            rejected.setStatus(Status.FALHA);
+            rejected.setErrorMessage("Fila de backups cheia: tarefa nao iniciada");
+            rejected.setFinishedAt(LocalDateTime.now());
+        });
+    }
+
+    /** Mais recentes primeiro; sem limite o historico inteiro ia para a memoria (e para a resposta). */
+    public List<BackupTask> getRecentTasks(int limit) {
+        return backupRepository.findTopNByOrderByStartedAtDesc(PageRequest.of(0, limit));
     }
 
     public boolean pauseBackup(Long id) {
@@ -384,10 +428,14 @@ public class BackupService {
     }
 
     public Optional<BackupTask> getActiveTask(String sourcePath, String destinationPath) {
+        return findActiveTask(validateSafePath(sourcePath), validateSafePath(destinationPath));
+    }
+
+    private Optional<BackupTask> findActiveTask(Path source, Path destination) {
         // Busca diretamente no banco para evitar carregar todas as tarefas em memoria.
         return backupRepository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
-                sourcePath,
-                destinationPath,
+                source.toString(),
+                destination.toString(),
                 List.of(Status.EM_ANDAMENTO, Status.PAUSADO)
         );
     }
@@ -411,7 +459,10 @@ public class BackupService {
     }
 
     private void logDetail(Path logFile, String message, Path path) {
-        String entry = String.format("[%s] [%s] %s: %s%n", LocalDateTime.now(), "WARNING", message, path);
+        appendLog(logFile, String.format("[%s] [%s] %s: %s%n", LocalDateTime.now(), "WARNING", message, path));
+    }
+
+    private void appendLog(Path logFile, String entry) {
         try {
             Files.writeString(logFile, entry, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException ignored) {
