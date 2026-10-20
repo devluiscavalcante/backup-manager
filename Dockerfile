@@ -8,7 +8,8 @@ COPY src ./src
 
 RUN mvn -B clean package -DskipTests -Dcheckstyle.skip=true
 
-FROM eclipse-temurin:25-jre-alpine
+# Mesmo JDK major do build e do CI (java.version=21): o runtime nao roda uma versao que nenhum teste cobriu.
+FROM eclipse-temurin:21-jre-alpine
 
 RUN addgroup -S spring && adduser -S spring -G spring
 
