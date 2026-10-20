@@ -2,6 +2,7 @@ package com.backup_manager.infrastructure.config;
 
 import jakarta.persistence.EntityManagerFactory;
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.MigrationState;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.configuration.FluentConfiguration;
 import org.slf4j.Logger;
@@ -23,6 +24,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.stream.Collectors;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnClass(Flyway.class)
@@ -39,6 +41,17 @@ public class FlywayConfig {
             "security_audit_events"
     );
 
+    // Tabelas de versoes anteriores ao Flyway (nomes gerados pelo Hibernate antes das migracoes).
+    private static final Set<String> LEGACY_TABLES = Set.of(
+            "notification_settings",
+            "scheduled_backup_entity_sources",
+            "scheduled_backup_entity_destinations"
+    );
+
+    // A V1_1 foi criada depois da V2: bancos dessa epoca a tem pendente abaixo da versao atual.
+    // Somente ela justifica aplicar fora de ordem; qualquer outra lacuna e erro e deve falhar no boot.
+    private static final Set<String> LEGACY_OUT_OF_ORDER_VERSIONS = Set.of("1.1");
+
     @Bean
     @ConditionalOnMissingBean
     Flyway flyway(DataSource dataSource, Environment environment) {
@@ -46,15 +59,30 @@ public class FlywayConfig {
         String[] schemas = environment.getProperty("spring.flyway.schemas", String[].class);
         String historyTable = environment.getProperty("spring.flyway.table");
 
+        String targetSchema = resolveSchema(defaultSchema, schemas);
+        String targetHistoryTable = resolveHistoryTable(historyTable);
+
+        repairOrphanedFlywayHistory(dataSource, targetSchema, targetHistoryTable);
+
+        boolean configuredBaseline = environment.getProperty("spring.flyway.baseline-on-migrate", Boolean.class, false);
+        boolean legacyBaseline = !configuredBaseline && isLegacySchemaWithoutHistory(dataSource, targetSchema, targetHistoryTable);
+        if (legacyBaseline) {
+            logger.warn("Schema '{}' sem historico do Flyway, mas com tabelas desta aplicacao: aplicando baseline 0.",
+                    targetSchema);
+        }
+
         FluentConfiguration configuration = Flyway.configure()
                 .dataSource(dataSource)
                 .locations(resolveLocations(environment))
                 .outOfOrder(environment.getProperty("spring.flyway.out-of-order", Boolean.class, false))
-                .baselineOnMigrate(environment.getProperty("spring.flyway.baseline-on-migrate", Boolean.class, false));
+                .baselineOnMigrate(configuredBaseline || legacyBaseline);
 
         String baselineVersion = environment.getProperty("spring.flyway.baseline-version");
         if (baselineVersion != null && !baselineVersion.isBlank()) {
             configuration.baselineVersion(MigrationVersion.fromVersion(baselineVersion));
+        } else if (legacyBaseline) {
+            // Baseline 0 para que a V1 (CREATE ... IF NOT EXISTS) ainda rode sobre o schema legado.
+            configuration.baselineVersion(MigrationVersion.fromVersion("0"));
         }
 
         if (defaultSchema != null && !defaultSchema.isBlank()) {
@@ -70,10 +98,11 @@ public class FlywayConfig {
         }
 
         Flyway flyway = configuration.load();
-        String targetSchema = resolveSchema(defaultSchema, schemas);
-        String targetHistoryTable = resolveHistoryTable(historyTable);
+        if (!configuration.isOutOfOrder() && hasOnlyLegacyOutOfOrderGap(flyway)) {
+            logger.warn("Migracao 1.1 pendente abaixo da versao atual (banco anterior a ela): aplicando fora de ordem.");
+            flyway = configuration.outOfOrder(true).load();
+        }
 
-        repairOrphanedFlywayHistory(dataSource, targetSchema, targetHistoryTable);
         // Spring Boot 4.0.1 in this runtime does not auto-run Flyway, so we migrate explicitly.
         flyway.migrate();
         validateManagedTables(dataSource, targetSchema, targetHistoryTable);
@@ -83,6 +112,26 @@ public class FlywayConfig {
     @Bean
     static EntityManagerFactoryDependsOnFlywayPostProcessor entityManagerFactoryDependsOnFlyway() {
         return new EntityManagerFactoryDependsOnFlywayPostProcessor();
+    }
+
+    // Com out-of-order desligado, uma migracao resolvida abaixo da ultima aplicada fica IGNORED.
+    static boolean hasOnlyLegacyOutOfOrderGap(Flyway flyway) {
+        Set<String> ignored = Arrays.stream(flyway.info().all())
+                .filter(info -> info.getState() == MigrationState.IGNORED && info.getVersion() != null)
+                .map(info -> info.getVersion().getVersion())
+                .collect(Collectors.toSet());
+        return !ignored.isEmpty() && LEGACY_OUT_OF_ORDER_VERSIONS.containsAll(ignored);
+    }
+
+    // Baseline automatico so quando o schema e reconhecidamente desta aplicacao: apontar para um banco
+    // errado (nao vazio e sem historico) continua falhando, em vez de receber as migracoes.
+    private boolean isLegacySchemaWithoutHistory(DataSource dataSource, String schema, String historyTable) {
+        try (Connection connection = dataSource.getConnection()) {
+            Set<String> tables = existingTables(connection, schema, historyTable);
+            return !tables.contains(historyTable) && !tables.isEmpty();
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to inspect Flyway schema state before migration.", e);
+        }
     }
 
     private String[] resolveLocations(Environment environment) {
@@ -160,7 +209,8 @@ public class FlywayConfig {
             try (ResultSet resultSet = statement.executeQuery()) {
                 while (resultSet.next()) {
                     String tableName = resultSet.getString("table_name");
-                    if (MANAGED_TABLES.contains(tableName) || historyTable.equals(tableName)) {
+                    if (MANAGED_TABLES.contains(tableName) || LEGACY_TABLES.contains(tableName)
+                            || historyTable.equals(tableName)) {
                         tables.add(tableName);
                     }
                 }

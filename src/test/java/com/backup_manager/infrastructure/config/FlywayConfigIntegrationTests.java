@@ -1,6 +1,7 @@
 package com.backup_manager.infrastructure.config;
 
 import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Value;
@@ -125,6 +126,95 @@ class FlywayConfigIntegrationTests {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("schema '" + schemaName + "' is still missing managed tables")
                 .hasMessageContaining("backup_tasks");
+    }
+
+    @Test
+    void shouldBaselineLegacySchemaWithoutFlagsWhenItBelongsToThisApplication() throws Exception {
+        schemaName = "legacy_auto_baseline_" + UUID.randomUUID().toString().replace("-", "");
+        execute("CREATE SCHEMA " + schemaName,
+                "CREATE TABLE " + schemaName + ".scheduled_backup_entity_sources ("
+                        + "scheduled_backup_entity_id BIGINT NOT NULL, source_path VARCHAR(1000))");
+
+        new FlywayConfig().flyway(dataSource(), strictEnvironment());
+
+        assertThat(appliedVersions(schemaName)).contains("0", "1", "1.1", "2", "4", "5", "6");
+    }
+
+    @Test
+    void shouldRefuseUnrelatedNonEmptySchemaWithoutHistory() throws Exception {
+        schemaName = "foreign_schema_" + UUID.randomUUID().toString().replace("-", "");
+        execute("CREATE SCHEMA " + schemaName,
+                "CREATE TABLE " + schemaName + ".clientes (id BIGSERIAL PRIMARY KEY)");
+
+        assertThatThrownBy(() -> new FlywayConfig().flyway(dataSource(), strictEnvironment()))
+                .isInstanceOf(FlywayException.class);
+        assertThat(existingTables(schemaName)).containsExactly("clientes");
+    }
+
+    @Test
+    void shouldApplyLegacyV11OutOfOrderWithoutFlags() throws Exception {
+        schemaName = "legacy_gap_" + UUID.randomUUID().toString().replace("-", "");
+        migrateFreshSchemaThenForget("1.1");
+
+        new FlywayConfig().flyway(dataSource(), strictEnvironment());
+
+        assertThat(appliedVersions(schemaName)).contains("1.1");
+    }
+
+    @Test
+    void shouldFailOnUnexpectedOutOfOrderMigration() throws Exception {
+        schemaName = "unexpected_gap_" + UUID.randomUUID().toString().replace("-", "");
+        migrateFreshSchemaThenForget("2");
+
+        assertThatThrownBy(() -> new FlywayConfig().flyway(dataSource(), strictEnvironment()))
+                .isInstanceOf(FlywayException.class)
+                .hasMessageContaining("2");
+    }
+
+    // Simula um banco que nunca recebeu a migracao indicada, embora tenha versoes posteriores.
+    private void migrateFreshSchemaThenForget(String version) throws Exception {
+        execute("CREATE SCHEMA " + schemaName);
+        Flyway.configure()
+                .dataSource(jdbcUrl, username, password)
+                .locations("classpath:db/migration")
+                .schemas(schemaName)
+                .defaultSchema(schemaName)
+                .load()
+                .migrate();
+        execute("DELETE FROM " + schemaName + ".flyway_schema_history WHERE version = '" + version + "'");
+    }
+
+    private MockEnvironment strictEnvironment() {
+        return new MockEnvironment()
+                .withProperty("spring.flyway.locations", "classpath:db/migration")
+                .withProperty("spring.flyway.schemas", schemaName)
+                .withProperty("spring.flyway.default-schema", schemaName);
+    }
+
+    private DriverManagerDataSource dataSource() {
+        return new DriverManagerDataSource(jdbcUrl, username, password);
+    }
+
+    private void execute(String... sql) throws Exception {
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement statement = connection.createStatement()) {
+            for (String command : sql) {
+                statement.execute(command);
+            }
+        }
+    }
+
+    private Set<String> appliedVersions(String schema) throws Exception {
+        Set<String> versions = new HashSet<>();
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
+             Statement statement = connection.createStatement();
+             ResultSet resultSet = statement.executeQuery(
+                     "SELECT version FROM " + schema + ".flyway_schema_history WHERE success = true")) {
+            while (resultSet.next()) {
+                versions.add(resultSet.getString("version"));
+            }
+        }
+        return versions;
     }
 
     @AfterEach
