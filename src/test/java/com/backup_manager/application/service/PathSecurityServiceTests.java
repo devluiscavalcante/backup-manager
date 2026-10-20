@@ -124,6 +124,7 @@ class PathSecurityServiceTests {
         assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("C:\\Dados\\Program Files backup")));
         assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("C:\\Windows.old.bak")));
         assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("C:\\Dados\\etc")));
+        assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("\\\\nas\\backup\\")));
     }
 
     @Test

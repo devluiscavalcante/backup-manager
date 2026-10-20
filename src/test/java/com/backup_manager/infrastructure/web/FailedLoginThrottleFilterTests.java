@@ -60,6 +60,16 @@ class FailedLoginThrottleFilterTests {
     }
 
     @Test
+    void errorResponsesShouldNotResetTheCounter() throws Exception {
+        perform("10.0.0.1", BASIC, 401);
+        perform("10.0.0.1", BASIC, 401);
+        perform("10.0.0.1", BASIC, 403);
+        perform("10.0.0.1", BASIC, 401);
+
+        assertThat(perform("10.0.0.1", BASIC, 200).getStatus()).isEqualTo(429);
+    }
+
+    @Test
     void shouldReleaseClientWhenWindowExpires() throws Exception {
         for (int i = 0; i < 3; i++) {
             perform("10.0.0.1", BASIC, 401);

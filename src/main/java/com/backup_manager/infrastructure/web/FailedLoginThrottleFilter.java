@@ -63,9 +63,11 @@ public class FailedLoginThrottleFilter extends OncePerRequestFilter {
 
         filterChain.doFilter(request, response);
 
-        if (response.getStatus() == HttpStatus.UNAUTHORIZED.value()) {
+        int status = response.getStatus();
+        if (status == HttpStatus.UNAUTHORIZED.value()) {
             recordFailure(client, now);
-        } else {
+        } else if (status < 400) {
+            // So uma resposta de sucesso prova que a credencial foi aceita; erros nao zeram o contador.
             attemptsByClient.remove(client);
         }
     }

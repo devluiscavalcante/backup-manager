@@ -85,6 +85,14 @@ public class SecurityConfig {
                         ))
                 )
                 .addFilterBefore(requestTracingFilter, BasicAuthenticationFilter.class)
+                // CSRF fica desabilitado (API stateless), mas o navegador reenvia credenciais Basic em cache:
+                // escritas vindas de outra origem sao bloqueadas pela verificacao do cabecalho Origin.
+                .addFilterBefore(
+                        new CrossOriginWriteProtectionFilter(securityProperties.getAllowedOrigins(), objectMapper),
+                        BasicAuthenticationFilter.class
+                )
+                // Registrado por ultimo para ficar colado no BasicAuthenticationFilter: respostas de filtros
+                // anteriores (ex.: 403 de origem cruzada) nao podem ser lidas como login aceito e zerar o contador.
                 .addFilterBefore(
                         new FailedLoginThrottleFilter(
                                 securityProperties.getMaxFailedLogins(),
@@ -92,12 +100,6 @@ public class SecurityConfig {
                                 objectMapper,
                                 Clock.systemUTC()
                         ),
-                        BasicAuthenticationFilter.class
-                )
-                // CSRF fica desabilitado (API stateless), mas o navegador reenvia credenciais Basic em cache:
-                // escritas vindas de outra origem sao bloqueadas pela verificacao do cabecalho Origin.
-                .addFilterBefore(
-                        new CrossOriginWriteProtectionFilter(securityProperties.getAllowedOrigins(), objectMapper),
                         BasicAuthenticationFilter.class
                 )
                 .authorizeHttpRequests(auth -> auth

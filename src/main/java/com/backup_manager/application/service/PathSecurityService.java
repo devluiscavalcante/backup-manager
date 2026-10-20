@@ -21,6 +21,7 @@ public class PathSecurityService {
 
     private static final Logger logger = LoggerFactory.getLogger(PathSecurityService.class);
     private static final Pattern PATH_SEPARATORS = Pattern.compile("[/\\\\]");
+    private static final Pattern DISK_ROOT = Pattern.compile("^([A-Za-z]:)?[/\\\\]$");
 
     // Segmentos protegidos em qualquer unidade (ex.: D:\Program Files), comparados por nome inteiro.
     private static final Set<String> PROTECTED_WINDOWS_SEGMENTS = Set.of(
@@ -101,7 +102,8 @@ public class PathSecurityService {
 
     static boolean isProtectedSystemPath(Path path) {
         // Raiz de unidade/sistema de arquivos (C:\ ou /): backup ou restauracao do disco inteiro.
-        if (path.getParent() == null) {
+        // A raiz de um compartilhamento UNC (\\nas\backup) continua permitida, como antes.
+        if (path.getNameCount() == 0 && DISK_ROOT.matcher(String.valueOf(path.getRoot())).matches()) {
             return true;
         }
 
