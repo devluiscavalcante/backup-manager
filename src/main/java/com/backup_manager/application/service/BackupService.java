@@ -2,6 +2,7 @@ package com.backup_manager.application.service;
 
 import com.backup_manager.application.dto.Progress;
 import com.backup_manager.application.progress.ProgressEmitter;
+import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
 import com.backup_manager.domain.event.BackupCompletedEvent;
 import com.backup_manager.domain.event.BackupFailedEvent;
@@ -55,6 +56,9 @@ public class BackupService {
     private final PathSecurityService pathSecurityService;
     private final Executor backupDispatchExecutor;
     private final BackupService self;
+    // Verificacao de backup ativo + criacao da tarefa precisam ser atomicas: duas requisicoes simultaneas
+    // para o mesmo par passavam ambas pela checagem antes de qualquer uma gravar.
+    private final Object startLock = new Object();
 
     @Value("${backup.exclusions:AppData,Temp,node_modules,.git,$RECYCLE.BIN}")
     private List<String> excludedFolders;
@@ -106,8 +110,17 @@ public class BackupService {
             pathSecurityService.ensureNotOverlapping(validatedSource, validatedDestination, "backup");
             validatePathAndDriveSpace(sourcePath, destinationPath);
 
-            BackupTask task = createInitialTask(sourcePath, destinationPath);
-            task = backupRepository.save(task);
+            // Persiste o caminho real: "C:/Dados", "c:\dados\" e uma junction para ele sao o mesmo par.
+            BackupTask task;
+            synchronized (startLock) {
+                Optional<BackupTask> active = findActiveTask(validatedSource, validatedDestination);
+                if (active.isPresent()) {
+                    throw new ActiveBackupConflictException(
+                            active.get().getId(), validatedSource.toString(), validatedDestination.toString());
+                }
+                task = backupRepository.save(
+                        createInitialTask(validatedSource.toString(), validatedDestination.toString()));
+            }
 
             final Long taskId = task.getId();
             logger.info("Backup criado com ID={}, iniciando processamento assincrono", taskId);
@@ -125,6 +138,9 @@ public class BackupService {
             }
             return taskId;
 
+        } catch (ActiveBackupConflictException conflict) {
+            logger.warn("Backup duplicado recusado: ja existe a tarefa {} para o par", conflict.getConflictingTaskId());
+            throw conflict;
         } catch (SecurityException se) {
             logger.error("BLOQUEIO DE SEGURANCA: {}", se.getMessage());
             progressEmitter.sendError("Erro de Seguranca: " + se.getMessage());
@@ -420,10 +436,14 @@ public class BackupService {
     }
 
     public Optional<BackupTask> getActiveTask(String sourcePath, String destinationPath) {
+        return findActiveTask(validateSafePath(sourcePath), validateSafePath(destinationPath));
+    }
+
+    private Optional<BackupTask> findActiveTask(Path source, Path destination) {
         // Busca diretamente no banco para evitar carregar todas as tarefas em memoria.
         return backupRepository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
-                sourcePath,
-                destinationPath,
+                source.toString(),
+                destination.toString(),
                 List.of(Status.EM_ANDAMENTO, Status.PAUSADO)
         );
     }

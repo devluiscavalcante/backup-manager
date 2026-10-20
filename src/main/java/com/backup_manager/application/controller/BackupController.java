@@ -13,6 +13,7 @@ import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.BackupService;
 import com.backup_manager.application.service.SecurityAuditService;
+import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
 import com.backup_manager.domain.exception.DestinationNotFoundException;
 import com.backup_manager.domain.exception.FolderEmptyException;
@@ -139,6 +140,21 @@ public class BackupController {
                     )
             );
 
+        } catch (ActiveBackupConflictException e) {
+            // Corrida: outra requisicao criou a tarefa entre a checagem acima e o runBackup.
+            securityAuditService.recordFailure("backup.start", "backup_request", "active_backup_conflict",
+                    Map.of("conflictingTaskId", e.getConflictingTaskId(),
+                            "sourceCount", sources.size(), "destinationCount", destinations.size()));
+            return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                    ApiErrorResponse.of(
+                            HttpStatus.CONFLICT,
+                            e.getMessage(),
+                            "active_backup_conflict",
+                            conflictDetails(e.getSourcePath(), e.getDestinationPath(), e.getConflictingTaskId()),
+                            "/api/backup/start",
+                            e.getConflictingTaskId()
+                    )
+            );
         } catch (SecurityException e) {
             logger.warn("Bloqueio de seguranca ao iniciar backup: {}", e.getMessage());
             securityAuditService.recordFailure("backup.start", "backup_request", "security_denied",

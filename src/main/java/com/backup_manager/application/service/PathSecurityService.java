@@ -11,12 +11,26 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
+import java.util.regex.Pattern;
 
 @Service
 public class PathSecurityService {
 
     private static final Logger logger = LoggerFactory.getLogger(PathSecurityService.class);
+    private static final Pattern PATH_SEPARATORS = Pattern.compile("[/\\\\]");
+
+    // Segmentos protegidos em qualquer unidade (ex.: D:\Program Files), comparados por nome inteiro.
+    private static final Set<String> PROTECTED_WINDOWS_SEGMENTS = Set.of(
+            "system32", "syswow64", "program files", "program files (x86)"
+    );
+
+    // Areas do sistema em Linux (imagem Docker): o conteudo e do SO, nunca dado de usuario.
+    private static final List<String> PROTECTED_UNIX_ROOTS = List.of(
+            "/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc", "/sbin", "/sys", "/usr"
+    );
 
     private final AppSecurityProperties securityProperties;
 
@@ -66,31 +80,60 @@ public class PathSecurityService {
         }
     }
 
+    // So o segmento ".." navega para cima; nomes como "v1..v2" ou "arquivo..bak" sao legitimos.
     private void ensureNotPathTraversal(String rawPath, String operationName) {
-        if (rawPath.contains("..")) {
+        boolean hasParentSegment = PATH_SEPARATORS.splitAsStream(rawPath).anyMatch(".."::equals);
+        if (hasParentSegment) {
             logger.warn("Path traversal bloqueado em {}: {}", operationName, rawPath);
             throw new SecurityException("Path traversal detectado na operacao de " + operationName + ".");
         }
     }
 
     private void ensureNotProtectedSystemPath(Path normalizedPath, String operationName) {
-        String normalized = normalizedPath.toString().toLowerCase();
-        String rootDir = System.getenv("SystemRoot");
-        String windowsDir = rootDir != null ? rootDir.toLowerCase() : "c:\\windows";
-
-        boolean isForbidden = normalized.startsWith(windowsDir)
-                || normalized.contains("system32")
-                || normalized.contains("syswow64")
-                || normalized.contains("program files")
-                || normalized.matches("^[a-z]:\\\\$");
-
-        if (isForbidden) {
+        if (isProtectedSystemPath(normalizedPath)) {
             logger.warn("Caminho protegido bloqueado em {}: {}", operationName, normalizedPath);
             throw new SecurityException(
                     "O caminho informado para a operacao de " + operationName
                             + " pertence a uma area protegida do sistema."
             );
         }
+    }
+
+    static boolean isProtectedSystemPath(Path path) {
+        // Raiz de unidade/sistema de arquivos (C:\ ou /): backup ou restauracao do disco inteiro.
+        if (path.getParent() == null) {
+            return true;
+        }
+
+        String rootDir = System.getenv("SystemRoot");
+        Path windowsDir = Paths.get(rootDir != null ? rootDir : "C:\\Windows");
+        if (startsWithIgnoreCase(path, windowsDir)) {
+            return true;
+        }
+
+        for (Path segment : path) {
+            if (PROTECTED_WINDOWS_SEGMENTS.contains(segment.toString().toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+
+        String unixPath = path.toString().replace('\\', '/');
+        return PROTECTED_UNIX_ROOTS.stream()
+                .anyMatch(root -> unixPath.equals(root) || unixPath.startsWith(root + "/"));
+    }
+
+    // Prefixo por segmento e sem diferenciar maiusculas (NTFS): "C:\WINDOWS\x" esta em "C:\Windows".
+    private static boolean startsWithIgnoreCase(Path path, Path prefix) {
+        if (path.getNameCount() < prefix.getNameCount()
+                || !String.valueOf(path.getRoot()).equalsIgnoreCase(String.valueOf(prefix.getRoot()))) {
+            return false;
+        }
+        for (int i = 0; i < prefix.getNameCount(); i++) {
+            if (!path.getName(i).toString().equalsIgnoreCase(prefix.getName(i).toString())) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void ensureWithinAllowedRoots(Path normalizedPath, String operationName) {

@@ -6,7 +6,9 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.annotation.Validated;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,6 +42,12 @@ public class AppSecurityProperties {
     private boolean allowDefaultPassword = false;
 
     private List<String> allowedPathRoots = new ArrayList<>();
+
+    // Credenciais recusadas por IP antes do bloqueio temporario, e duracao da janela/bloqueio.
+    @Min(1)
+    private int maxFailedLogins = 10;
+
+    private Duration failedLoginLockout = Duration.ofMinutes(5);
 
     private List<String> allowedOrigins = new ArrayList<>(List.of("http://localhost:4200"));
 }

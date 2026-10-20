@@ -1,6 +1,8 @@
 package com.backup_manager.application.service;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
@@ -14,6 +16,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 class PathSecurityServiceTests {
@@ -98,6 +102,42 @@ class PathSecurityServiceTests {
         Object service = createService(List.of(allowedRoot.toString()));
 
         assertDoesNotThrow(() -> validateManagedPath(service, link.toString(), "backup"));
+    }
+
+    @Test
+    void shouldAllowNamesThatOnlyContainDoubleDots() throws IOException {
+        Object service = createService(List.of(tempDir.toString()));
+        Path versioned = Files.createDirectories(tempDir.resolve("relatorio..v2"));
+
+        assertDoesNotThrow(() -> validateManagedPath(service, versioned.toString(), "backup"));
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void windowsProtectedAreasShouldMatchWholeSegments() {
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("C:\\")));
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("C:\\WINDOWS\\Temp")));
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("D:\\Program Files (x86)\\App")));
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("D:\\Tools\\System32")));
+
+        assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("C:\\Dados\\system32-notas")));
+        assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("C:\\Dados\\Program Files backup")));
+        assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("C:\\Windows.old.bak")));
+        assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("C:\\Dados\\etc")));
+    }
+
+    @Test
+    @EnabledOnOs({OS.LINUX, OS.MAC})
+    void unixSystemAreasShouldBeProtected() {
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("/")));
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("/etc")));
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("/etc/ssl/private")));
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("/proc/self")));
+        assertTrue(PathSecurityService.isProtectedSystemPath(Path.of("/usr/lib")));
+
+        assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("/etcetera/dados")));
+        assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("/home/user/system32-notas")));
+        assertFalse(PathSecurityService.isProtectedSystemPath(Path.of("/data/backups")));
     }
 
     private void createSymbolicLinkOrSkip(Path link, Path target) {

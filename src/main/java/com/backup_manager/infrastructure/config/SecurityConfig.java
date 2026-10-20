@@ -2,6 +2,7 @@ package com.backup_manager.infrastructure.config;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.infrastructure.web.CrossOriginWriteProtectionFilter;
+import com.backup_manager.infrastructure.web.FailedLoginThrottleFilter;
 import com.backup_manager.infrastructure.web.RequestTracingFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,6 +29,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.www.BasicAuthenticationFilter;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -83,6 +85,15 @@ public class SecurityConfig {
                         ))
                 )
                 .addFilterBefore(requestTracingFilter, BasicAuthenticationFilter.class)
+                .addFilterBefore(
+                        new FailedLoginThrottleFilter(
+                                securityProperties.getMaxFailedLogins(),
+                                securityProperties.getFailedLoginLockout(),
+                                objectMapper,
+                                Clock.systemUTC()
+                        ),
+                        BasicAuthenticationFilter.class
+                )
                 // CSRF fica desabilitado (API stateless), mas o navegador reenvia credenciais Basic em cache:
                 // escritas vindas de outra origem sao bloqueadas pela verificacao do cabecalho Origin.
                 .addFilterBefore(

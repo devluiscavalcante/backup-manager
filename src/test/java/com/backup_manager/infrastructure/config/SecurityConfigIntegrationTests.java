@@ -84,6 +84,34 @@ class SecurityConfigIntegrationTests {
                 .andExpect(status().isOk());
     }
 
+    @Test
+    void repeatedWrongPasswordsShouldLockTheClientEvenForCorrectCredentials() throws Exception {
+        // IP proprio para nao bloquear os demais testes que compartilham o contexto.
+        for (int i = 0; i < 10; i++) {
+            mockMvc.perform(get("/api/backup/active")
+                            .with(request -> {
+                                request.setRemoteAddr("203.0.113.7");
+                                return request;
+                            })
+                            .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "palpite-" + i)))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(get("/api/backup/active")
+                        .with(request -> {
+                            request.setRemoteAddr("203.0.113.7");
+                            return request;
+                        })
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().exists(HttpHeaders.RETRY_AFTER))
+                .andExpect(jsonPath("$.code").value("too_many_failed_logins"));
+
+        mockMvc.perform(get("/api/backup/active")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isOk());
+    }
+
     private String basicAuth(String username, String password) {
         String credentials = username + ":" + password;
         String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));

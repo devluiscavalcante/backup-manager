@@ -1,12 +1,16 @@
 package com.backup_manager.application.progress;
 
 import com.backup_manager.application.dto.Progress;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -16,6 +20,11 @@ public class ProgressEmitter {
     private static final Logger logger = LoggerFactory.getLogger(ProgressEmitter.class);
     private static final long DEFAULT_TIMEOUT = 1000L * 60 * 30; // 30 minutos
     private final Set<SseEmitter> emitters = ConcurrentHashMap.newKeySet();
+    private final ObjectMapper objectMapper;
+
+    public ProgressEmitter(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     public SseEmitter createEmitter() {
         SseEmitter emitter = new SseEmitter(DEFAULT_TIMEOUT);
@@ -54,27 +63,49 @@ public class ProgressEmitter {
     }
 
     public void sendProgress(Progress progress) {
-        String payload = createProgressPayload(progress);
-        sendEvent("progress", payload);
+        sendEvent("progress", toProgressJson(progress));
+    }
+
+    String toProgressJson(Progress progress) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("percent", progress.getPercent());
+        payload.put("currentFile", nullToEmpty(progress.getCurrentFile()));
+        payload.put("processedFiles", progress.getProcessedFiles());
+        payload.put("totalFiles", progress.getTotalFiles());
+        payload.put("taskId", nullToEmpty(progress.getTaskId()));
+        return toJson(payload);
     }
 
     public void sendComplete(String message) {
-        String payload = String.format("{\"message\":\"%s\"}", escapeJson(message));
-        sendEvent("complete", payload);
+        sendEvent("complete", toJson(Map.of("message", nullToEmpty(message))));
     }
 
     public void sendError(String error) {
-        String payload = String.format("{\"error\":\"%s\"}", escapeJson(error));
-        sendEvent("error", payload);
+        sendEvent("error", toJson(Map.of("error", nullToEmpty(error))));
     }
 
     // Método para enviar eventos de controle
     public void sendControlEvent(String eventType, Long taskId, String status) {
-        String payload = String.format(
-                "{\"type\":\"%s\",\"taskId\":%d,\"status\":\"%s\",\"timestamp\":%d}",
-                escapeJson(eventType), taskId, escapeJson(status), System.currentTimeMillis()
-        );
-        sendEvent("control", payload);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("type", nullToEmpty(eventType));
+        payload.put("taskId", taskId);
+        payload.put("status", nullToEmpty(status));
+        payload.put("timestamp", System.currentTimeMillis());
+        sendEvent("control", toJson(payload));
+    }
+
+    // Nomes de arquivo podem ter qualquer caractere (inclusive de controle): o escape fica com o Jackson.
+    private String toJson(Map<String, ?> payload) {
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (JsonProcessingException e) {
+            logger.warn("Falha ao serializar evento SSE: {}", e.getMessage());
+            return "{}";
+        }
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     // Método genérico para enviar eventos
@@ -154,27 +185,5 @@ public class ProgressEmitter {
         }
 
         return false;
-    }
-
-    private String createProgressPayload(Progress progress) {
-        return String.format(
-                "{\"percent\":%d,\"currentFile\":\"%s\",\"processedFiles\":%d,\"totalFiles\":%d,\"taskId\":\"%s\"}",
-                progress.getPercent(),
-                escapeJson(progress.getCurrentFile()),
-                progress.getProcessedFiles(),
-                progress.getTotalFiles(),
-                escapeJson(progress.getTaskId())
-        );
-    }
-
-    private String escapeJson(String input) {
-        if (input == null) {
-            return "";
-        }
-        return input.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
     }
 }
