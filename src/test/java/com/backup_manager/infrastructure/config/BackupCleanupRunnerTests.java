@@ -1,8 +1,11 @@
 package com.backup_manager.infrastructure.config;
 
 import com.backup_manager.domain.model.BackupTask;
+import com.backup_manager.domain.model.RestoreStatus;
+import com.backup_manager.domain.model.RestoreTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.persistence.RestoreRepository;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -17,7 +20,8 @@ import static org.mockito.Mockito.when;
 class BackupCleanupRunnerTests {
 
     private final BackupRepository repository = mock(BackupRepository.class);
-    private final BackupCleanupRunner runner = new BackupCleanupRunner(repository);
+    private final RestoreRepository restoreRepository = mock(RestoreRepository.class);
+    private final BackupCleanupRunner runner = new BackupCleanupRunner(repository, restoreRepository);
 
     @Test
     void marksInterruptedTasksAsFailed() {
@@ -39,10 +43,28 @@ class BackupCleanupRunnerTests {
     @Test
     void doesNothingWhenNoTaskWasInterrupted() {
         when(repository.findByStatusIn(any())).thenReturn(List.of());
+        when(restoreRepository.findByStatus(RestoreStatus.EM_ANDAMENTO)).thenReturn(List.of());
 
         runner.run();
 
         verify(repository, never()).saveAll(any());
+        verify(restoreRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void marksInterruptedRestoresAsFailed() {
+        when(repository.findByStatusIn(any())).thenReturn(List.of());
+        RestoreTask restore = new RestoreTask();
+        restore.setId(3L);
+        restore.setStatus(RestoreStatus.EM_ANDAMENTO);
+        when(restoreRepository.findByStatus(RestoreStatus.EM_ANDAMENTO)).thenReturn(List.of(restore));
+
+        runner.run();
+
+        assertThat(restore.getStatus()).isEqualTo(RestoreStatus.FALHA);
+        assertThat(restore.getFinishedAt()).isNotNull();
+        assertThat(restore.getErrorMessage()).isNotBlank();
+        verify(restoreRepository).saveAll(List.of(restore));
     }
 
     private static BackupTask task(Long id, Status status) {

@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
@@ -144,6 +145,25 @@ class FileStorageOperationsTests {
         } catch (IOException | UnsupportedOperationException e) {
             assumeTrue(false, "Criacao de symlink indisponivel: " + e.getMessage());
         }
+    }
+
+    @Test
+    void shouldRecopyFileRevertedToOlderVersionWithSameSize() throws IOException {
+        Path source = tempDir.resolve("origem");
+        Path destination = tempDir.resolve("destino");
+        Path sourceFile = source.resolve("planilha.xlsx");
+        Path backupFile = destination.resolve("planilha.xlsx");
+        write(sourceFile);
+        storageOperations.copyDirectoryIncremental(source, destination, List.of(), noOpCallback());
+
+        // Usuario restaura uma versao antiga (mesmo tamanho, mtime anterior ao do backup).
+        Files.writeString(sourceFile, "antigo!!");
+        Files.setLastModifiedTime(sourceFile,
+                FileTime.fromMillis(Files.getLastModifiedTime(backupFile).toMillis() - 60_000));
+
+        storageOperations.copyDirectoryIncremental(source, destination, List.of(), noOpCallback());
+
+        assertThat(backupFile).hasContent("antigo!!");
     }
 
     private void write(Path file) throws IOException {

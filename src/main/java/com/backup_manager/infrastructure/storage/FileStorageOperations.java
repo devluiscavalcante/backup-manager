@@ -16,6 +16,9 @@ public class FileStorageOperations {
 
     private static final Logger logger = LoggerFactory.getLogger(FileStorageOperations.class);
 
+    /** Alertas da copia, gravados na raiz do destino; nao fazem parte do conteudo do backup. */
+    public static final String WARNINGS_LOG = "warnings.log";
+
     public interface BackupProgressCallback {
         void onFileProcessed(Path file, BasicFileAttributes attrs);
         void onWarning(String message, Path path);
@@ -98,11 +101,13 @@ public class FileStorageOperations {
         return warnings.get();
     }
 
+    // Qualquer diferenca de mtime conta: um arquivo revertido para uma versao antiga, com o mesmo
+    // tamanho, tambem precisa ser recopiado.
     private boolean isIncrementalNeeded(Path source, Path target, BasicFileAttributes sourceAttrs) throws IOException {
         if (!Files.exists(target)) return true;
         BasicFileAttributes targetAttrs = Files.readAttributes(target, BasicFileAttributes.class);
         return sourceAttrs.size() != targetAttrs.size() ||
-                sourceAttrs.lastModifiedTime().toMillis() > targetAttrs.lastModifiedTime().toMillis();
+                sourceAttrs.lastModifiedTime().toMillis() != targetAttrs.lastModifiedTime().toMillis();
     }
 
     // Compara apenas o nome da entrada (sem diferenciar maiusculas). A raiz da origem nunca e excluida,

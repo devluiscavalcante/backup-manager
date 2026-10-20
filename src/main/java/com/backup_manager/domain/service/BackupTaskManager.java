@@ -4,10 +4,10 @@ import com.backup_manager.domain.event.BackupCancelledEvent;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
-import jakarta.transaction.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -15,16 +15,17 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Predicate;
 
 @Component
 public class BackupTaskManager {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupTaskManager.class);
+    private static final int MAX_TRANSITION_ATTEMPTS = 3;
 
     private final Map<Long, AtomicReference<BackupTask>> runningTasks = new ConcurrentHashMap<>();
     private final BackupRepository backupRepository;
     private final ApplicationEventPublisher eventPublisher;
-
 
     public BackupTaskManager(BackupRepository backupRepository, ApplicationEventPublisher eventPublisher) {
         this.backupRepository = backupRepository;
@@ -55,133 +56,100 @@ public class BackupTaskManager {
         return backupRepository.findById(taskId).orElse(null);
     }
 
-    @Transactional
     public boolean pauseTask(Long taskId) {
         logger.info("Pausando backup: ID={}", taskId);
 
-        try {
-            Optional<BackupTask> dbTaskOpt = backupRepository.findById(taskId);
-            if (!dbTaskOpt.isPresent()) {
-                logger.warn("Backup {} não encontrado", taskId);
-                return false;
-            }
-
-            BackupTask dbTask = dbTaskOpt.get();
-
+        Optional<BackupTask> paused = transition(taskId, "pausado", dbTask -> {
             if (dbTask.getStatus() != Status.EM_ANDAMENTO) {
-                logger.warn("Backup {} não pode ser pausado. Status: {}", taskId, dbTask.getStatus());
                 return false;
             }
-
-            LocalDateTime pauseTime = LocalDateTime.now();
-
             dbTask.setPaused(true);
             dbTask.setStatus(Status.PAUSADO);
-            dbTask.setPausedAt(pauseTime);
-
-            backupRepository.save(dbTask);
-            backupRepository.flush();
-
-            AtomicReference<BackupTask> taskRef = runningTasks.get(taskId);
-            if (taskRef != null) {
-                taskRef.set(dbTask);
-            }
-
-            logger.info("Backup {} pausado com sucesso", taskId);
+            dbTask.setPausedAt(LocalDateTime.now());
             return true;
+        });
 
-        } catch (Exception e) {
-            logger.error("Erro ao pausar backup {}: {}", taskId, e.getMessage(), e);
-            return false;
-        }
+        paused.ifPresent(task -> logger.info("Backup {} pausado com sucesso", taskId));
+        return paused.isPresent();
     }
 
-    @Transactional
     public boolean resumeTask(Long taskId) {
         logger.info("Retomando backup: ID={}", taskId);
 
-        try {
-            Optional<BackupTask> dbTaskOpt = backupRepository.findById(taskId);
-            if (!dbTaskOpt.isPresent()) {
-                logger.warn("Backup {} não encontrado", taskId);
-                return false;
-            }
-
-            BackupTask dbTask = dbTaskOpt.get();
-
+        Optional<BackupTask> resumed = transition(taskId, "retomado", dbTask -> {
             if (dbTask.getStatus() != Status.PAUSADO) {
-                logger.warn("Backup {} não pode ser retomado. Status: {}", taskId, dbTask.getStatus());
                 return false;
             }
-
             dbTask.setPaused(false);
             dbTask.setStatus(Status.EM_ANDAMENTO);
-
-            backupRepository.save(dbTask);
-            backupRepository.flush();
-
-            AtomicReference<BackupTask> taskRef = runningTasks.get(taskId);
-            if (taskRef != null) {
-                taskRef.set(dbTask);
-            }
-
-            logger.info("Backup {} retomado com sucesso", taskId);
             return true;
+        });
 
-        } catch (Exception e) {
-            logger.error("Erro ao retomar backup {}: {}", taskId, e.getMessage(), e);
-            return false;
-        }
+        resumed.ifPresent(task -> logger.info("Backup {} retomado com sucesso", taskId));
+        return resumed.isPresent();
     }
 
-    @Transactional
     public boolean cancelTask(Long taskId) {
         logger.info("Cancelando backup: ID={}", taskId);
 
-        try {
-            Optional<BackupTask> dbTaskOpt = backupRepository.findById(taskId);
-            if (!dbTaskOpt.isPresent()) {
-                logger.warn("Backup {} não encontrado", taskId);
+        Optional<BackupTask> cancelled = transition(taskId, "cancelado", dbTask -> {
+            if (dbTask.getStatus() != Status.EM_ANDAMENTO && dbTask.getStatus() != Status.PAUSADO) {
                 return false;
             }
-
-            BackupTask dbTask = dbTaskOpt.get();
-
-            if (dbTask.getStatus() != Status.EM_ANDAMENTO &&
-                    dbTask.getStatus() != Status.PAUSADO) {
-                logger.warn("Backup {} não pode ser cancelado. Status: {}", taskId, dbTask.getStatus());
-                return false;
-            }
-
-            LocalDateTime cancelTime = LocalDateTime.now();
-
             dbTask.setCancelled(true);
             dbTask.setStatus(Status.CANCELADO);
-            dbTask.setFinishedAt(cancelTime);
+            dbTask.setFinishedAt(LocalDateTime.now());
             dbTask.setErrorMessage("Backup cancelado pelo usuário");
-
-            if (dbTask.getStatus() == Status.PAUSADO && dbTask.getPausedAt() == null) {
-                dbTask.setPausedAt(cancelTime.minusSeconds(10));
-            }
-
-            backupRepository.save(dbTask);
-            backupRepository.flush();
-
-            // Atualizar memória
-            AtomicReference<BackupTask> taskRef = runningTasks.get(taskId);
-            if (taskRef != null) {
-                taskRef.set(dbTask);
-            }
-
-            eventPublisher.publishEvent(new BackupCancelledEvent(dbTask));
-            logger.info("Backup {} cancelado com sucesso", taskId);
-
             return true;
+        });
 
-        } catch (Exception e) {
-            logger.error("Erro ao cancelar backup {}: {}", taskId, e.getMessage(), e);
-            return false;
+        cancelled.ifPresent(task -> {
+            eventPublisher.publishEvent(new BackupCancelledEvent(task));
+            logger.info("Backup {} cancelado com sucesso", taskId);
+        });
+        return cancelled.isPresent();
+    }
+
+    /**
+     * Aplica uma mudanca de estado sobre a versao atual do banco. Se outra escrita (o worker finalizando
+     * ou outro comando) alterar a tarefa entre a leitura e o save, o @Version recusa o save e a regra e
+     * reavaliada sobre o estado novo, em vez de sobrescreve-lo.
+     */
+    private Optional<BackupTask> transition(Long taskId, String targetState, Predicate<BackupTask> change) {
+        for (int attempt = 1; attempt <= MAX_TRANSITION_ATTEMPTS; attempt++) {
+            try {
+                Optional<BackupTask> dbTaskOpt = backupRepository.findById(taskId);
+                if (dbTaskOpt.isEmpty()) {
+                    logger.warn("Backup {} não encontrado", taskId);
+                    return Optional.empty();
+                }
+
+                BackupTask dbTask = dbTaskOpt.get();
+                Status currentStatus = dbTask.getStatus();
+                if (!change.test(dbTask)) {
+                    logger.warn("Backup {} não pode ser {}. Status: {}", taskId, targetState, currentStatus);
+                    return Optional.empty();
+                }
+
+                BackupTask saved = backupRepository.saveAndFlush(dbTask);
+
+                AtomicReference<BackupTask> taskRef = runningTasks.get(taskId);
+                if (taskRef != null) {
+                    taskRef.set(saved);
+                }
+                return Optional.of(saved);
+
+            } catch (OptimisticLockingFailureException e) {
+                logger.info("Backup {} alterado concorrentemente, reavaliando (tentativa {}/{})",
+                        taskId, attempt, MAX_TRANSITION_ATTEMPTS);
+            } catch (Exception e) {
+                logger.error("Erro ao alterar backup {} para {}: {}", taskId, targetState, e.getMessage(), e);
+                return Optional.empty();
+            }
         }
+
+        logger.warn("Backup {} nao foi {}: conflito de concorrencia persistente", taskId, targetState);
+        return Optional.empty();
     }
 
     public void unregisterTask(Long taskId) {

@@ -39,7 +39,8 @@ public class FileRestoreOperations {
         AtomicLong totalSize = new AtomicLong(0);
 
         Path realBackup = backupSource.toRealPath();
-        int totalFiles = countFiles(realBackup);
+        boolean hasWarningsLog = Files.exists(realBackup.resolve(FileStorageOperations.WARNINGS_LOG));
+        int totalFiles = countFiles(realBackup) - (hasWarningsLog ? 1 : 0);
 
         Files.walkFileTree(realBackup, new SimpleFileVisitor<>() {
             @Override
@@ -65,6 +66,10 @@ public class FileRestoreOperations {
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
                 if (!callback.shouldContinue()) {
                     return FileVisitResult.TERMINATE;
+                }
+
+                if (isBackupWarningsLog(file, realBackup)) {
+                    return FileVisitResult.CONTINUE;
                 }
 
                 if (FileLinks.isLink(attrs)) {
@@ -161,6 +166,10 @@ public class FileRestoreOperations {
                     continue;
                 }
 
+                if (isBackupWarningsLog(realSourceFile, realBackup)) {
+                    continue;
+                }
+
                 if (Files.isDirectory(realSourceFile)) {
                     restoreDirectory(realSourceFile, realBackup, targetDestination,
                             overwriteExisting, callback, processedFiles,
@@ -218,6 +227,10 @@ public class FileRestoreOperations {
                 if (FileLinks.isLink(attrs)) {
                     callback.onWarning("Link simbolico ignorado", file);
                     warnings.incrementAndGet();
+                    return FileVisitResult.CONTINUE;
+                }
+
+                if (isBackupWarningsLog(file, backupRoot)) {
                     return FileVisitResult.CONTINUE;
                 }
 
@@ -284,6 +297,12 @@ public class FileRestoreOperations {
 
         callback.onFileRestored(sourceFile, attrs);
         callback.onProgress(processed, totalFiles);
+    }
+
+    // O warnings.log da raiz e gerado pelo proprio backup: restaura-lo poluiria o destino do usuario.
+    public static boolean isBackupWarningsLog(Path file, Path backupRoot) {
+        return backupRoot.equals(file.getParent())
+                && file.getFileName().toString().equalsIgnoreCase(FileStorageOperations.WARNINGS_LOG);
     }
 
     private Path generateUniqueFileName(Path file) {
