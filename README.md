@@ -351,7 +351,7 @@ Todas as opções vêm de variáveis de ambiente ou de um arquivo `.env` na raiz
 | Variável | Padrão | Descrição |
 |---|---|---|
 | `DB_HOST` | `localhost` | Host do PostgreSQL |
-| `DB_PORT` | `5432` | Porta do PostgreSQL |
+| `DB_PORT` | `5432` | Porta do PostgreSQL (também publicada pelo `docker compose`, só em `127.0.0.1`) |
 | `DB_NAME` | `backup_manager` | Nome do banco |
 | `DB_USERNAME` | `postgres` | Usuário do banco |
 | `DB_PASSWORD` | *(vazio)* | Senha do banco (`postgres` no `docker-compose.yml`) |
@@ -391,7 +391,9 @@ Todas as opções vêm de variáveis de ambiente ou de um arquivo `.env` na raiz
 | `NOTIFICATION_NOTIFY_SUCCESS` | `false` | Notifica backups concluídos |
 | `NOTIFICATION_NOTIFY_FAILURE` | `false` | Notifica falhas |
 | `MAIL_HOST` | *(placeholder)* | Servidor SMTP |
-| `MAIL_PORT` | `465` | Porta SMTP (SSL) |
+| `MAIL_PORT` | `465` | Porta SMTP |
+| `MAIL_SSL_ENABLED` | `true` | SSL direto (porta 465) |
+| `MAIL_STARTTLS_ENABLED` | `false` | STARTTLS (porta 587; use com `MAIL_SSL_ENABLED=false`) |
 | `MAIL_USERNAME` | *(placeholder)* | Usuário SMTP |
 | `MAIL_PASSWORD` | *(placeholder)* | Senha SMTP |
 | `AUDIT_RETENTION_ENABLED` | `true` | Limpeza automática de auditoria |

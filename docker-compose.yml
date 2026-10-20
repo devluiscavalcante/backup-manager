@@ -2,16 +2,20 @@ services:
   postgres:
     image: postgres:15-alpine
     container_name: backup-manager-db
+    # Os valores vem do mesmo .env lido pela aplicacao, entao banco e backend nao divergem.
+    # A senha so vale na criacao do volume: trocar depois exige ALTER USER ou recriar o volume.
     environment:
-      POSTGRES_DB: backup_manager
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ${DB_NAME:-backup_manager}
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-postgres}
+    # So no loopback: o banco nao fica exposto na rede. DB_PORT permite fugir de um Postgres
+    # nativo que ja ocupe a 5432.
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 10s
       timeout: 5s
       retries: 5
