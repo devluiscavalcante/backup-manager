@@ -2,12 +2,15 @@ package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.BackupRequest;
+import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.application.service.BackupHistoryService;
 import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.BackupService;
 import com.backup_manager.application.service.SecurityAuditService;
 import com.backup_manager.domain.exception.BackupInitializationException;
+import com.backup_manager.domain.model.BackupTask;
+import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
@@ -25,6 +28,44 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class BackupControllerTests {
+
+    @Test
+    void historyShouldReturnNewestTasksUpToTheRequestedLimit() {
+        BackupService backupService = mock(BackupService.class);
+        BackupController controller = controllerWith(backupService);
+        BackupTask newest = new BackupTask();
+        newest.setSourcePath("source");
+        newest.setDestinationPath("destination");
+        newest.setStatus(Status.CONCLUIDO);
+        when(backupService.getRecentTasks(500)).thenReturn(List.of(newest));
+
+        ResponseEntity<Object> response = controller.getBackupHistory(500);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(((CollectionResponse<?>) response.getBody()).getItems()).hasSize(1);
+        verify(backupService).getRecentTasks(500);
+    }
+
+    @Test
+    void historyShouldRejectLimitOutOfRange() {
+        BackupService backupService = mock(BackupService.class);
+        BackupController controller = controllerWith(backupService);
+
+        assertThat(controller.getBackupHistory(0).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(controller.getBackupHistory(1001).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        verify(backupService, never()).getRecentTasks(org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    private BackupController controllerWith(BackupService backupService) {
+        return new BackupController(
+                backupService,
+                mock(BackupRequestValidationService.class),
+                mock(ProgressEmitter.class),
+                mock(BackupRepository.class),
+                mock(BackupHistoryService.class),
+                mock(SecurityAuditService.class)
+        );
+    }
 
     @Test
     void startBackupShouldReturnFailureWhenTaskInitializationFails() {

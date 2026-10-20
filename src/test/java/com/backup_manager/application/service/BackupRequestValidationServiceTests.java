@@ -172,6 +172,30 @@ class BackupRequestValidationServiceTests {
         );
     }
 
+    @Test
+    void requiredSpaceShouldDiscountWhatIsAlreadyInTheDestination() throws IOException {
+        Path sourceDir = Files.createDirectories(tempDir.resolve("source"));
+        Files.write(sourceDir.resolve("a.bin"), new byte[3000]);
+        Files.write(sourceDir.resolve("b.bin"), new byte[1000]);
+        Path destinationDir = Files.createDirectories(tempDir.resolve("destination"));
+        Files.write(destinationDir.resolve("a.bin"), new byte[3000]);
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        assertEquals(1000, service.estimateRequiredBytes(sourceDir.toFile(), destinationDir));
+        assertEquals(4000, service.estimateRequiredBytes(sourceDir.toFile(), tempDir.resolve("novo-destino")));
+    }
+
+    @Test
+    void requiredSpaceShouldNeverBeNegative() throws IOException {
+        Path sourceDir = Files.createDirectories(tempDir.resolve("source"));
+        Files.write(sourceDir.resolve("a.bin"), new byte[10]);
+        Path destinationDir = Files.createDirectories(tempDir.resolve("destination"));
+        Files.write(destinationDir.resolve("antigo.bin"), new byte[5000]);
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        assertEquals(0, service.estimateRequiredBytes(sourceDir.toFile(), destinationDir));
+    }
+
     private BackupRequestValidationService createService(List<String> allowedRoots) {
         AppSecurityProperties properties = new AppSecurityProperties();
         properties.setAllowedPathRoots(allowedRoots);

@@ -54,6 +54,15 @@ public class BackupRequestValidationService {
         }
     }
 
+    // Backup incremental: o que ja esta no destino nao sera copiado de novo, entao exigir o tamanho
+    // inteiro da origem recusava backups que cabiam com folga. A estimativa e o que falta copiar.
+    long estimateRequiredBytes(File sourceFolder, Path destinationPath) {
+        long sourceBytes = backupManager.scan(sourceFolder).totalBytes();
+        File destination = destinationPath.toFile();
+        long alreadyCopied = destination.isDirectory() ? backupManager.scan(destination).totalBytes() : 0;
+        return Math.max(0, sourceBytes - alreadyCopied);
+    }
+
     public void validatePairing(List<String> sources, List<String> destinations) {
         if (sources == null || destinations == null || sources.isEmpty() || destinations.isEmpty()) {
             throw new IllegalArgumentException("As listas de origens e destinos nao podem estar vazias.");
@@ -77,7 +86,7 @@ public class BackupRequestValidationService {
 
     private void validateAvailableSpace(File sourceFolder, Path destinationPath) {
         File destinationRoot = destinationPath.getRoot().toFile();
-        long requiredSpace = backupManager.calculateFolderSizeMB(sourceFolder).longValue() * 1024 * 1024;
+        long requiredSpace = estimateRequiredBytes(sourceFolder, destinationPath);
         long availableSpace = destinationRoot.getUsableSpace();
 
         if (requiredSpace > availableSpace) {
