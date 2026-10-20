@@ -77,6 +77,18 @@ public class NotificationEventListener {
 
     @EventListener
     @Async
+    public void handleScheduledBackupFailed(ScheduledBackupFailedEvent event) {
+        logger.info("Evento recebido: execucao agendada '{}' falhou ao iniciar", event.getBackupName());
+
+        try {
+            emailService.sendScheduledFailureNotification(event.getBackupName(), event.getFailures());
+        } catch (Exception e) {
+            logger.error("Erro ao processar notificação de falha de agendamento: {}", e.getMessage(), e);
+        }
+    }
+
+    @EventListener
+    @Async
     public void handleBackupCancelled(BackupCancelledEvent event) {
         logger.info("Evento recebido: Backup {} cancelado", event.getTask().getId());
 
