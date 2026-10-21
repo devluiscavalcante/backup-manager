@@ -63,6 +63,9 @@ class FlywayConfigIntegrationTests {
         try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
              Statement statement = connection.createStatement()) {
             statement.execute("DROP TABLE " + schemaName + ".security_audit_events CASCADE");
+            statement.execute("DROP TABLE " + schemaName + ".one_time_backup_destinations CASCADE");
+            statement.execute("DROP TABLE " + schemaName + ".one_time_backup_sources CASCADE");
+            statement.execute("DROP TABLE " + schemaName + ".one_time_backups CASCADE");
             statement.execute("DROP TABLE " + schemaName + ".restore_tasks CASCADE");
             statement.execute("DROP TABLE " + schemaName + ".scheduled_backup_destinations CASCADE");
             statement.execute("DROP TABLE " + schemaName + ".scheduled_backup_sources CASCADE");
@@ -137,7 +140,7 @@ class FlywayConfigIntegrationTests {
 
         new FlywayConfig().flyway(dataSource(), strictEnvironment());
 
-        assertThat(appliedVersions(schemaName)).contains("0", "1", "1.1", "2", "4", "5", "6");
+        assertThat(appliedVersions(schemaName)).contains("0", "1", "1.1", "2", "4", "5", "6", "7");
     }
 
     @Test

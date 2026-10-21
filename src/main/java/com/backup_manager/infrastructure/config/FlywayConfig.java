@@ -38,7 +38,10 @@ public class FlywayConfig {
             "scheduled_backup_sources",
             "scheduled_backup_destinations",
             "restore_tasks",
-            "security_audit_events"
+            "security_audit_events",
+            "one_time_backups",
+            "one_time_backup_sources",
+            "one_time_backup_destinations"
     );
 
     // Tabelas de versoes anteriores ao Flyway (nomes gerados pelo Hibernate antes das migracoes).

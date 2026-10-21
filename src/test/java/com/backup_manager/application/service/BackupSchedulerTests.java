@@ -3,22 +3,30 @@ package com.backup_manager.application.service;
 import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.domain.event.ScheduledBackupFailedEvent;
 import com.backup_manager.domain.model.BackupTask;
+import com.backup_manager.domain.model.OneTimeBackupEntity;
+import com.backup_manager.domain.model.OneTimeBackupStatus;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
+import com.backup_manager.infrastructure.persistence.OneTimeBackupRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ScheduledFuture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -86,7 +94,8 @@ class BackupSchedulerTests {
         BackupRequestValidationService validation = mock(BackupRequestValidationService.class);
         ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
         BackupScheduler scheduler = new BackupScheduler(mock(BackupService.class), validation,
-                mock(ThreadPoolTaskScheduler.class), mock(BackupSchedulerProperties.class), publisher);
+                mock(ThreadPoolTaskScheduler.class), mock(BackupSchedulerProperties.class), publisher,
+                mock(OneTimeBackupRepository.class));
         BackupRequest request = request("source", "destination");
 
         doThrow(new IllegalStateException("disco_indisponivel"))
@@ -142,8 +151,151 @@ class BackupSchedulerTests {
                 mock(BackupRequestValidationService.class),
                 mock(ThreadPoolTaskScheduler.class),
                 mock(BackupSchedulerProperties.class),
-                publisher
+                publisher,
+                mock(OneTimeBackupRepository.class)
         );
+    }
+
+    // ---------- execucoes unicas persistidas
+
+    @Test
+    void scheduleOneTimeBackupShouldPersistAndReturnDatabaseId() {
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        ThreadPoolTaskScheduler taskScheduler = mock(ThreadPoolTaskScheduler.class);
+        BackupScheduler scheduler = oneTimeScheduler(mock(BackupService.class), taskScheduler, repository);
+        when(repository.save(any(OneTimeBackupEntity.class))).thenAnswer(invocation -> {
+            OneTimeBackupEntity saved = invocation.getArgument(0);
+            saved.setId(55L);
+            return saved;
+        });
+        doReturn(mock(ScheduledFuture.class)).when(taskScheduler).schedule(any(Runnable.class), any(Instant.class));
+
+        Long id = scheduler.scheduleOneTimeBackup(request("source", "destination"), 30, "Noturno");
+
+        assertThat(id).isEqualTo(55L);
+        ArgumentCaptor<OneTimeBackupEntity> saved = ArgumentCaptor.forClass(OneTimeBackupEntity.class);
+        verify(repository).save(saved.capture());
+        assertThat(saved.getValue().getStatus()).isEqualTo(OneTimeBackupStatus.PENDENTE);
+        assertThat(saved.getValue().getSources()).containsExactly("source");
+        assertThat(saved.getValue().getScheduledFor()).isAfter(LocalDateTime.now().plusMinutes(29));
+        verify(taskScheduler).schedule(any(Runnable.class), any(Instant.class));
+    }
+
+    @Test
+    void pendingOneTimeBackupsShouldBeRescheduledOnStartupAndOverdueOnesRunNow() {
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        ThreadPoolTaskScheduler taskScheduler = mock(ThreadPoolTaskScheduler.class);
+        BackupScheduler scheduler = oneTimeScheduler(mock(BackupService.class), taskScheduler, repository);
+        OneTimeBackupEntity overdue = oneTime(1L, LocalDateTime.now().minusHours(3));
+        OneTimeBackupEntity future = oneTime(2L, LocalDateTime.now().plusHours(2));
+        when(repository.findByStatusOrderByScheduledForAsc(OneTimeBackupStatus.PENDENTE))
+                .thenReturn(List.of(overdue, future));
+        doReturn(mock(ScheduledFuture.class)).when(taskScheduler).schedule(any(Runnable.class), any(Instant.class));
+        Instant before = Instant.now();
+
+        scheduler.reschedulePendingOneTimeBackups();
+
+        ArgumentCaptor<Instant> when = ArgumentCaptor.forClass(Instant.class);
+        verify(taskScheduler, times(2)).schedule(any(Runnable.class), when.capture());
+        assertThat(when.getAllValues().get(0)).isBetween(before, Instant.now());
+        assertThat(when.getAllValues().get(1)).isAfter(Instant.now().plusSeconds(3600));
+    }
+
+    @Test
+    void runOneTimeShouldMarkExecutedWhenBackupStarts() {
+        BackupService backupService = mock(BackupService.class);
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        BackupScheduler scheduler = oneTimeScheduler(backupService, mock(ThreadPoolTaskScheduler.class), repository);
+        OneTimeBackupEntity pending = oneTime(3L, LocalDateTime.now());
+        when(repository.findById(3L)).thenReturn(Optional.of(pending));
+        when(backupService.getActiveTask("source", "destination")).thenReturn(Optional.empty());
+        when(backupService.runBackup("source", "destination")).thenReturn(42L);
+
+        scheduler.runOneTime(3L);
+
+        assertThat(pending.getStatus()).isEqualTo(OneTimeBackupStatus.EXECUTADO);
+        assertThat(pending.getExecutedAt()).isNotNull();
+        verify(repository).save(pending);
+    }
+
+    @Test
+    void runOneTimeShouldMarkFailureWhenNothingStarts() {
+        BackupService backupService = mock(BackupService.class);
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        BackupScheduler scheduler = oneTimeScheduler(backupService, mock(ThreadPoolTaskScheduler.class), repository);
+        OneTimeBackupEntity pending = oneTime(4L, LocalDateTime.now());
+        when(repository.findById(4L)).thenReturn(Optional.of(pending));
+        when(backupService.getActiveTask("source", "destination")).thenReturn(Optional.empty());
+        when(backupService.runBackup("source", "destination")).thenThrow(new IllegalStateException("disco"));
+
+        scheduler.runOneTime(4L);
+
+        assertThat(pending.getStatus()).isEqualTo(OneTimeBackupStatus.FALHA);
+        assertThat(pending.getErrorMessage()).isNotBlank();
+    }
+
+    @Test
+    void runOneTimeShouldSkipCancelledEntries() {
+        BackupService backupService = mock(BackupService.class);
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        BackupScheduler scheduler = oneTimeScheduler(backupService, mock(ThreadPoolTaskScheduler.class), repository);
+        OneTimeBackupEntity cancelled = oneTime(5L, LocalDateTime.now());
+        cancelled.setStatus(OneTimeBackupStatus.CANCELADO);
+        when(repository.findById(5L)).thenReturn(Optional.of(cancelled));
+
+        scheduler.runOneTime(5L);
+
+        verify(backupService, never()).runBackup(anyString(), anyString());
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void cancelShouldPersistCancellationAndOnlyAcceptPendingEntries() {
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        BackupScheduler scheduler = oneTimeScheduler(mock(BackupService.class), mock(ThreadPoolTaskScheduler.class), repository);
+        OneTimeBackupEntity pending = oneTime(6L, LocalDateTime.now().plusHours(1));
+        OneTimeBackupEntity executed = oneTime(7L, LocalDateTime.now().minusHours(1));
+        executed.setStatus(OneTimeBackupStatus.EXECUTADO);
+        when(repository.findById(6L)).thenReturn(Optional.of(pending));
+        when(repository.findById(7L)).thenReturn(Optional.of(executed));
+
+        assertThat(scheduler.cancelScheduledBackup(6L)).isTrue();
+        assertThat(pending.getStatus()).isEqualTo(OneTimeBackupStatus.CANCELADO);
+        assertThat(scheduler.cancelScheduledBackup(7L)).isFalse();
+        assertThat(scheduler.cancelScheduledBackup(99L)).isFalse();
+    }
+
+    @Test
+    void pendingListShouldComeFromDatabase() {
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        BackupScheduler scheduler = oneTimeScheduler(mock(BackupService.class), mock(ThreadPoolTaskScheduler.class), repository);
+        when(repository.findByStatusOrderByScheduledForAsc(OneTimeBackupStatus.PENDENTE))
+                .thenReturn(List.of(oneTime(8L, LocalDateTime.now().plusMinutes(10))));
+
+        assertThat(scheduler.getPendingScheduledBackups())
+                .singleElement()
+                .satisfies(pending -> {
+                    assertThat(pending.getTaskId()).isEqualTo(8L);
+                    assertThat(pending.getStatus()).isEqualTo("PENDENTE");
+                    assertThat(pending.getCancelUrl()).isEqualTo("/api/backup/scheduler/schedule/8/cancel");
+                });
+    }
+
+    private BackupScheduler oneTimeScheduler(BackupService backupService,
+                                             ThreadPoolTaskScheduler taskScheduler,
+                                             OneTimeBackupRepository repository) {
+        return new BackupScheduler(backupService, mock(BackupRequestValidationService.class), taskScheduler,
+                mock(BackupSchedulerProperties.class), mock(ApplicationEventPublisher.class), repository);
+    }
+
+    private OneTimeBackupEntity oneTime(Long id, LocalDateTime scheduledFor) {
+        OneTimeBackupEntity entity = new OneTimeBackupEntity();
+        entity.setId(id);
+        entity.setName("Backup Agendado");
+        entity.setSources(List.of("source"));
+        entity.setDestinations(List.of("destination"));
+        entity.setScheduledFor(scheduledFor);
+        return entity;
     }
 
     private BackupRequest request(String source, String destination) {
