@@ -11,8 +11,10 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -118,6 +120,109 @@ class BackupTaskManagerTests {
 
         assertThat(activeTask.isPaused()).isTrue();
         assertThat(activeTask.getStatus()).isEqualTo(Status.PAUSADO);
+    }
+
+    @Test
+    void resumeShouldDispatchWorkerWhenPausedTaskReleasedItsThread() {
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(pausedTask()));
+        AtomicReference<BackupTask> dispatched = new AtomicReference<>();
+
+        assertThat(taskManager.resumeTask(TASK_ID, dispatched::set)).isTrue();
+
+        assertThat(dispatched.get()).isNotNull();
+        assertThat(dispatched.get().getStatus()).isEqualTo(Status.EM_ANDAMENTO);
+        assertThat(dispatched.get().isPaused()).isFalse();
+    }
+
+    @Test
+    void resumeShouldNotDispatchWhileWorkerIsStillAttached() {
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(task(Status.EM_ANDAMENTO)));
+        taskManager.claimWorker(TASK_ID);
+        taskManager.activateQueuedTask(TASK_ID, task(Status.EM_ANDAMENTO));
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(pausedTask()));
+        AtomicBoolean dispatched = new AtomicBoolean(false);
+
+        assertThat(taskManager.resumeTask(TASK_ID, task -> dispatched.set(true))).isTrue();
+
+        assertThat(dispatched).isFalse();
+        assertThat(taskManager.getTask(TASK_ID).isPaused()).isFalse();
+    }
+
+    @Test
+    void resumeShouldNotDispatchWhilePausedTaskIsStillQueued() {
+        // O worker foi despachado mas ainda nao saiu da fila, entao a tarefa nao esta em runningTasks.
+        assertThat(taskManager.claimWorker(TASK_ID)).isTrue();
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(pausedTask()));
+        AtomicBoolean dispatched = new AtomicBoolean(false);
+
+        assertThat(taskManager.resumeTask(TASK_ID, task -> dispatched.set(true))).isTrue();
+
+        assertThat(dispatched).isFalse();
+    }
+
+    @Test
+    void claimShouldFailWhenResumeAlreadyDispatchedWorker() {
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(pausedTask()));
+        taskManager.resumeTask(TASK_ID, task -> { });
+
+        assertThat(taskManager.claimWorker(TASK_ID)).isFalse();
+    }
+
+    @Test
+    void rejectedResumeDispatchShouldNotLeaveWorkerClaimed() {
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(pausedTask()));
+
+        assertThatThrownBy(() -> taskManager.resumeTask(TASK_ID, task -> {
+            throw new IllegalStateException("fila cheia");
+        })).isInstanceOf(IllegalStateException.class);
+
+        assertThat(taskManager.claimWorker(TASK_ID)).isTrue();
+    }
+
+    @Test
+    void resumeShouldNotDispatchWhenTaskIsNotPaused() {
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(task(Status.CONCLUIDO)));
+        AtomicBoolean dispatched = new AtomicBoolean(false);
+
+        assertThat(taskManager.resumeTask(TASK_ID, task -> dispatched.set(true))).isFalse();
+
+        assertThat(dispatched).isFalse();
+    }
+
+    @Test
+    void releaseShouldDetachWorkerWhileTaskStaysPaused() {
+        BackupTask paused = pausedTask();
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(task(Status.EM_ANDAMENTO)));
+        taskManager.claimWorker(TASK_ID);
+        taskManager.activateQueuedTask(TASK_ID, task(Status.EM_ANDAMENTO));
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(paused));
+
+        assertThat(taskManager.releaseIfPaused(TASK_ID)).isTrue();
+
+        // Fora da memoria, a consulta cai no banco; uma retomada agora precisa despachar outro worker.
+        AtomicBoolean dispatched = new AtomicBoolean(false);
+        taskManager.resumeTask(TASK_ID, task -> dispatched.set(true));
+        assertThat(dispatched).isTrue();
+    }
+
+    @Test
+    void releaseShouldKeepWorkerWhenTaskWasResumedMeanwhile() {
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(task(Status.EM_ANDAMENTO)));
+        BackupTask staleInMemory = pausedTask();
+        taskManager.activateQueuedTask(TASK_ID, staleInMemory);
+        BackupTask resumed = task(Status.EM_ANDAMENTO);
+        when(repository.findById(TASK_ID)).thenReturn(Optional.of(resumed));
+
+        assertThat(taskManager.releaseIfPaused(TASK_ID)).isFalse();
+
+        // O worker volta a copiar lendo o estado retomado, nao o snapshot pausado.
+        assertThat(taskManager.getTask(TASK_ID)).isSameAs(resumed);
+    }
+
+    private BackupTask pausedTask() {
+        BackupTask task = task(Status.PAUSADO);
+        task.setPaused(true);
+        return task;
     }
 
     private BackupTask task(Status status) {
