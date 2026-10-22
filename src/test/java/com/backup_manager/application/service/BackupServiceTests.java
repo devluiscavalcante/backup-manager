@@ -3,6 +3,7 @@ package com.backup_manager.application.service;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
+import com.backup_manager.domain.event.BackupStartedEvent;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
@@ -10,6 +11,7 @@ import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.task.TaskRejectedException;
@@ -17,6 +19,9 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
 
@@ -166,10 +171,12 @@ class BackupServiceTests {
     void runBackupShouldFailTaskWhenExecutorQueueIsFull() throws IOException {
         BackupRepository repository = mock(BackupRepository.class);
         BackupService self = mock(BackupService.class);
+        BackupTaskManager taskManager = mock(BackupTaskManager.class);
         BackupService service = spy(new BackupService(mock(BackupManager.class), repository, mock(ProgressEmitter.class),
-                mock(BackupTaskManager.class), mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
+                taskManager, mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
                 realPaths(), Runnable::run, self));
         BackupTask saved = backupTask(Status.EM_ANDAMENTO, false);
+        when(taskManager.claimWorker(7L)).thenReturn(true);
 
         doNothing().when(service).validatePathAndDriveSpace("source", "destination");
         when(repository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(any(), any(), any()))
@@ -184,6 +191,115 @@ class BackupServiceTests {
 
         assertThat(saved.getStatus()).isEqualTo(Status.FALHA);
         assertThat(saved.getFinishedAt()).isNotNull();
+        verify(taskManager).releaseWorkerClaim(7L);
+    }
+
+    @Test
+    void pauseShouldStopCopyAndReleaseThreadWithoutFinishingTask(@TempDir Path tempDir) throws IOException {
+        Worker worker = new Worker(tempDir);
+        BackupTask paused = backupTask(Status.PAUSADO, false);
+        paused.setPaused(true);
+        when(worker.taskManager.getTask(7L)).thenReturn(paused);
+        when(worker.taskManager.releaseIfPaused(7L)).thenReturn(true);
+        worker.copyRunsStoppingWhen(true);
+
+        worker.service.processBackupAsync(worker.task);
+        worker.assertCopyRunsMatched();
+
+        verify(worker.storageOps, times(1)).copyDirectoryIncremental(any(), any(), any(), any());
+        verify(worker.repository, never()).save(any(BackupTask.class));
+        verify(worker.taskManager, never()).unregisterTask(7L);
+        verify(worker.progressEmitter, never()).sendControlEvent(eq("complete"), any(), any());
+    }
+
+    @Test
+    void workerShouldKeepCopyingWhenResumedBeforeReleasingThread(@TempDir Path tempDir) throws IOException {
+        Worker worker = new Worker(tempDir);
+        BackupTask paused = backupTask(Status.PAUSADO, false);
+        paused.setPaused(true);
+        BackupTask running = backupTask(Status.EM_ANDAMENTO, false);
+        // 1a copia ve a pausa; a retomada chega antes de o worker soltar a thread.
+        when(worker.taskManager.getTask(7L)).thenReturn(paused, running);
+        when(worker.taskManager.releaseIfPaused(7L)).thenReturn(false);
+        when(worker.repository.findById(7L)).thenReturn(Optional.of(running));
+        when(worker.repository.save(any(BackupTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        worker.copyRunsStoppingWhen(true, false);
+
+        worker.service.processBackupAsync(worker.task);
+        worker.assertCopyRunsMatched();
+
+        verify(worker.storageOps, times(2)).copyDirectoryIncremental(any(), any(), any(), any());
+        assertThat(running.getStatus()).isEqualTo(Status.CONCLUIDO);
+        verify(worker.taskManager).unregisterTask(7L);
+    }
+
+    @Test
+    void resumedWorkerShouldNotAnnounceANewBackup(@TempDir Path tempDir) throws IOException {
+        Worker worker = new Worker(tempDir);
+        when(worker.taskManager.getTask(7L)).thenReturn(backupTask(Status.EM_ANDAMENTO, false));
+        when(worker.repository.findById(7L)).thenReturn(Optional.of(backupTask(Status.EM_ANDAMENTO, false)));
+        worker.copyRunsStoppingWhen(false);
+
+        worker.service.resumeBackupAsync(worker.task);
+        worker.assertCopyRunsMatched();
+
+        verify(worker.eventPublisher, never()).publishEvent(any(BackupStartedEvent.class));
+        verify(worker.progressEmitter, never()).sendControlEvent(eq("start"), any(), any());
+        verify(worker.storageOps).copyDirectoryIncremental(any(), any(), any(), any());
+    }
+
+    @Test
+    void resumeShouldKeepTaskPausedWhenExecutorQueueIsFull() {
+        BackupTaskManager taskManager = mock(BackupTaskManager.class);
+        BackupService service = new BackupService(mock(BackupManager.class), mock(BackupRepository.class),
+                mock(ProgressEmitter.class), taskManager, mock(FileStorageOperations.class),
+                mock(ApplicationEventPublisher.class), mock(PathSecurityService.class), Runnable::run,
+                mock(BackupService.class));
+        when(taskManager.resumeTask(eq(7L), any())).thenThrow(new TaskRejectedException("fila cheia"));
+
+        assertThat(service.resumeBackup(7L)).isFalse();
+
+        verify(taskManager).pauseTask(7L);
+    }
+
+    // Worker com dependencias simuladas; a origem e o destino ficam numa pasta temporaria.
+    private final class Worker {
+        final BackupRepository repository = mock(BackupRepository.class);
+        final BackupTaskManager taskManager = mock(BackupTaskManager.class);
+        final BackupManager backupManager = mock(BackupManager.class);
+        final FileStorageOperations storageOps = mock(FileStorageOperations.class);
+        final ProgressEmitter progressEmitter = mock(ProgressEmitter.class);
+        final ApplicationEventPublisher eventPublisher = mock(ApplicationEventPublisher.class);
+        final BackupService service = new BackupService(backupManager, repository, progressEmitter, taskManager,
+                storageOps, eventPublisher, mock(PathSecurityService.class), Runnable::run, mock(BackupService.class));
+        final BackupTask task = backupTask(Status.EM_ANDAMENTO, false);
+
+        Worker(Path tempDir) {
+            Path source = tempDir.resolve("source");
+            task.setSourcePath(source.toString());
+            task.setDestinationPath(tempDir.resolve("destination").toString());
+            when(taskManager.activateQueuedTask(7L, task)).thenReturn(task);
+            when(backupManager.validateSource(source.toString())).thenReturn(source.toFile());
+            when(backupManager.scan(any())).thenReturn(new BackupManager.FolderScan(3, 0));
+        }
+
+        final List<Boolean> continueAnswers = new ArrayList<>();
+
+        // Cada execucao da copia consulta shouldContinue uma vez, como faria no primeiro arquivo.
+        void copyRunsStoppingWhen(Boolean... expectedStops) throws IOException {
+            when(storageOps.copyDirectoryIncremental(any(), any(), any(), any())).thenAnswer(invocation -> {
+                FileStorageOperations.BackupProgressCallback callback = invocation.getArgument(3);
+                continueAnswers.add(callback.shouldContinue());
+                return 0;
+            });
+            expectedContinues = Arrays.stream(expectedStops).map(stop -> !stop).toList();
+        }
+
+        private List<Boolean> expectedContinues = List.of();
+
+        void assertCopyRunsMatched() {
+            assertThat(continueAnswers).isEqualTo(expectedContinues);
+        }
     }
 
     private static final Path REAL_SOURCE = Path.of("real", "Dados");

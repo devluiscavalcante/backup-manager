@@ -291,7 +291,7 @@ Toda resposta inclui o cabeçalho `X-Request-Id`. Envie o seu próprio valor nes
 | `DELETE` | `/api/backup/config/{id}` | Remove |
 | `POST` | `/api/backup/config/validate-cron` | Valida expressão cron |
 | `GET` | `/api/backup/config/cron-templates` | Modelos de cron |
-| `POST` | `/api/backup/scheduler/schedule-once?minutesFromNow=N` | Agenda execução única |
+| `POST` | `/api/backup/scheduler/schedule-once?minutesFromNow=N` | Agenda execução única (persistida: sobrevive a restart; se vencer com a aplicação parada, roda no boot) |
 | `GET` | `/api/backup/scheduler/schedule/pending` | Execuções únicas pendentes |
 | `DELETE` | `/api/backup/scheduler/schedule/{taskId}/cancel` | Cancela execução única |
 | `POST` | `/api/backup/scheduler/execute-now` | Executa imediatamente |
