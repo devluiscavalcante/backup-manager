@@ -39,6 +39,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
@@ -128,8 +129,12 @@ public class BackupService {
 
             // A chamada via proxy garante que a anotacao @Async seja aplicada de fato.
             try {
-                self.processBackupAsync(task);
+                // Uma pausa e retomada logo apos o save ja pode ter despachado o worker.
+                if (taskManager.claimWorker(taskId)) {
+                    self.processBackupAsync(task);
+                }
             } catch (TaskRejectedException rejected) {
+                taskManager.releaseWorkerClaim(taskId);
                 // Sem isso a tarefa ja salva ficaria EM_ANDAMENTO ate o proximo restart.
                 markRejected(task);
                 throw new IllegalStateException(
@@ -171,8 +176,20 @@ public class BackupService {
 
     @Async("backupTaskExecutor")
     public void processBackupAsync(BackupTask task) {
+        runWorker(task, false);
+    }
+
+    // Retomada de uma tarefa cujo worker soltou a thread ao pausar. A copia recomeca do inicio da
+    // arvore, mas o incremental pula o que ja esta no destino.
+    @Async("backupTaskExecutor")
+    public void resumeBackupAsync(BackupTask task) {
+        runWorker(task, true);
+    }
+
+    private void runWorker(BackupTask task, boolean resumed) {
         try {
-            logger.info("Iniciando processamento assincrono: ID={}, Status={}", task.getId(), task.getStatus());
+            logger.info("Iniciando processamento assincrono: ID={}, Status={}, Retomada={}",
+                    task.getId(), task.getStatus(), resumed);
 
             BackupTask activeTask = taskManager.activateQueuedTask(task.getId(), task);
             if (isCancelled(activeTask)) {
@@ -181,9 +198,12 @@ public class BackupService {
                 return;
             }
 
-            progressEmitter.sendControlEvent("start", task.getId(), "EM_ANDAMENTO");
-            eventPublisher.publishEvent(new BackupStartedEvent(task, false));
+            if (!resumed) {
+                progressEmitter.sendControlEvent("start", task.getId(), "EM_ANDAMENTO");
+                eventPublisher.publishEvent(new BackupStartedEvent(task, false));
+            }
 
+            boolean released = false;
             try {
                 File sourceFolder = backupManager.validateSource(task.getSourcePath());
                 BackupManager.FolderScan scan = backupManager.scan(sourceFolder);
@@ -198,15 +218,32 @@ public class BackupService {
 
                 progressEmitter.sendProgress(new Progress(
                         0,
-                        "Iniciando...",
+                        resumed ? "Retomando..." : "Iniciando...",
                         0,
                         (int) fileCount,
                         task.getId().toString()
                 ));
 
-                int warnings = executeStorageOperation(source, destination, task.getId(), (int) fileCount);
+                Path logFile = destination.resolve(FileStorageOperations.WARNINGS_LOG);
+                // O arquivo acumula execucoes: o cabecalho separa os alertas de cada uma.
+                appendLog(logFile, String.format("%n=== Backup #%d %s em %s ===%n",
+                        task.getId(), resumed ? "retomado" : "iniciado", LocalDateTime.now()));
 
-                if (finalizeTask(task.getId(), fileCount, sizeMB, warnings).isEmpty()) {
+                CopyRun run = executeStorageOperation(source, destination, logFile, task.getId(), (int) fileCount);
+                while (run.stoppedForPause()) {
+                    if (taskManager.releaseIfPaused(task.getId())) {
+                        released = true;
+                        progressEmitter.sendProgress(new Progress(0, "Backup pausado...", 0, 0, task.getId().toString()));
+                        return;
+                    }
+                    if (isCancelled(taskManager.getTask(task.getId()))) {
+                        break;
+                    }
+                    // A retomada chegou enquanto a copia parava: o mesmo worker continua.
+                    run = executeStorageOperation(source, destination, logFile, task.getId(), (int) fileCount);
+                }
+
+                if (finalizeTask(task.getId(), fileCount, sizeMB, run.warnings()).isEmpty()) {
                     logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
                 }
 
@@ -215,12 +252,15 @@ public class BackupService {
                     logger.info("Backup {} cancelado (exception capturada), pulando tratamento de falha", task.getId());
                 }
             } finally {
-                updateUnlessCancelled(task.getId(), finalTask -> {
-                    if (finalTask.getFinishedAt() == null) {
-                        finalTask.setFinishedAt(LocalDateTime.now());
-                    }
-                });
-                taskManager.unregisterTask(task.getId());
+                // Pausada, a tarefa continua aberta e ja saiu da memoria em releaseIfPaused.
+                if (!released) {
+                    updateUnlessCancelled(task.getId(), finalTask -> {
+                        if (finalTask.getFinishedAt() == null) {
+                            finalTask.setFinishedAt(LocalDateTime.now());
+                        }
+                    });
+                    taskManager.unregisterTask(task.getId());
+                }
             }
 
         } catch (Exception e) {
@@ -232,13 +272,15 @@ public class BackupService {
         return task != null && (task.isCancelled() || task.getStatus() == Status.CANCELADO);
     }
 
-    private int executeStorageOperation(Path source, Path destination, Long taskId, int totalFiles) throws IOException {
-        AtomicInteger processed = new AtomicInteger(0);
-        Path logFile = destination.resolve(FileStorageOperations.WARNINGS_LOG);
-        // O arquivo acumula execucoes: o cabecalho separa os alertas de cada uma.
-        appendLog(logFile, String.format("%n=== Backup #%d iniciado em %s ===%n", taskId, LocalDateTime.now()));
+    private record CopyRun(int warnings, boolean stoppedForPause) {
+    }
 
-        return storageOps.copyDirectoryIncremental(
+    private CopyRun executeStorageOperation(Path source, Path destination, Path logFile, Long taskId, int totalFiles)
+            throws IOException {
+        AtomicInteger processed = new AtomicInteger(0);
+        AtomicBoolean stoppedForPause = new AtomicBoolean(false);
+
+        int warnings = storageOps.copyDirectoryIncremental(
                 source,
                 destination,
                 excludedFolders,
@@ -260,12 +302,16 @@ public class BackupService {
                         if (task == null || task.isCancelled()) {
                             return false;
                         }
-
-                        handlePause(task, taskId, processed.get(), totalFiles);
-                        return !task.isCancelled();
+                        // Pausar interrompe a varredura em vez de esperar dentro dela, o que prendia a thread.
+                        if (task.isPaused()) {
+                            stoppedForPause.set(true);
+                            return false;
+                        }
+                        return true;
                     }
                 }
         );
+        return new CopyRun(warnings, stoppedForPause.get());
     }
 
     public void validatePathAndDriveSpace(String sourcePath, String destPath) throws IOException {
@@ -292,29 +338,6 @@ public class BackupService {
 
     public Path validateSafePath(String path) {
         return pathSecurityService.validateManagedPath(path, "backup");
-    }
-
-    private void handlePause(BackupTask task, Long taskId, int processed, int total) {
-        int pauseCheckCount = 0;
-        while (task.isPaused() && !task.isCancelled()) {
-            if (pauseCheckCount == 0) {
-                progressEmitter.sendProgress(new Progress(0, "Backup pausado...", 0, 0, taskId.toString()));
-            }
-
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-
-            task = taskManager.getTask(taskId);
-            pauseCheckCount++;
-        }
-
-        if (pauseCheckCount > 0 && !task.isCancelled()) {
-            updateProgress(null, processed, total, taskId);
-        }
     }
 
     private BackupTask createInitialTask(String source, String dest) {
@@ -420,7 +443,14 @@ public class BackupService {
     }
 
     public boolean resumeBackup(Long id) {
-        return taskManager.resumeTask(id);
+        try {
+            return taskManager.resumeTask(id, self::resumeBackupAsync);
+        } catch (TaskRejectedException rejected) {
+            // Fila cheia: volta a pausar em vez de deixar a tarefa EM_ANDAMENTO sem worker.
+            logger.warn("Fila de backups cheia: backup {} continua pausado", id);
+            taskManager.pauseTask(id);
+            return false;
+        }
     }
 
     public boolean cancelBackup(Long id) {

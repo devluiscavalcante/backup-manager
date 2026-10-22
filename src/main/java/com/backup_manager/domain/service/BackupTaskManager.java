@@ -13,8 +13,10 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 @Component
@@ -24,6 +26,12 @@ public class BackupTaskManager {
     private static final int MAX_TRANSITION_ATTEMPTS = 3;
 
     private final Map<Long, AtomicReference<BackupTask>> runningTasks = new ConcurrentHashMap<>();
+    // Serializa "worker solta a tarefa pausada" com "retomada verifica se ha worker": sem isso uma
+    // retomada no meio da saida do worker deixaria a tarefa EM_ANDAMENTO sem ninguem copiando.
+    private final Object workerLock = new Object();
+    // Tarefas com worker despachado, ainda na fila do executor ou ja rodando. runningTasks so recebe a
+    // tarefa quando ela sai da fila, entao nao serve para saber se uma retomada precisa de worker novo.
+    private final Set<Long> workers = ConcurrentHashMap.newKeySet();
     private final BackupRepository backupRepository;
     private final ApplicationEventPublisher eventPublisher;
 
@@ -44,6 +52,23 @@ public class BackupTaskManager {
         BackupTask currentTask = ref.get();
         logger.info("Tarefa ativada: ID={}, Status={}", taskId, currentTask.getStatus());
         return currentTask;
+    }
+
+    /**
+     * Reserva o worker da tarefa antes de despacha-lo. Devolve false se ja ha um (por exemplo, uma
+     * retomada despachou primeiro), caso em que quem chamou nao deve despachar outro.
+     */
+    public boolean claimWorker(Long taskId) {
+        synchronized (workerLock) {
+            return workers.add(taskId);
+        }
+    }
+
+    // Desfaz claimWorker quando o executor recusa o despacho.
+    public void releaseWorkerClaim(Long taskId) {
+        synchronized (workerLock) {
+            workers.remove(taskId);
+        }
     }
 
     public BackupTask getTask(Long taskId) {
@@ -73,7 +98,11 @@ public class BackupTaskManager {
         return paused.isPresent();
     }
 
-    public boolean resumeTask(Long taskId) {
+    /**
+     * Um worker pausado solta a thread (veja {@link #releaseIfPaused}). Se a tarefa retomada nao tem mais
+     * worker, {@code dispatchWorker} recebe a tarefa para coloca-la de volta na fila de execucao.
+     */
+    public boolean resumeTask(Long taskId, Consumer<BackupTask> dispatchWorker) {
         logger.info("Retomando backup: ID={}", taskId);
 
         Optional<BackupTask> resumed = transition(taskId, "retomado", dbTask -> {
@@ -84,9 +113,46 @@ public class BackupTaskManager {
             dbTask.setStatus(Status.EM_ANDAMENTO);
             return true;
         });
+        if (resumed.isEmpty()) {
+            return false;
+        }
 
-        resumed.ifPresent(task -> logger.info("Backup {} retomado com sucesso", taskId));
-        return resumed.isPresent();
+        synchronized (workerLock) {
+            if (workers.add(taskId)) {
+                logger.info("Backup {} sem worker ativo, voltando para a fila", taskId);
+                try {
+                    dispatchWorker.accept(resumed.get());
+                } catch (RuntimeException rejected) {
+                    workers.remove(taskId);
+                    throw rejected;
+                }
+            }
+        }
+        logger.info("Backup {} retomado com sucesso", taskId);
+        return true;
+    }
+
+    /**
+     * Chamado pelo worker que interrompeu a copia por causa de uma pausa. Se a tarefa continua pausada,
+     * ela sai da memoria e o worker pode encerrar, liberando a thread. Se foi retomada (ou cancelada)
+     * nesse meio-tempo, devolve false com o estado atual ja visivel em {@link #getTask}.
+     */
+    public boolean releaseIfPaused(Long taskId) {
+        synchronized (workerLock) {
+            Optional<BackupTask> persisted = backupRepository.findById(taskId);
+            if (persisted.isPresent() && persisted.get().getStatus() == Status.PAUSADO) {
+                runningTasks.remove(taskId);
+                workers.remove(taskId);
+                logger.info("Backup {} pausado: worker liberado", taskId);
+                return true;
+            }
+
+            AtomicReference<BackupTask> ref = runningTasks.get(taskId);
+            if (ref != null && persisted.isPresent()) {
+                ref.set(persisted.get());
+            }
+            return false;
+        }
     }
 
     public boolean cancelTask(Long taskId) {
@@ -153,7 +219,10 @@ public class BackupTaskManager {
     }
 
     public void unregisterTask(Long taskId) {
-        runningTasks.remove(taskId);
+        synchronized (workerLock) {
+            runningTasks.remove(taskId);
+            workers.remove(taskId);
+        }
         logger.info("Tarefa {} removida da memoria", taskId);
     }
 
