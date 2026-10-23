@@ -12,6 +12,9 @@ import com.backup_manager.application.dto.SchedulerInfoResponse;
 import com.backup_manager.application.dto.SchedulerStatus;
 import com.backup_manager.application.service.BackupScheduler;
 import com.backup_manager.application.service.SecurityAuditService;
+import com.backup_manager.domain.exception.DestinationNotFoundException;
+import com.backup_manager.domain.exception.FolderEmptyException;
+import com.backup_manager.domain.exception.FolderNotFoundException;
 import jakarta.annotation.PreDestroy;
 import jakarta.validation.Valid;
 import org.slf4j.Logger;
@@ -127,6 +130,25 @@ public class BackupSchedulerController {
                     null
             );
 
+        } catch (SecurityException e) {
+            logger.warn("Bloqueio de seguranca ao agendar backup: {}", e.getMessage());
+            securityAuditService.recordFailure(
+                    "scheduler.schedule_once",
+                    "scheduled_backup_task",
+                    "security_denied",
+                    Map.of("minutesFromNow", minutesFromNow)
+            );
+            throw e;
+        } catch (IllegalStateException | FolderNotFoundException | FolderEmptyException
+                 | DestinationNotFoundException e) {
+            logger.warn("Falha de validacao ao agendar backup: {}", e.getMessage());
+            securityAuditService.recordFailure(
+                    "scheduler.schedule_once",
+                    "scheduled_backup_task",
+                    "validation_failed",
+                    Map.of("minutesFromNow", minutesFromNow)
+            );
+            throw e;
         } catch (Exception e) {
             logger.error("Erro ao agendar backup: {}", e.getMessage(), e);
             securityAuditService.recordFailure(
@@ -248,6 +270,16 @@ public class BackupSchedulerController {
                     null
             );
 
+        } catch (SecurityException e) {
+            logger.warn("Bloqueio de seguranca ao executar backup imediato: {}", e.getMessage());
+            securityAuditService.recordFailure("scheduler.execute_now", "backup_request", "security_denied", Map.of());
+            throw e;
+        } catch (IllegalStateException | FolderNotFoundException | FolderEmptyException
+                 | DestinationNotFoundException e) {
+            // Inclui ActiveBackupConflictException (409 no GlobalExceptionHandler).
+            logger.warn("Falha de validacao ao executar backup imediato: {}", e.getMessage());
+            securityAuditService.recordFailure("scheduler.execute_now", "backup_request", "validation_failed", Map.of());
+            throw e;
         } catch (Exception e) {
             logger.error("Erro ao executar backup imediato: {}", e.getMessage(), e);
             securityAuditService.recordFailure("scheduler.execute_now", "backup_request", "execution_failed", Map.of());

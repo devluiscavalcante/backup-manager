@@ -8,6 +8,7 @@ import com.backup_manager.application.service.BackupRequestValidationService;
 import com.backup_manager.application.service.CronValidationService;
 import com.backup_manager.application.service.DynamicSchedulerService;
 import com.backup_manager.application.service.SecurityAuditService;
+import com.backup_manager.domain.exception.FolderNotFoundException;
 import com.backup_manager.domain.model.ScheduledBackupEntity;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import org.junit.jupiter.api.Test;
@@ -18,9 +19,12 @@ import org.springframework.http.ResponseEntity;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class BackupConfigControllerTests {
@@ -83,6 +87,53 @@ class BackupConfigControllerTests {
         assertThat(body.getCode()).isEqualTo("scheduler_config_validation_failed");
         assertThat(body.getPath()).isEqualTo("/api/backup/config");
         assertThat(body.getDetails()).isNull();
+    }
+
+    @Test
+    void createOrUpdateShouldRethrowSecurityDenialAndAuditIt() {
+        BackupRequestValidationService validationService = mock(BackupRequestValidationService.class);
+        SecurityAuditService auditService = mock(SecurityAuditService.class);
+        BackupConfigController controller = new BackupConfigController(
+                mock(ApplicationEventPublisher.class),
+                mock(ScheduledBackupRepository.class),
+                mock(DynamicSchedulerService.class),
+                validationService,
+                mock(CronValidationService.class),
+                auditService
+        );
+
+        doThrow(new SecurityException("fora da allowlist"))
+                .when(validationService)
+                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+
+        // O GlobalExceptionHandler responde 403; o controller nao pode converter em 500.
+        assertThatThrownBy(() -> controller.createOrUpdate(validRequest()))
+                .isInstanceOf(SecurityException.class);
+        verify(auditService).recordFailure(eq("scheduler.config.create"), eq("scheduled_backup_config"),
+                eq("security_denied"), any());
+    }
+
+    @Test
+    void createOrUpdateShouldRethrowMissingSourceAsValidationFailure() {
+        BackupRequestValidationService validationService = mock(BackupRequestValidationService.class);
+        SecurityAuditService auditService = mock(SecurityAuditService.class);
+        BackupConfigController controller = new BackupConfigController(
+                mock(ApplicationEventPublisher.class),
+                mock(ScheduledBackupRepository.class),
+                mock(DynamicSchedulerService.class),
+                validationService,
+                mock(CronValidationService.class),
+                auditService
+        );
+
+        doThrow(new FolderNotFoundException("C:/temp/source"))
+                .when(validationService)
+                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+
+        assertThatThrownBy(() -> controller.createOrUpdate(validRequest()))
+                .isInstanceOf(FolderNotFoundException.class);
+        verify(auditService).recordFailure(eq("scheduler.config.create"), eq("scheduled_backup_config"),
+                eq("validation_failed"), any());
     }
 
     @Test
