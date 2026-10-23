@@ -18,7 +18,6 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -65,7 +64,8 @@ public class BackupScheduler {
 
     @Scheduled(cron = "${backup.scheduler.cron-expression:0 0 2 * * *}",
             zone = "${backup.scheduler.time-zone:America/Sao_Paulo}")
-    @Transactional
+    // Sem @Transactional: cada runBackup precisa gravar a tarefa com commit antes de o worker @Async
+    // procura-la. Numa transacao unica o worker nao enxergava a tarefa ate o fim do loop inteiro.
     public void executeScheduledBackups() {
         try {
             if (!schedulerProperties.isEnabled()) {
