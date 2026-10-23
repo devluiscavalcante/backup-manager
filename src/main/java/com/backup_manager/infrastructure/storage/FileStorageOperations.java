@@ -18,7 +18,7 @@ public class FileStorageOperations {
 
     private static final Logger logger = LoggerFactory.getLogger(FileStorageOperations.class);
 
-    /** Alertas da copia, gravados na raiz do destino; nao fazem parte do conteudo do backup. */
+    /** Alertas da copia, gravados na pasta de metadados do destino (veja {@link BackupMetadata}). */
     public static final String WARNINGS_LOG = "warnings.log";
 
     // FAT32 grava a data de modificacao com resolucao de 2 s (exFAT, 10 ms): mesmo com COPY_ATTRIBUTES o
@@ -48,6 +48,12 @@ public class FileStorageOperations {
 
                 if (shouldExclude(dir, realSource, excludedFolders)) {
                     callback.onWarning("Diretório ignorado", dir);
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+
+                if (BackupMetadata.isMetadataDirectoryOf(dir, realSource)) {
+                    // A origem e destino de outro backup: os alertas dele nao se misturam aos deste.
+                    callback.onWarning("Pasta de metadados de outro backup ignorada", dir);
                     return FileVisitResult.SKIP_SUBTREE;
                 }
 

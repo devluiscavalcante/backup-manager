@@ -196,6 +196,37 @@ class FileStorageOperationsTests {
         assertThat(FileStorageOperations.isIncrementalNeeded(10, mtime, 10, mtime, 0)).isFalse();
     }
 
+    @Test
+    void sourceRootWarningsLogShouldNotCollideWithTheBackupLog() throws IOException {
+        Path source = tempDir.resolve("origem");
+        Path destination = tempDir.resolve("destino");
+        Files.createDirectories(source);
+        Files.writeString(source.resolve(FileStorageOperations.WARNINGS_LOG), "arquivo do usuario");
+        Path backupLog = BackupMetadata.prepareWarningsLog(destination);
+        Files.writeString(backupLog, "=== Backup #1 ===");
+
+        storageOperations.copyDirectoryIncremental(source, destination, List.of(), noOpCallback());
+
+        assertThat(destination.resolve(FileStorageOperations.WARNINGS_LOG)).hasContent("arquivo do usuario");
+        assertThat(backupLog).hasContent("=== Backup #1 ===");
+    }
+
+    @Test
+    void shouldSkipTheMetadataDirectoryOfAnotherBackupAtTheSourceRoot() throws IOException {
+        Path source = tempDir.resolve("origem");
+        Path destination = tempDir.resolve("destino");
+        write(source.resolve("documento.txt"));
+        write(BackupMetadata.warningsLog(source));
+        write(source.resolve("pasta").resolve(BackupMetadata.DIRECTORY).resolve("nota.txt"));
+
+        storageOperations.copyDirectoryIncremental(source, destination, List.of(), noOpCallback());
+
+        assertThat(destination.resolve("documento.txt")).exists();
+        assertThat(destination.resolve(BackupMetadata.DIRECTORY)).doesNotExist();
+        // So a pasta da raiz e reservada; o mesmo nome em subpasta e conteudo do usuario.
+        assertThat(destination.resolve("pasta").resolve(BackupMetadata.DIRECTORY).resolve("nota.txt")).exists();
+    }
+
     private void write(Path file) throws IOException {
         Files.createDirectories(file.getParent());
         Files.writeString(file, "conteudo");

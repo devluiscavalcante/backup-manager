@@ -12,6 +12,7 @@ import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.storage.BackupMetadata;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -224,7 +225,7 @@ public class BackupService {
                         task.getId().toString()
                 ));
 
-                Path logFile = destination.resolve(FileStorageOperations.WARNINGS_LOG);
+                Path logFile = BackupMetadata.prepareWarningsLog(destination);
                 // O arquivo acumula execucoes: o cabecalho separa os alertas de cada uma.
                 appendLog(logFile, String.format("%n=== Backup #%d %s em %s ===%n",
                         task.getId(), resumed ? "retomado" : "iniciado", LocalDateTime.now()));
@@ -356,7 +357,8 @@ public class BackupService {
             task.setTotalSizeMB(sizeMB);
             task.setStatus(Status.CONCLUIDO);
             task.setErrorMessage(warnings > 0
-                    ? "Concluido com " + warnings + " alertas. Verifique " + FileStorageOperations.WARNINGS_LOG + "."
+                    ? "Concluido com " + warnings + " alertas. Verifique "
+                            + BackupMetadata.DIRECTORY + "/" + FileStorageOperations.WARNINGS_LOG + "."
                     : null);
         });
         if (finalized.isEmpty()) {
