@@ -61,6 +61,19 @@ class BackupControllerErrorIntegrationTests {
     }
 
     @Test
+    void historyShouldReportTheRealMaximumForInvalidLimit() throws Exception {
+        mockMvc.perform(get("/api/backup/history")
+                        .queryParam("limit", "1001")
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("operator", "operator-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("limit_out_of_range"))
+                .andExpect(jsonPath("$.error").value("Limite deve estar entre 1 e 1000."))
+                .andExpect(jsonPath("$.details.limit").value(1001))
+                .andExpect(jsonPath("$.details.min").value(1))
+                .andExpect(jsonPath("$.details.max").value(1000));
+    }
+
+    @Test
     void historySearchShouldReturnStructuredErrorForNegativePage() throws Exception {
         mockMvc.perform(get("/api/backup/history/search")
                         .queryParam("page", "-1")
