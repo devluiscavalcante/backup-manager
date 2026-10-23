@@ -202,6 +202,7 @@ public class BackupController {
                             "Limite deve estar entre 1 e " + MAX_HISTORY_LIMIT + ".",
                             "limit",
                             limit,
+                            MAX_HISTORY_LIMIT,
                             BACKUP_HISTORY_PATH
                     ));
         }
@@ -256,6 +257,7 @@ public class BackupController {
                                 "Tamanho da pagina deve estar entre 1 e 100.",
                                 "size",
                                 size,
+                                100,
                                 BACKUP_HISTORY_SEARCH_PATH
                         ));
             }
@@ -321,6 +323,7 @@ public class BackupController {
                                 "Limite deve estar entre 1 e 100.",
                                 "limit",
                                 limit,
+                                100,
                                 BACKUP_HISTORY_RECENT_PATH
                         ));
             }
@@ -459,12 +462,13 @@ public class BackupController {
                                                   String message,
                                                   String field,
                                                   int value,
+                                                  int max,
                                                   String path) {
         return ApiErrorResponse.of(
                 HttpStatus.BAD_REQUEST,
                 message,
                 code,
-                Map.of(field, value, "min", 1, "max", 100),
+                Map.of(field, value, "min", 1, "max", max),
                 path
         );
     }
