@@ -39,14 +39,17 @@ public class FileRestoreOperations {
         AtomicLong totalSize = new AtomicLong(0);
 
         Path realBackup = backupSource.toRealPath();
-        boolean hasWarningsLog = Files.exists(realBackup.resolve(FileStorageOperations.WARNINGS_LOG));
-        int totalFiles = countFiles(realBackup) - (hasWarningsLog ? 1 : 0);
+        int totalFiles = countFiles(realBackup);
 
         Files.walkFileTree(realBackup, new SimpleFileVisitor<>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
                 if (!callback.shouldContinue()) {
                     return FileVisitResult.TERMINATE;
+                }
+
+                if (BackupMetadata.isMetadata(dir, realBackup)) {
+                    return FileVisitResult.SKIP_SUBTREE;
                 }
 
                 if (!dir.equals(realBackup) && FileLinks.isRedirected(dir)) {
@@ -68,7 +71,7 @@ public class FileRestoreOperations {
                     return FileVisitResult.TERMINATE;
                 }
 
-                if (isBackupWarningsLog(file, realBackup)) {
+                if (BackupMetadata.isMetadata(file, realBackup)) {
                     return FileVisitResult.CONTINUE;
                 }
 
@@ -166,7 +169,7 @@ public class FileRestoreOperations {
                     continue;
                 }
 
-                if (isBackupWarningsLog(realSourceFile, realBackup)) {
+                if (BackupMetadata.isMetadata(realSourceFile, realBackup)) {
                     continue;
                 }
 
@@ -203,6 +206,10 @@ public class FileRestoreOperations {
                     return FileVisitResult.TERMINATE;
                 }
 
+                if (BackupMetadata.isMetadata(dir, backupRoot)) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+
                 if (!dir.equals(sourceDir) && FileLinks.isRedirected(dir)) {
                     callback.onWarning("Link simbolico/junction ignorado", dir);
                     warnings.incrementAndGet();
@@ -230,7 +237,7 @@ public class FileRestoreOperations {
                     return FileVisitResult.CONTINUE;
                 }
 
-                if (isBackupWarningsLog(file, backupRoot)) {
+                if (BackupMetadata.isMetadata(file, backupRoot)) {
                     return FileVisitResult.CONTINUE;
                 }
 
@@ -299,12 +306,6 @@ public class FileRestoreOperations {
         callback.onProgress(processed, totalFiles);
     }
 
-    // O warnings.log da raiz e gerado pelo proprio backup: restaura-lo poluiria o destino do usuario.
-    public static boolean isBackupWarningsLog(Path file, Path backupRoot) {
-        return backupRoot.equals(file.getParent())
-                && file.getFileName().toString().equalsIgnoreCase(FileStorageOperations.WARNINGS_LOG);
-    }
-
     private Path generateUniqueFileName(Path file) {
         String fileName = file.getFileName().toString();
         String baseName;
@@ -332,12 +333,22 @@ public class FileRestoreOperations {
         return newPath;
     }
 
-    private int countFiles(Path directory) throws IOException {
+    // Total para o progresso: os metadados do backup nao sao restaurados, entao nao entram na conta.
+    private int countFiles(Path backupRoot) throws IOException {
         AtomicInteger count = new AtomicInteger(0);
-        Files.walkFileTree(directory, new SimpleFileVisitor<>() {
+        Files.walkFileTree(backupRoot, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                return BackupMetadata.isMetadata(dir, backupRoot)
+                        ? FileVisitResult.SKIP_SUBTREE
+                        : FileVisitResult.CONTINUE;
+            }
+
             @Override
             public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                count.incrementAndGet();
+                if (!BackupMetadata.isMetadata(file, backupRoot)) {
+                    count.incrementAndGet();
+                }
                 return FileVisitResult.CONTINUE;
             }
 

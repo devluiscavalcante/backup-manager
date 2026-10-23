@@ -16,6 +16,7 @@ import com.backup_manager.domain.model.RestoreType;
 import com.backup_manager.domain.service.RestoreTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.persistence.RestoreRepository;
+import com.backup_manager.infrastructure.storage.BackupMetadata;
 import com.backup_manager.infrastructure.storage.FileRestoreOperations;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -87,7 +88,7 @@ public class RestoreService {
         List<Path> backupEntries;
         try (Stream<Path> stream = Files.list(backupPath)) {
             backupEntries = stream
-                    .filter(path -> !FileRestoreOperations.isBackupWarningsLog(path, backupPath))
+                    .filter(path -> !BackupMetadata.isMetadata(path, backupPath))
                     .toList();
         }
 

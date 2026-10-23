@@ -3,6 +3,7 @@ package com.backup_manager.infrastructure.logging;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.storage.BackupMetadata;
 import java.io.IOException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -44,13 +45,13 @@ public class LogService {
 
         Optional<BackupTask> lastOk = backupRepository.findTopByStatusOrderByFinishedAtDesc(Status.CONCLUIDO);
         if (lastOk.isPresent()) {
-            Path fromDb = Path.of(lastOk.get().getDestinationPath(), "warnings.log");
+            Path fromDb = BackupMetadata.locateWarningsLog(Path.of(lastOk.get().getDestinationPath()));
             if (Files.exists(fromDb)) return fromDb;
         }
 
         Optional<BackupTask> lastAny = backupRepository.findTopByOrderByFinishedAtDesc();
         if (lastAny.isPresent()) {
-            Path fromDbAny = Path.of(lastAny.get().getDestinationPath(), "warnings.log");
+            Path fromDbAny = BackupMetadata.locateWarningsLog(Path.of(lastAny.get().getDestinationPath()));
             if (Files.exists(fromDbAny)) return fromDbAny;
         }
 
