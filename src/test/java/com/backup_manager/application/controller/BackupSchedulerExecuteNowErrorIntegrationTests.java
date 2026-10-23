@@ -2,6 +2,7 @@ package com.backup_manager.application.controller;
 
 import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.service.BackupScheduler;
+import com.backup_manager.domain.exception.FolderNotFoundException;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentMatchers;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,6 +20,7 @@ import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.when;
@@ -36,6 +38,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @AutoConfigureMockMvc
 @ActiveProfiles("test")
 class BackupSchedulerExecuteNowErrorIntegrationTests {
+
+    private static final String PAIR_REQUEST = """
+            {
+              "sources": ["C:/temp/source"],
+              "destination": ["C:/temp/destination"]
+            }
+            """;
 
     @Autowired
     private MockMvc mockMvc;
@@ -140,6 +149,68 @@ class BackupSchedulerExecuteNowErrorIntegrationTests {
                 .andExpect(jsonPath("$.path").value("/api/backup/scheduler/execute-now"))
                 .andExpect(jsonPath("$.requestId").isNotEmpty())
                 .andExpect(content().string(not(containsString("invalid_backup_request"))));
+    }
+
+    @Test
+    void adminShouldReceiveForbiddenWhenExecuteNowPathIsOutsideAllowedRoots() throws Exception {
+        doThrow(new SecurityException("O caminho informado para a operacao de backup nao pertence a uma raiz permitida."))
+                .when(backupScheduler)
+                .executeBackupWithRequest(ArgumentMatchers.any(BackupRequest.class), anyString());
+
+        mockMvc.perform(post("/api/backup/scheduler/execute-now")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(PAIR_REQUEST)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.status").value(403))
+                .andExpect(jsonPath("$.code").value("operation_not_allowed"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/execute-now"));
+    }
+
+    @Test
+    void adminShouldReceiveBadRequestWhenExecuteNowPreconditionFails() throws Exception {
+        doThrow(new IllegalStateException("Espaco insuficiente no disco de destino."))
+                .when(backupScheduler)
+                .executeBackupWithRequest(ArgumentMatchers.any(BackupRequest.class), anyString());
+
+        mockMvc.perform(post("/api/backup/scheduler/execute-now")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(PAIR_REQUEST)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("operation_precondition_failed"))
+                .andExpect(jsonPath("$.error").value("Espaco insuficiente no disco de destino."));
+    }
+
+    @Test
+    void adminShouldReceiveBadRequestWhenScheduleOnceSourceDoesNotExist() throws Exception {
+        doThrow(new FolderNotFoundException("C:/temp/source"))
+                .when(backupScheduler)
+                .scheduleOneTimeBackup(ArgumentMatchers.any(BackupRequest.class), anyInt(), anyString());
+
+        mockMvc.perform(post("/api/backup/scheduler/schedule-once")
+                        .queryParam("minutesFromNow", "10")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(PAIR_REQUEST)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("source_folder_not_found"))
+                .andExpect(jsonPath("$.path").value("/api/backup/scheduler/schedule-once"));
+    }
+
+    @Test
+    void adminShouldReceiveForbiddenWhenScheduleOncePathIsProtected() throws Exception {
+        doThrow(new SecurityException("Path traversal detectado na operacao de backup."))
+                .when(backupScheduler)
+                .scheduleOneTimeBackup(ArgumentMatchers.any(BackupRequest.class), anyInt(), anyString());
+
+        mockMvc.perform(post("/api/backup/scheduler/schedule-once")
+                        .queryParam("minutesFromNow", "10")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(PAIR_REQUEST)
+                        .header(HttpHeaders.AUTHORIZATION, basicAuth("admin", "admin-secret")))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("operation_not_allowed"));
     }
 
     private String basicAuth(String username, String password) {

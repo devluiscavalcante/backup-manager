@@ -13,6 +13,9 @@ import com.backup_manager.application.service.CronValidationService;
 import com.backup_manager.application.service.DynamicSchedulerService;
 import com.backup_manager.application.service.SecurityAuditService;
 import com.backup_manager.domain.event.BackupScheduledEvent;
+import com.backup_manager.domain.exception.DestinationNotFoundException;
+import com.backup_manager.domain.exception.FolderEmptyException;
+import com.backup_manager.domain.exception.FolderNotFoundException;
 import com.backup_manager.domain.model.ScheduledBackupEntity;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import jakarta.validation.Valid;
@@ -126,6 +129,27 @@ public class BackupConfigController {
                     "scheduler_config_validation_failed",
                     "/api/backup/config"
             );
+        } catch (SecurityException e) {
+            // Caminho recusado pela politica (allowlist, area protegida): o GlobalExceptionHandler responde 403.
+            logger.warn("Bloqueio de seguranca ao salvar configuracao: {}", e.getMessage());
+            securityAuditService.recordFailure(
+                    request.getId() == null ? "scheduler.config.create" : "scheduler.config.update",
+                    "scheduled_backup_config",
+                    "security_denied",
+                    auditConfigDetails(request.getId(), request.getName())
+            );
+            throw e;
+        } catch (IllegalStateException | FolderNotFoundException | FolderEmptyException
+                 | DestinationNotFoundException e) {
+            // Origem inexistente/vazia ou disco inacessivel: erro do pedido (400), nao falha interna.
+            logger.warn("Falha de validacao ao salvar configuracao: {}", e.getMessage());
+            securityAuditService.recordFailure(
+                    request.getId() == null ? "scheduler.config.create" : "scheduler.config.update",
+                    "scheduled_backup_config",
+                    "validation_failed",
+                    auditConfigDetails(request.getId(), request.getName())
+            );
+            throw e;
         } catch (Exception e) {
             logger.error("Erro ao salvar configuracao", e);
             securityAuditService.recordFailure(
