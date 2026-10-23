@@ -23,6 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -190,7 +191,7 @@ public class RestoreService {
         task = restoreRepository.save(task);
 
         Long taskId = task.getId();
-        self.processRestoreAsync(task, request.isOverwriteExisting(), null);
+        dispatch(task, request.isOverwriteExisting(), null);
 
         return taskId;
     }
@@ -215,8 +216,26 @@ public class RestoreService {
         );
         task = restoreRepository.save(task);
 
-        self.processRestoreAsync(task, request.isOverwriteExisting(), request.getSelectedFiles());
+        dispatch(task, request.isOverwriteExisting(), request.getSelectedFiles());
         return task.getId();
+    }
+
+    // A chamada via proxy aplica o @Async. Com a fila cheia o executor recusa a tarefa ja salva, que sem
+    // tratamento ficaria EM_ANDAMENTO sem worker ate o proximo restart.
+    private void dispatch(RestoreTask task, boolean overwriteExisting, List<String> selectedFiles) {
+        try {
+            self.processRestoreAsync(task, overwriteExisting, selectedFiles);
+        } catch (TaskRejectedException rejected) {
+            logger.error("Fila de restauracoes cheia: tarefa {} recusada", task.getId());
+            task.setStatus(RestoreStatus.FALHA);
+            task.setErrorMessage("Fila de restauracoes cheia: tarefa nao iniciada");
+            task.setFinishedAt(LocalDateTime.now());
+            restoreRepository.save(task);
+            throw new IllegalStateException(
+                    "Fila de restauracoes cheia. Aguarde a conclusao das restauracoes em andamento e tente novamente.",
+                    rejected
+            );
+        }
     }
 
     @Async("restoreTaskExecutor")
