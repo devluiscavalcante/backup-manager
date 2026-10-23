@@ -16,6 +16,7 @@ import com.backup_manager.domain.model.RestoreType;
 import com.backup_manager.domain.service.RestoreTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.persistence.RestoreRepository;
+import com.backup_manager.infrastructure.storage.BackupMetadata;
 import com.backup_manager.infrastructure.storage.FileRestoreOperations;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
@@ -86,7 +88,7 @@ public class RestoreService {
         List<Path> backupEntries;
         try (Stream<Path> stream = Files.list(backupPath)) {
             backupEntries = stream
-                    .filter(path -> !FileRestoreOperations.isBackupWarningsLog(path, backupPath))
+                    .filter(path -> !BackupMetadata.isMetadata(path, backupPath))
                     .toList();
         }
 
@@ -190,7 +192,7 @@ public class RestoreService {
         task = restoreRepository.save(task);
 
         Long taskId = task.getId();
-        self.processRestoreAsync(task, request.isOverwriteExisting(), null);
+        dispatch(task, request.isOverwriteExisting(), null);
 
         return taskId;
     }
@@ -215,8 +217,26 @@ public class RestoreService {
         );
         task = restoreRepository.save(task);
 
-        self.processRestoreAsync(task, request.isOverwriteExisting(), request.getSelectedFiles());
+        dispatch(task, request.isOverwriteExisting(), request.getSelectedFiles());
         return task.getId();
+    }
+
+    // A chamada via proxy aplica o @Async. Com a fila cheia o executor recusa a tarefa ja salva, que sem
+    // tratamento ficaria EM_ANDAMENTO sem worker ate o proximo restart.
+    private void dispatch(RestoreTask task, boolean overwriteExisting, List<String> selectedFiles) {
+        try {
+            self.processRestoreAsync(task, overwriteExisting, selectedFiles);
+        } catch (TaskRejectedException rejected) {
+            logger.error("Fila de restauracoes cheia: tarefa {} recusada", task.getId());
+            task.setStatus(RestoreStatus.FALHA);
+            task.setErrorMessage("Fila de restauracoes cheia: tarefa nao iniciada");
+            task.setFinishedAt(LocalDateTime.now());
+            restoreRepository.save(task);
+            throw new IllegalStateException(
+                    "Fila de restauracoes cheia. Aguarde a conclusao das restauracoes em andamento e tente novamente.",
+                    rejected
+            );
+        }
     }
 
     @Async("restoreTaskExecutor")

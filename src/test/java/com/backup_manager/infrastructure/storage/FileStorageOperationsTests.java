@@ -166,6 +166,67 @@ class FileStorageOperationsTests {
         assertThat(backupFile).hasContent("antigo!!");
     }
 
+    @Test
+    void shouldUseTheFatModifyWindowOnlyForFatFamilyDestinations() {
+        assertThat(FileStorageOperations.modifyWindowFor("FAT32")).isEqualTo(2_000);
+        assertThat(FileStorageOperations.modifyWindowFor("exFAT")).isEqualTo(2_000);
+        assertThat(FileStorageOperations.modifyWindowFor("vfat")).isEqualTo(2_000);
+        assertThat(FileStorageOperations.modifyWindowFor("msdos")).isEqualTo(2_000);
+        assertThat(FileStorageOperations.modifyWindowFor("NTFS")).isZero();
+        assertThat(FileStorageOperations.modifyWindowFor("ext4")).isZero();
+        assertThat(FileStorageOperations.modifyWindowFor(null)).isZero();
+    }
+
+    @Test
+    void shouldSkipFileWhoseMtimeWasRoundedByAFatDestination() {
+        long sourceMtime = 1_700_000_000_123L;
+        long fatRoundedMtime = 1_700_000_002_000L;
+
+        assertThat(FileStorageOperations.isIncrementalNeeded(10, sourceMtime, 10, fatRoundedMtime, 2_000)).isFalse();
+        // Sem a janela (NTFS/ext4) a mesma diferenca continua exigindo copia.
+        assertThat(FileStorageOperations.isIncrementalNeeded(10, sourceMtime, 10, fatRoundedMtime, 0)).isTrue();
+    }
+
+    @Test
+    void shouldRecopyOnFatWhenMtimeDiffersBeyondTheWindowOrSizeChanges() {
+        long mtime = 1_700_000_000_000L;
+
+        assertThat(FileStorageOperations.isIncrementalNeeded(10, mtime, 10, mtime - 60_000, 2_000)).isTrue();
+        assertThat(FileStorageOperations.isIncrementalNeeded(11, mtime, 10, mtime, 2_000)).isTrue();
+        assertThat(FileStorageOperations.isIncrementalNeeded(10, mtime, 10, mtime, 0)).isFalse();
+    }
+
+    @Test
+    void sourceRootWarningsLogShouldNotCollideWithTheBackupLog() throws IOException {
+        Path source = tempDir.resolve("origem");
+        Path destination = tempDir.resolve("destino");
+        Files.createDirectories(source);
+        Files.writeString(source.resolve(FileStorageOperations.WARNINGS_LOG), "arquivo do usuario");
+        Path backupLog = BackupMetadata.prepareWarningsLog(destination);
+        Files.writeString(backupLog, "=== Backup #1 ===");
+
+        storageOperations.copyDirectoryIncremental(source, destination, List.of(), noOpCallback());
+
+        assertThat(destination.resolve(FileStorageOperations.WARNINGS_LOG)).hasContent("arquivo do usuario");
+        assertThat(backupLog).hasContent("=== Backup #1 ===");
+    }
+
+    @Test
+    void shouldSkipTheMetadataDirectoryOfAnotherBackupAtTheSourceRoot() throws IOException {
+        Path source = tempDir.resolve("origem");
+        Path destination = tempDir.resolve("destino");
+        write(source.resolve("documento.txt"));
+        write(BackupMetadata.warningsLog(source));
+        write(source.resolve("pasta").resolve(BackupMetadata.DIRECTORY).resolve("nota.txt"));
+
+        storageOperations.copyDirectoryIncremental(source, destination, List.of(), noOpCallback());
+
+        assertThat(destination.resolve("documento.txt")).exists();
+        assertThat(destination.resolve(BackupMetadata.DIRECTORY)).doesNotExist();
+        // So a pasta da raiz e reservada; o mesmo nome em subpasta e conteudo do usuario.
+        assertThat(destination.resolve("pasta").resolve(BackupMetadata.DIRECTORY).resolve("nota.txt")).exists();
+    }
+
     private void write(Path file) throws IOException {
         Files.createDirectories(file.getParent());
         Files.writeString(file, "conteudo");

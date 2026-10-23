@@ -315,7 +315,7 @@ No perfil `dev` também existem `POST /api/backup/scheduler/test-quick` e `POST 
 | `GET` | `/api/system/audit` | Eventos de auditoria, com filtros e paginação |
 | `POST` | `/api/system/audit/cleanup` | Limpa eventos fora da retenção |
 | `GET` | `/api/logs` | Conteúdo do log |
-| `GET` | `/api/logs/warnings` | Warnings operacionais |
+| `GET` | `/api/logs/warnings` | Warnings operacionais do backup mais recente (gravados em `<destino>/.backup-manager/warnings.log`, fora do conteúdo restaurável) |
 | `GET` | `/api/backup/notifications/settings` | Configuração de notificações |
 | `POST` | `/api/backup/notifications/test` | Envia e-mail de teste |
 

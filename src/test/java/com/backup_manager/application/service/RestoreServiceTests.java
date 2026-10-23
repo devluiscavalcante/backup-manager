@@ -3,6 +3,8 @@ package com.backup_manager.application.service;
 import com.backup_manager.application.dto.RestoreRequest;
 import com.backup_manager.application.dto.SelectiveRestoreRequest;
 import com.backup_manager.domain.model.BackupTask;
+import com.backup_manager.domain.model.RestoreStatus;
+import com.backup_manager.domain.model.RestoreTask;
 import com.backup_manager.domain.service.RestoreTaskManager;
 import com.backup_manager.infrastructure.config.AppSecurityProperties;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
@@ -12,7 +14,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.TaskRejectedException;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -20,10 +24,14 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +44,7 @@ class RestoreServiceTests {
 
     private final BackupRepository backupRepository = mock(BackupRepository.class);
     private final RestoreRepository restoreRepository = mock(RestoreRepository.class);
+    private final RestoreService asyncProxy = mock(RestoreService.class);
     private Path backupRoot;
     private RestoreService service;
 
@@ -61,7 +70,7 @@ class RestoreServiceTests {
                 mock(ApplicationEventPublisher.class),
                 new ObjectMapper(),
                 new PathSecurityService(properties),
-                mock(RestoreService.class)
+                asyncProxy
         );
     }
 
@@ -87,5 +96,47 @@ class RestoreServiceTests {
                 .isInstanceOf(IllegalArgumentException.class);
 
         verify(restoreRepository, never()).save(any());
+    }
+
+    @Test
+    void shouldFailTheSavedRestoreWhenTheQueueIsFull() {
+        RestoreRequest request = new RestoreRequest();
+        request.setTargetPath(tempDir.resolve("restored").toString());
+        when(restoreRepository.save(any(RestoreTask.class))).thenAnswer(invocation -> {
+            RestoreTask saved = invocation.getArgument(0);
+            saved.setId(11L);
+            return saved;
+        });
+        doThrow(new TaskRejectedException("fila cheia"))
+                .when(asyncProxy).processRestoreAsync(any(), anyBoolean(), any());
+
+        assertThatThrownBy(() -> service.startFullRestore(BACKUP_ID, request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Fila de restauracoes cheia");
+
+        // A tarefa nao pode ficar EM_ANDAMENTO sem worker.
+        ArgumentCaptor<RestoreTask> saved = ArgumentCaptor.forClass(RestoreTask.class);
+        verify(restoreRepository, times(2)).save(saved.capture());
+        RestoreTask last = saved.getValue();
+        assertThat(last.getStatus()).isEqualTo(RestoreStatus.FALHA);
+        assertThat(last.getErrorMessage()).isEqualTo("Fila de restauracoes cheia: tarefa nao iniciada");
+        assertThat(last.getFinishedAt()).isNotNull();
+    }
+
+    @Test
+    void shouldFailTheSavedSelectiveRestoreWhenTheQueueIsFull() {
+        SelectiveRestoreRequest request = new SelectiveRestoreRequest();
+        request.setTargetPath(tempDir.resolve("restored").toString());
+        request.setSelectedFiles(List.of("file.txt"));
+        when(restoreRepository.save(any(RestoreTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new TaskRejectedException("fila cheia"))
+                .when(asyncProxy).processRestoreAsync(any(), anyBoolean(), any());
+
+        assertThatThrownBy(() -> service.startSelectiveRestore(BACKUP_ID, request))
+                .isInstanceOf(IllegalStateException.class);
+
+        ArgumentCaptor<RestoreTask> saved = ArgumentCaptor.forClass(RestoreTask.class);
+        verify(restoreRepository, times(2)).save(saved.capture());
+        assertThat(saved.getValue().getStatus()).isEqualTo(RestoreStatus.FALHA);
     }
 }
