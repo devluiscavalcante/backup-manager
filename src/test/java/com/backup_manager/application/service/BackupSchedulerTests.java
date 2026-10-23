@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -139,6 +140,36 @@ class BackupSchedulerTests {
 
         assertThat(scheduler.executeScheduledRun(request("source", "destination"), "nightly")).containsExactly(42L);
         verify(publisher, never()).publishEvent(any());
+    }
+
+    @Test
+    void scheduledCronShouldNotWrapDispatchesInOneTransaction() throws NoSuchMethodException {
+        // Uma transacao em volta do loop escondia as tarefas recem-criadas do worker @Async (issue #88).
+        assertThat(BackupScheduler.class.getMethod("executeScheduledBackups")
+                .isAnnotationPresent(Transactional.class)).isFalse();
+        assertThat(BackupScheduler.class.isAnnotationPresent(Transactional.class)).isFalse();
+    }
+
+    @Test
+    void scheduledCronShouldStartEveryEnabledConfiguration() {
+        BackupService backupService = mock(BackupService.class);
+        BackupSchedulerProperties properties = new BackupSchedulerProperties();
+        properties.setEnabled(true);
+        BackupSchedulerProperties.ScheduledBackupConfig nightly = new BackupSchedulerProperties.ScheduledBackupConfig();
+        nightly.setName("nightly");
+        nightly.setSources(List.of("source"));
+        nightly.setDestinations(List.of("destination"));
+        properties.setScheduledBackups(List.of(nightly));
+        BackupScheduler scheduler = new BackupScheduler(backupService, mock(BackupRequestValidationService.class),
+                mock(ThreadPoolTaskScheduler.class), properties, mock(ApplicationEventPublisher.class),
+                mock(OneTimeBackupRepository.class));
+
+        when(backupService.getActiveTask("source", "destination")).thenReturn(Optional.empty());
+        when(backupService.runBackup("source", "destination")).thenReturn(7L);
+
+        scheduler.executeScheduledBackups();
+
+        verify(backupService).runBackup("source", "destination");
     }
 
     private BackupScheduler createScheduler(BackupService backupService) {
