@@ -8,7 +8,9 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
@@ -18,6 +20,13 @@ public class FileStorageOperations {
 
     /** Alertas da copia, gravados na raiz do destino; nao fazem parte do conteudo do backup. */
     public static final String WARNINGS_LOG = "warnings.log";
+
+    // FAT32 grava a data de modificacao com resolucao de 2 s (exFAT, 10 ms): mesmo com COPY_ATTRIBUTES o
+    // horario no destino nunca bate exatamente com o da origem. Mesma tolerancia do --modify-window do rsync.
+    static final long FAT_MODIFY_WINDOW_MILLIS = 2_000;
+    private static final Set<String> FAT_FILE_STORE_TYPES = Set.of(
+            "fat", "fat12", "fat16", "fat32", "exfat", "vfat", "msdos"
+    );
 
     public interface BackupProgressCallback {
         void onFileProcessed(Path file, BasicFileAttributes attrs);
@@ -30,6 +39,7 @@ public class FileStorageOperations {
         AtomicInteger warnings = new AtomicInteger(0);
         // A varredura parte do caminho real para que links internos possam ser detectados e ignorados.
         Path realSource = source.toRealPath();
+        long modifyWindowMillis = modifyWindowFor(destination);
 
         Files.walkFileTree(realSource, new SimpleFileVisitor<>() {
             @Override
@@ -72,7 +82,7 @@ public class FileStorageOperations {
 
                 Path targetFile = destination.resolve(realSource.relativize(file));
                 try {
-                    if (isIncrementalNeeded(file, targetFile, attrs)) {
+                    if (isIncrementalNeeded(targetFile, attrs, modifyWindowMillis)) {
                         Files.createDirectories(targetFile.getParent());
                         Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING,
                                 StandardCopyOption.COPY_ATTRIBUTES);
@@ -101,13 +111,34 @@ public class FileStorageOperations {
         return warnings.get();
     }
 
-    // Qualquer diferenca de mtime conta: um arquivo revertido para uma versao antiga, com o mesmo
-    // tamanho, tambem precisa ser recopiado.
-    private boolean isIncrementalNeeded(Path source, Path target, BasicFileAttributes sourceAttrs) throws IOException {
+    private boolean isIncrementalNeeded(Path target, BasicFileAttributes sourceAttrs, long modifyWindowMillis)
+            throws IOException {
         if (!Files.exists(target)) return true;
         BasicFileAttributes targetAttrs = Files.readAttributes(target, BasicFileAttributes.class);
-        return sourceAttrs.size() != targetAttrs.size() ||
-                sourceAttrs.lastModifiedTime().toMillis() != targetAttrs.lastModifiedTime().toMillis();
+        return isIncrementalNeeded(sourceAttrs.size(), sourceAttrs.lastModifiedTime().toMillis(),
+                targetAttrs.size(), targetAttrs.lastModifiedTime().toMillis(), modifyWindowMillis);
+    }
+
+    // Qualquer diferenca de mtime alem da precisao do destino conta: um arquivo revertido para uma versao
+    // antiga, com o mesmo tamanho, tambem precisa ser recopiado.
+    static boolean isIncrementalNeeded(long sourceSize, long sourceMtimeMillis,
+                                       long targetSize, long targetMtimeMillis, long modifyWindowMillis) {
+        return sourceSize != targetSize || Math.abs(sourceMtimeMillis - targetMtimeMillis) > modifyWindowMillis;
+    }
+
+    private static long modifyWindowFor(Path destination) {
+        try {
+            return modifyWindowFor(Files.getFileStore(destination).type());
+        } catch (IOException | SecurityException e) {
+            // Sem saber o sistema de arquivos, fica a comparacao exata (no pior caso recopia, nunca pula).
+            return 0;
+        }
+    }
+
+    static long modifyWindowFor(String fileStoreType) {
+        return fileStoreType != null && FAT_FILE_STORE_TYPES.contains(fileStoreType.toLowerCase(Locale.ROOT))
+                ? FAT_MODIFY_WINDOW_MILLIS
+                : 0;
     }
 
     // Compara apenas o nome da entrada (sem diferenciar maiusculas). A raiz da origem nunca e excluida,
