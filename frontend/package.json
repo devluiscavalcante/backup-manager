@@ -35,12 +35,12 @@
     "tslib": "^2.3.0"
   },
   "devDependencies": {
-    "@angular/build": "^21.2.27",
-    "@angular/cli": "^21.2.27",
+    "@angular/build": "^21.2.28",
+    "@angular/cli": "^21.2.28",
     "@angular/compiler-cli": "^21.2.25",
     "autoprefixer": "^10.6.1",
     "jsdom": "^27.1.0",
-    "postcss": "^8.5.30",
+    "postcss": "^8.5.31",
     "tailwindcss": "^3.4.19",
     "tailwindcss-animate": "^1.0.7",
     "typescript": "~5.9.2",
