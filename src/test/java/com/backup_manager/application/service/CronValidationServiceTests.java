@@ -16,11 +16,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CronValidationServiceTests {
 
-    private final CronValidationService service = new CronValidationService(new BackupSchedulerProperties());
+    private final BackupSchedulerProperties schedulerProperties = new BackupSchedulerProperties();
+    private final CronValidationService service = new CronValidationService(schedulerProperties);
 
     @Test
     void acceptsValidExpressionAndListsFiveFutureRuns() {
-        LocalDateTime before = LocalDateTime.now();
+        // Mesmo fuso do servico: com o fuso da maquina (UTC no CI) o teste falhava de madrugada.
+        LocalDateTime before = LocalDateTime.now(schedulerProperties.zoneId());
 
         CronValidationResponse response = service.validateCronExpression("0 0 2 * * *");
 
