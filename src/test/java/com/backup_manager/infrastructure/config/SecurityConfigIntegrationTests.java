@@ -152,9 +152,46 @@ class SecurityConfigIntegrationTests {
                 .andExpect(status().isTooManyRequests());
     }
 
+    @Test
+    void malformedBasicHeaderVariantsShouldStillBeThrottled() throws Exception {
+        // Variantes que o BasicAuthenticationConverter autentica, mas que nao comecam com "Basic " exato.
+        String[] prefixes = {"Basic\t", "Basic!", "basic ", "BASIC ", "  Basic "};
+
+        mockMvc.perform(get("/api/backup/active")
+                        .with(request -> {
+                            request.setRemoteAddr("203.0.113.9");
+                            return request;
+                        })
+                        .header(HttpHeaders.AUTHORIZATION, "Basic\t" + encode("admin", "admin-secret")))
+                .andExpect(status().isOk());
+
+        for (int i = 0; i < 10; i++) {
+            String prefix = prefixes[i % prefixes.length];
+            mockMvc.perform(get("/api/backup/active")
+                            .with(request -> {
+                                request.setRemoteAddr("203.0.113.9");
+                                return request;
+                            })
+                            .header(HttpHeaders.AUTHORIZATION, prefix + encode("admin", "palpite-" + prefix.trim())))
+                    .andExpect(status().isUnauthorized());
+        }
+
+        mockMvc.perform(get("/api/backup/active")
+                        .with(request -> {
+                            request.setRemoteAddr("203.0.113.9");
+                            return request;
+                        })
+                        .header(HttpHeaders.AUTHORIZATION, "Basic\t" + encode("admin", "admin-secret")))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(jsonPath("$.code").value("too_many_failed_logins"));
+    }
+
     private String basicAuth(String username, String password) {
+        return "Basic " + encode(username, password);
+    }
+
+    private String encode(String username, String password) {
         String credentials = username + ":" + password;
-        String encoded = Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
-        return "Basic " + encoded;
+        return Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
     }
 }
