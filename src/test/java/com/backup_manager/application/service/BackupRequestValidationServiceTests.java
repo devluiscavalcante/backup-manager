@@ -3,12 +3,14 @@ package com.backup_manager.application.service;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.exception.FolderEmptyException;
 import com.backup_manager.infrastructure.config.AppSecurityProperties;
+import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -178,7 +180,7 @@ class BackupRequestValidationServiceTests {
         Files.write(sourceDir.resolve("a.bin"), new byte[3000]);
         Files.write(sourceDir.resolve("b.bin"), new byte[1000]);
         Path destinationDir = Files.createDirectories(tempDir.resolve("destination"));
-        Files.write(destinationDir.resolve("a.bin"), new byte[3000]);
+        Files.copy(sourceDir.resolve("a.bin"), destinationDir.resolve("a.bin"), StandardCopyOption.COPY_ATTRIBUTES);
         BackupRequestValidationService service = createService(List.of(tempDir.toString()));
 
         assertEquals(1000, service.estimateRequiredBytes(sourceDir.toFile(), destinationDir));
@@ -186,14 +188,34 @@ class BackupRequestValidationServiceTests {
     }
 
     @Test
-    void requiredSpaceShouldNeverBeNegative() throws IOException {
+    void requiredSpaceShouldIgnoreDestinationFilesThatDoNotComeFromTheSource() throws IOException {
+        // 50 "GB" de outros arquivos no destino nao podem zerar a estimativa de uma origem de 40.
         Path sourceDir = Files.createDirectories(tempDir.resolve("source"));
-        Files.write(sourceDir.resolve("a.bin"), new byte[10]);
+        Files.write(sourceDir.resolve("a.bin"), new byte[4000]);
         Path destinationDir = Files.createDirectories(tempDir.resolve("destination"));
         Files.write(destinationDir.resolve("antigo.bin"), new byte[5000]);
         BackupRequestValidationService service = createService(List.of(tempDir.toString()));
 
-        assertEquals(0, service.estimateRequiredBytes(sourceDir.toFile(), destinationDir));
+        assertEquals(4000, service.estimateRequiredBytes(sourceDir.toFile(), destinationDir));
+    }
+
+    @Test
+    void requiredSpaceShouldCountFilesThatChangedInTheSource() throws IOException {
+        Path sourceDir = Files.createDirectories(tempDir.resolve("source"));
+        Files.write(sourceDir.resolve("a.bin"), new byte[2000]);
+        Path destinationDir = Files.createDirectories(tempDir.resolve("destination"));
+        Files.write(destinationDir.resolve("a.bin"), new byte[1500]);
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        assertEquals(2000, service.estimateRequiredBytes(sourceDir.toFile(), destinationDir));
+    }
+
+    @Test
+    void availableSpaceShouldComeFromTheDestinationFileStoreEvenWhenItDoesNotExistYet() throws IOException {
+        Path missingDestination = tempDir.resolve("novo").resolve("destino");
+
+        assertEquals(Files.getFileStore(tempDir), BackupRequestValidationService.destinationStore(missingDestination));
+        assertEquals(Files.getFileStore(tempDir), BackupRequestValidationService.destinationStore(tempDir));
     }
 
     private BackupRequestValidationService createService(List<String> allowedRoots) {
@@ -201,6 +223,6 @@ class BackupRequestValidationServiceTests {
         properties.setAllowedPathRoots(allowedRoots);
 
         PathSecurityService pathSecurityService = new PathSecurityService(properties);
-        return new BackupRequestValidationService(new BackupManager(), pathSecurityService);
+        return new BackupRequestValidationService(new BackupManager(), pathSecurityService, new FileStorageOperations());
     }
 }
