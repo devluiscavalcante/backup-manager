@@ -117,6 +117,49 @@ public class FileStorageOperations {
         return warnings.get();
     }
 
+    /**
+     * Bytes que a copia incremental de source para destination gravaria: so arquivos ausentes no destino ou
+     * diferentes deles. Arquivos do destino que nao vem da origem nao reduzem a estimativa. As exclusoes nao
+     * sao aplicadas, entao a estimativa erra para mais, nunca para menos.
+     */
+    public long estimatePendingBytes(Path source, Path destination) throws IOException {
+        Path realSource = source.toRealPath();
+        long modifyWindowMillis = Files.isDirectory(destination) ? modifyWindowFor(destination) : 0;
+        long[] pending = {0};
+
+        Files.walkFileTree(realSource, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (BackupMetadata.isMetadataDirectoryOf(dir, realSource)
+                        || (!dir.equals(realSource) && FileLinks.isRedirected(dir))) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                if (!attrs.isRegularFile()) return FileVisitResult.CONTINUE;
+                try {
+                    if (isIncrementalNeeded(destination.resolve(realSource.relativize(file)), attrs,
+                            modifyWindowMillis)) {
+                        pending[0] += attrs.size();
+                    }
+                } catch (IOException e) {
+                    pending[0] += attrs.size();
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                return FileVisitResult.CONTINUE;
+            }
+        });
+
+        return pending[0];
+    }
+
     private boolean isIncrementalNeeded(Path target, BasicFileAttributes sourceAttrs, long modifyWindowMillis)
             throws IOException {
         if (!Files.exists(target)) return true;
