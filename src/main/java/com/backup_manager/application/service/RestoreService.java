@@ -187,7 +187,8 @@ public class RestoreService {
         Path targetPath = pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
         pathSecurityService.ensureNotOverlapping(Paths.get(backup.getDestinationPath()), targetPath, "restauracao");
 
-        RestoreTask task = createRestoreTask(backup, request.getTargetPath(),
+        // Persiste o caminho real validado: a execucao assincrona nao reinterpreta o texto da requisicao.
+        RestoreTask task = createRestoreTask(backup, targetPath.toString(),
                 RestoreType.FULL, null);
         task = restoreRepository.save(task);
 
@@ -211,7 +212,7 @@ public class RestoreService {
 
         RestoreTask task = createRestoreTask(
                 backup,
-                request.getTargetPath(),
+                targetPath.toString(),
                 RestoreType.SELECTIVE,
                 serializeSelectedFiles(request.getSelectedFiles())
         );
@@ -249,9 +250,11 @@ public class RestoreService {
             eventPublisher.publishEvent(new RestoreStartedEvent(task));
 
             Path backupSource = Paths.get(task.getSourceBackup().getDestinationPath());
-            Path targetDestination = Paths.get(task.getTargetPath());
 
             try {
+                // Revalida na execucao: entre o pedido e o inicio da tarefa o destino pode ter virado um link.
+                Path targetDestination = pathSecurityService.validateWritableManagedPath(
+                        task.getTargetPath(), "restauracao");
                 FileRestoreOperations.RestoreResult result;
 
                 if (task.getRestoreType() == RestoreType.FULL) {
