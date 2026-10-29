@@ -120,7 +120,7 @@ curl -u admin:uma-senha-forte \
   }'
 ```
 
-Valide a expressão antes com `POST /api/backup/config/validate-cron` ou use um dos modelos de `GET /api/backup/config/cron-templates`.
+Valide a expressão antes com `POST /api/backup/config/validate-cron` ou use um dos modelos de `GET /api/backup/config/cron-templates`. Expressões que disparam com intervalo menor que `BACKUP_SCHEDULER_MIN_INTERVAL` (padrão `5m`) são recusadas; agendamentos assim já gravados no banco são ignorados na carga, com aviso no log.
 
 </details>
 
@@ -357,6 +357,7 @@ Todas as opções vêm de variáveis de ambiente ou de um arquivo `.env` na raiz
 | `DB_PASSWORD` | *(vazio)* | Senha do banco (`postgres` no `docker-compose.yml`) |
 | `APP_PORT` | `8080` | Porta HTTP |
 | `APP_VERSION` | versão do build | Versão exibida no health check |
+| `BACKUP_SCHEDULER_MIN_INTERVAL` | `5m` | Menor intervalo aceito entre duas execuções de um agendamento |
 
 </details>
 

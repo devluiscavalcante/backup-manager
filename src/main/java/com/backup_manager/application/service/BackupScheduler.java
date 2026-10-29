@@ -15,6 +15,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Component;
@@ -27,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -35,14 +37,13 @@ public class BackupScheduler {
 
     private static final Logger logger = LoggerFactory.getLogger(BackupScheduler.class);
 
-    private static final long MIN_INTERVAL_MINUTES = 5;
-
     private final BackupService backupService;
     private final BackupRequestValidationService backupRequestValidationService;
     private final BackupSchedulerProperties schedulerProperties;
     private final ThreadPoolTaskScheduler backupOneTimeScheduler;
     private final ApplicationEventPublisher eventPublisher;
     private final OneTimeBackupRepository oneTimeBackupRepository;
+    private final Executor dispatchExecutor;
 
     private final Map<String, LocalDateTime> lastExecutionMap = new ConcurrentHashMap<>();
     // Futuros em memoria das execucoes unicas; a fonte de verdade e a tabela one_time_backups.
@@ -53,13 +54,15 @@ public class BackupScheduler {
                            @Qualifier("backupOneTimeScheduler") ThreadPoolTaskScheduler backupOneTimeScheduler,
                            BackupSchedulerProperties schedulerProperties,
                            ApplicationEventPublisher eventPublisher,
-                           OneTimeBackupRepository oneTimeBackupRepository) {
+                           OneTimeBackupRepository oneTimeBackupRepository,
+                           @Qualifier("backupDispatchExecutor") Executor dispatchExecutor) {
         this.backupService = backupService;
         this.backupRequestValidationService = backupRequestValidationService;
         this.backupOneTimeScheduler = backupOneTimeScheduler;
         this.schedulerProperties = schedulerProperties;
         this.eventPublisher = eventPublisher;
         this.oneTimeBackupRepository = oneTimeBackupRepository;
+        this.dispatchExecutor = dispatchExecutor;
     }
 
     @Scheduled(cron = "${backup.scheduler.cron-expression:0 0 2 * * *}",
@@ -116,7 +119,7 @@ public class BackupScheduler {
             LocalDateTime lastExecution = lastExecutionMap.get(backupKey);
             LocalDateTime now = LocalDateTime.now();
 
-            if (lastExecution != null && lastExecution.plusMinutes(MIN_INTERVAL_MINUTES).isAfter(now)) {
+            if (lastExecution != null && lastExecution.plus(schedulerProperties.getMinInterval()).isAfter(now)) {
                 logger.debug("Backup '{}' executado recentemente, ignorando execucao", config.getName());
                 return false;
             }
@@ -177,9 +180,30 @@ public class BackupScheduler {
     }
 
     private void scheduleExecution(Long oneTimeId, Instant when) {
-        ScheduledFuture<?> future = backupOneTimeScheduler.schedule(() -> runOneTime(oneTimeId), when);
+        ScheduledFuture<?> future = backupOneTimeScheduler.schedule(() -> dispatchOneTime(oneTimeId), when);
         if (future != null) {
             scheduledTasks.put(oneTimeId, future);
+        }
+    }
+
+    // A validacao do disparo varre origem e destino para estimar espaco: roda no pool de disparo,
+    // nao na thread do agendador compartilhada com os crons.
+    void dispatchOneTime(Long oneTimeId) {
+        try {
+            dispatchExecutor.execute(() -> runOneTime(oneTimeId));
+        } catch (TaskRejectedException e) {
+            scheduledTasks.remove(oneTimeId);
+            logger.error("Backup unico ID {} descartado: fila de disparo cheia", oneTimeId);
+            oneTimeBackupRepository.findById(oneTimeId)
+                    .filter(oneTime -> oneTime.getStatus() == OneTimeBackupStatus.PENDENTE)
+                    .ifPresent(oneTime -> {
+                        oneTime.setStatus(OneTimeBackupStatus.FALHA);
+                        oneTime.setExecutedAt(LocalDateTime.now());
+                        oneTime.setErrorMessage("Fila de disparo de backups cheia; execucao descartada.");
+                        oneTimeBackupRepository.save(oneTime);
+                        eventPublisher.publishEvent(new ScheduledBackupFailedEvent(
+                                oneTime.getName(), List.of(oneTime.getErrorMessage())));
+                    });
         }
     }
 

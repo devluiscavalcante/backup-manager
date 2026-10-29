@@ -1,9 +1,12 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.domain.event.ScheduledBackupFailedEvent;
 import com.backup_manager.domain.model.ScheduledBackupEntity;
 import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import org.junit.jupiter.api.Test;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.Trigger;
 import org.springframework.scheduling.support.CronTrigger;
@@ -12,9 +15,12 @@ import org.springframework.scheduling.support.SimpleTriggerContext;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -72,7 +78,10 @@ class DynamicSchedulerServiceTests {
                 mock(BackupScheduler.class),
                 mock(BackupRequestValidationService.class),
                 taskScheduler,
-                new BackupSchedulerProperties()
+                new BackupSchedulerProperties(),
+                new CronValidationService(new BackupSchedulerProperties()),
+                Runnable::run,
+                mock(ApplicationEventPublisher.class)
         );
         ScheduledBackupEntity config = scheduledBackup();
 
@@ -96,7 +105,10 @@ class DynamicSchedulerServiceTests {
                 mock(BackupScheduler.class),
                 mock(BackupRequestValidationService.class),
                 taskScheduler,
-                properties
+                properties,
+                new CronValidationService(new BackupSchedulerProperties()),
+                Runnable::run,
+                mock(ApplicationEventPublisher.class)
         );
 
         when(repository.findByEnabledTrue()).thenReturn(List.of(scheduledBackup()));
@@ -121,7 +133,10 @@ class DynamicSchedulerServiceTests {
                 mock(BackupScheduler.class),
                 mock(BackupRequestValidationService.class),
                 taskScheduler,
-                new BackupSchedulerProperties()
+                new BackupSchedulerProperties(),
+                new CronValidationService(new BackupSchedulerProperties()),
+                Runnable::run,
+                mock(ApplicationEventPublisher.class)
         );
 
         when(repository.findByEnabledTrue()).thenReturn(List.of(scheduledBackup()));
@@ -144,7 +159,10 @@ class DynamicSchedulerServiceTests {
                 mock(BackupScheduler.class),
                 validationService,
                 taskScheduler,
-                new BackupSchedulerProperties()
+                new BackupSchedulerProperties(),
+                new CronValidationService(new BackupSchedulerProperties()),
+                Runnable::run,
+                mock(ApplicationEventPublisher.class)
         );
         ScheduledBackupEntity config = scheduledBackup();
 
@@ -166,7 +184,10 @@ class DynamicSchedulerServiceTests {
                 mock(BackupScheduler.class),
                 mock(BackupRequestValidationService.class),
                 taskScheduler,
-                new BackupSchedulerProperties()
+                new BackupSchedulerProperties(),
+                new CronValidationService(new BackupSchedulerProperties()),
+                Runnable::run,
+                mock(ApplicationEventPublisher.class)
         );
         ScheduledBackupEntity impossible = scheduledBackup();
         impossible.setCronExpression("0 0 0 30 2 *");
@@ -184,6 +205,105 @@ class DynamicSchedulerServiceTests {
         verify(taskScheduler, times(2)).schedule(any(Runnable.class), any(Trigger.class));
     }
 
+    @Test
+    void shouldIgnoreStoredCronBelowMinimumInterval() {
+        ScheduledBackupRepository repository = mock(ScheduledBackupRepository.class);
+        TaskScheduler taskScheduler = mock(TaskScheduler.class);
+        DynamicSchedulerService service = new DynamicSchedulerService(
+                repository,
+                mock(BackupScheduler.class),
+                mock(BackupRequestValidationService.class),
+                taskScheduler,
+                new BackupSchedulerProperties(),
+                new CronValidationService(new BackupSchedulerProperties()),
+                Runnable::run,
+                mock(ApplicationEventPublisher.class)
+        );
+        ScheduledBackupEntity everySecond = scheduledBackup();
+        everySecond.setCronExpression("* * * * * *");
+        ScheduledBackupEntity daily = scheduledBackup();
+        daily.setId(11L);
+
+        when(repository.findByEnabledTrue()).thenReturn(List.of(everySecond, daily));
+        doReturn(mock(ScheduledFuture.class)).when(taskScheduler).schedule(any(Runnable.class), any(Trigger.class));
+
+        service.refreshAllTasks();
+
+        verify(taskScheduler).schedule(any(Runnable.class), argThat((Trigger trigger) ->
+                ((CronTrigger) trigger).getExpression().equals("0 0 1 * * *")));
+        verify(taskScheduler, times(1)).schedule(any(Runnable.class), any(Trigger.class));
+    }
+
+    @Test
+    void triggerShouldOnlyHandOffToDispatchExecutor() {
+        BackupScheduler backupScheduler = mock(BackupScheduler.class);
+        List<Runnable> dispatched = new ArrayList<>();
+        DynamicSchedulerService service = serviceWithExecutor(backupScheduler, dispatched::add,
+                mock(ApplicationEventPublisher.class));
+        ScheduledBackupEntity config = scheduledBackup();
+
+        service.dispatchScheduledBackup(config);
+
+        // A validacao (que varre origem e destino) nao roda na thread do agendador.
+        verify(backupScheduler, never()).executeScheduledRun(any(), any());
+        assertThat(dispatched).hasSize(1);
+
+        dispatched.getFirst().run();
+        verify(backupScheduler).executeScheduledRun(any(), eq(config.getName()));
+    }
+
+    @Test
+    void triggerShouldNotQueueAnotherRunWhileThePreviousIsPending() {
+        List<Runnable> dispatched = new ArrayList<>();
+        DynamicSchedulerService service = serviceWithExecutor(mock(BackupScheduler.class), dispatched::add,
+                mock(ApplicationEventPublisher.class));
+        ScheduledBackupEntity config = scheduledBackup();
+
+        service.dispatchScheduledBackup(config);
+        service.dispatchScheduledBackup(config);
+        assertThat(dispatched).hasSize(1);
+
+        dispatched.getFirst().run();
+        service.dispatchScheduledBackup(config);
+        assertThat(dispatched).hasSize(2);
+    }
+
+    @Test
+    void rejectedDispatchShouldNotifyFailureAndAllowNextRun() {
+        ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
+        AtomicBoolean reject = new AtomicBoolean(true);
+        List<Runnable> dispatched = new ArrayList<>();
+        DynamicSchedulerService service = serviceWithExecutor(mock(BackupScheduler.class), task -> {
+            if (reject.get()) {
+                throw new TaskRejectedException("fila cheia");
+            }
+            dispatched.add(task);
+        }, publisher);
+        ScheduledBackupEntity config = scheduledBackup();
+
+        service.dispatchScheduledBackup(config);
+
+        verify(publisher).publishEvent(any(ScheduledBackupFailedEvent.class));
+
+        reject.set(false);
+        service.dispatchScheduledBackup(config);
+        assertThat(dispatched).hasSize(1);
+    }
+
+    private DynamicSchedulerService serviceWithExecutor(BackupScheduler backupScheduler, Executor executor,
+                                                        ApplicationEventPublisher publisher) {
+        return new DynamicSchedulerService(
+                mock(ScheduledBackupRepository.class),
+                backupScheduler,
+                mock(BackupRequestValidationService.class),
+                mock(TaskScheduler.class),
+                new BackupSchedulerProperties(),
+                new CronValidationService(new BackupSchedulerProperties()),
+                executor,
+                publisher
+        );
+    }
+
     private DynamicSchedulerService createService(ScheduledBackupRepository repository,
                                                   BackupScheduler backupScheduler) {
         return new DynamicSchedulerService(
@@ -191,7 +311,10 @@ class DynamicSchedulerServiceTests {
                 backupScheduler,
                 mock(BackupRequestValidationService.class),
                 mock(TaskScheduler.class),
-                new BackupSchedulerProperties()
+                new BackupSchedulerProperties(),
+                new CronValidationService(new BackupSchedulerProperties()),
+                Runnable::run,
+                mock(ApplicationEventPublisher.class)
         );
     }
 

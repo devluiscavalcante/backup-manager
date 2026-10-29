@@ -3,6 +3,7 @@ package com.backup_manager.infrastructure.config;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -14,6 +15,8 @@ public class BackupSchedulerProperties {
     private boolean enabled = false;
     private String cronExpression = "0 0 2 * * *";
     private String timeZone = "America/Sao_Paulo";
+    // Menor intervalo aceito entre duas execucoes de um mesmo agendamento (cron dinamico e legado).
+    private Duration minInterval = Duration.ofMinutes(5);
     private List<ScheduledBackupConfig> scheduledBackups = new ArrayList<>();
 
     public boolean isEnabled() {
@@ -38,6 +41,14 @@ public class BackupSchedulerProperties {
 
     public void setTimeZone(String timeZone) {
         this.timeZone = timeZone;
+    }
+
+    public Duration getMinInterval() {
+        return minInterval;
+    }
+
+    public void setMinInterval(Duration minInterval) {
+        this.minInterval = minInterval;
     }
 
     // Fuso unico para todos os crons (global e dinamicos), independente do fuso do servidor/container.
