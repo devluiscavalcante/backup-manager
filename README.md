@@ -389,7 +389,10 @@ Todas as opções vêm de variáveis de ambiente ou de um arquivo `.env` na raiz
 | `NOTIFICATION_EMAIL_FROM` | *(placeholder)* | Remetente |
 | `NOTIFICATION_EMAIL_RECIPIENTS` | *(placeholder)* | Destinatários, separados por vírgula |
 | `NOTIFICATION_NOTIFY_SUCCESS` | `false` | Notifica backups concluídos |
-| `NOTIFICATION_NOTIFY_FAILURE` | `false` | Notifica falhas |
+| `NOTIFICATION_NOTIFY_FAILURE` | `true` | Notifica falhas de backup, de restauração e de execuções agendadas |
+| `NOTIFICATION_NOTIFY_CANCELLATION` | `true` | Notifica cancelamentos |
+| `NOTIFICATION_NOTIFY_STARTED` | `false` | Notifica o início de backups e restaurações |
+| `NOTIFICATION_NOTIFY_SCHEDULED` | `false` | Notifica a criação ou edição de agendamentos |
 | `MAIL_HOST` | *(placeholder)* | Servidor SMTP |
 | `MAIL_PORT` | `465` | Porta SMTP |
 | `MAIL_SSL_ENABLED` | `true` | SSL direto (porta 465) |

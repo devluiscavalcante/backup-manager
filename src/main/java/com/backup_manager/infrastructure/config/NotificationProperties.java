@@ -27,12 +27,13 @@ public class NotificationProperties {
         @ValidEmailList()
         private List<String> recipients = new ArrayList<>();
 
-        private boolean notifyOnSuccess = true;
+        // Mesmos padroes do application.properties.
+        private boolean notifyOnSuccess = false;
         private boolean notifyOnFailure = true;
-        private boolean notifyOnCancellation = false;
+        private boolean notifyOnCancellation = true;
 
         private boolean notifyOnStarted = false;
-        private boolean notifyOnScheduled = true;
+        private boolean notifyOnScheduled = false;
         private boolean notifyOnPaused = false;
         private boolean notifyOnResumed = false;
     }
