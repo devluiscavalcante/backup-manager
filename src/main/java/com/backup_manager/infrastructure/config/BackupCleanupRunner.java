@@ -1,5 +1,7 @@
 package com.backup_manager.infrastructure.config;
 
+import com.backup_manager.domain.event.BackupFailedEvent;
+import com.backup_manager.domain.event.RestoreFailedEvent;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.RestoreStatus;
 import com.backup_manager.domain.model.RestoreTask;
@@ -9,6 +11,7 @@ import com.backup_manager.infrastructure.persistence.RestoreRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,10 +26,13 @@ public class BackupCleanupRunner implements CommandLineRunner {
 
     private final BackupRepository repository;
     private final RestoreRepository restoreRepository;
+    private final ApplicationEventPublisher eventPublisher;
 
-    public BackupCleanupRunner(BackupRepository repository, RestoreRepository restoreRepository) {
+    public BackupCleanupRunner(BackupRepository repository, RestoreRepository restoreRepository,
+                               ApplicationEventPublisher eventPublisher) {
         this.repository = repository;
         this.restoreRepository = restoreRepository;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -58,6 +64,8 @@ public class BackupCleanupRunner implements CommandLineRunner {
             logger.debug("Tarefa ID {} marcada como falha", task.getId());
         });
         repository.saveAll(orphanTasks);
+        // Sem isso a interrupcao por restart/deploy passava em silencio: o worker morto nao publica nada.
+        orphanTasks.forEach(task -> eventPublisher.publishEvent(new BackupFailedEvent(task, INTERRUPTED_MESSAGE)));
     }
 
     // Restauracoes rodam em memoria como os backups: um restart deixa a tarefa EM_ANDAMENTO para sempre.
@@ -78,5 +86,6 @@ public class BackupCleanupRunner implements CommandLineRunner {
             task.setFinishedAt(now);
         });
         restoreRepository.saveAll(orphanRestores);
+        orphanRestores.forEach(task -> eventPublisher.publishEvent(new RestoreFailedEvent(task, INTERRUPTED_MESSAGE)));
     }
 }

@@ -120,7 +120,7 @@ curl -u admin:uma-senha-forte \
   }'
 ```
 
-Valide a expressão antes com `POST /api/backup/config/validate-cron` ou use um dos modelos de `GET /api/backup/config/cron-templates`.
+Valide a expressão antes com `POST /api/backup/config/validate-cron` ou use um dos modelos de `GET /api/backup/config/cron-templates`. Expressões que disparam com intervalo menor que `BACKUP_SCHEDULER_MIN_INTERVAL` (padrão `5m`) são recusadas; agendamentos assim já gravados no banco são ignorados na carga, com aviso no log.
 
 </details>
 
@@ -357,6 +357,8 @@ Todas as opções vêm de variáveis de ambiente ou de um arquivo `.env` na raiz
 | `DB_PASSWORD` | *(vazio)* | Senha do banco (`postgres` no `docker-compose.yml`) |
 | `APP_PORT` | `8080` | Porta HTTP |
 | `APP_VERSION` | versão do build | Versão exibida no health check |
+| `BACKUP_SCHEDULER_MIN_INTERVAL` | `5m` | Menor intervalo aceito entre duas execuções de um agendamento |
+| `APP_SHUTDOWN_TIMEOUT` | `30s` | Prazo, no encerramento, para requisições e backups/restaurações em andamento terminarem |
 
 </details>
 
@@ -389,7 +391,10 @@ Todas as opções vêm de variáveis de ambiente ou de um arquivo `.env` na raiz
 | `NOTIFICATION_EMAIL_FROM` | *(placeholder)* | Remetente |
 | `NOTIFICATION_EMAIL_RECIPIENTS` | *(placeholder)* | Destinatários, separados por vírgula |
 | `NOTIFICATION_NOTIFY_SUCCESS` | `false` | Notifica backups concluídos |
-| `NOTIFICATION_NOTIFY_FAILURE` | `false` | Notifica falhas |
+| `NOTIFICATION_NOTIFY_FAILURE` | `true` | Notifica falhas de backup, de restauração e de execuções agendadas |
+| `NOTIFICATION_NOTIFY_CANCELLATION` | `true` | Notifica cancelamentos |
+| `NOTIFICATION_NOTIFY_STARTED` | `false` | Notifica o início de backups e restaurações |
+| `NOTIFICATION_NOTIFY_SCHEDULED` | `false` | Notifica a criação ou edição de agendamentos |
 | `MAIL_HOST` | *(placeholder)* | Servidor SMTP |
 | `MAIL_PORT` | `465` | Porta SMTP |
 | `MAIL_SSL_ENABLED` | `true` | SSL direto (porta 465) |
@@ -421,6 +426,8 @@ A imagem usa build multi-stage e roda em `eclipse-temurin:21-jre-alpine` com usu
 
 > [!IMPORTANT]
 > No container, `APP_SECURITY_ALLOWED_PATH_ROOTS` deve apontar para caminhos **dentro do container**. Monte os diretórios do host com `-v`.
+
+**Encerramento:** ao receber `SIGTERM`, a aplicação para de aceitar requisições, descarta os disparos agendados futuros (eles voltam do banco no próximo boot) e espera até `APP_SHUTDOWN_TIMEOUT` pelos backups e restaurações em andamento. O que passar do prazo é cortado e marcado como `FALHA` no próximo boot, com notificação de falha. O Docker mata o processo 10 s após o `SIGTERM` por padrão: use `docker stop -t` ou `stop_grace_period` maior que o prazo.
 
 ## Desenvolvimento
 

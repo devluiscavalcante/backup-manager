@@ -40,7 +40,7 @@ public class AsyncConfig implements AsyncConfigurer {
 
     /** Restauracoes sao I/O longo: pool proprio para nao bloquear as notificacoes. */
     @Bean(name = "restoreTaskExecutor")
-    public Executor restoreTaskExecutor() {
+    public ThreadPoolTaskExecutor restoreTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(2);
         executor.setMaxPoolSize(2);
@@ -68,7 +68,7 @@ public class AsyncConfig implements AsyncConfigurer {
     }
 
     @Bean(name = "backupDispatchExecutor")
-    public Executor backupDispatchExecutor() {
+    public ThreadPoolTaskExecutor backupDispatchExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(4);
         executor.setMaxPoolSize(4);
@@ -80,7 +80,7 @@ public class AsyncConfig implements AsyncConfigurer {
     }
 
     @Bean(name = "backupTaskExecutor")
-    public Executor backupTaskExecutor() {
+    public ThreadPoolTaskExecutor backupTaskExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(4);
         executor.setMaxPoolSize(4);
