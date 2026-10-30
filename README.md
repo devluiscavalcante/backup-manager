@@ -256,6 +256,7 @@ Toda resposta inclui o cabeçalho `X-Request-Id`. Envie o seu próprio valor nes
 | `POST` | `/api/backup/{taskId}/pause` | Pausa |
 | `POST` | `/api/backup/{taskId}/resume` | Retoma |
 | `POST` | `/api/backup/{taskId}/cancel` | Cancela (inclusive na fila) |
+| `POST` | `/api/backup/{taskId}/verify` | Confere o snapshot contra o manifesto de integridade |
 | `GET` | `/api/backup/history?limit=N` | Execuções mais recentes primeiro (padrão 500, máximo 1000) |
 | `GET` | `/api/backup/history/search` | Busca no histórico |
 | `GET` | `/api/backup/history/stats` | Estatísticas |
@@ -394,6 +395,9 @@ Restaurar ou pré-visualizar uma entrada do histórico usa o snapshot daquela ex
 | `BACKUP_RETENTION_MAX_SNAPSHOTS` | `10` | Snapshots mantidos por destino (`0` desliga o limite) |
 | `BACKUP_RETENTION_MAX_DAYS` | `0` | Idade máxima dos snapshots em dias (`0` desliga) |
 | `BACKUP_WARNINGS_MAX_LOGS` | `20` | Logs de alertas mantidos por destino, um por execução (`0` desliga o limite) |
+| `BACKUP_INTEGRITY_HASH` | `true` | Grava o SHA-256 de cada arquivo no manifesto do snapshot (`false` guarda só tamanho e data) |
+
+Cada snapshot tem um manifesto (`.backup-manager/manifest.tsv`) com caminho, tamanho, data e SHA-256 de cada arquivo. Arquivos que viraram hardlink herdam o hash do snapshot anterior sem serem relidos. `POST /api/backup/{id}/verify` relê o snapshot e lista arquivos ausentes, alterados (bit rot, falha de disco) ou que não constam no manifesto. A verificação lê o backup inteiro, então só roda quando pedida.
 
 A retenção roda ao fim de cada backup concluído e nunca remove o snapshot mais recente. A entrada do histórico cujo snapshot expirou continua listada, com `snapshotRemovedAt`, e restaurá-la responde `409`.
 

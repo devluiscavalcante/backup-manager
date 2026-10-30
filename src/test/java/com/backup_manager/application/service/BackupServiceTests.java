@@ -1,5 +1,6 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.application.dto.BackupVerificationResponse;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
@@ -9,6 +10,7 @@ import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.storage.BackupManifest;
 import com.backup_manager.infrastructure.storage.BackupSnapshots;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.junit.jupiter.api.Test;
@@ -317,6 +319,40 @@ class BackupServiceTests {
             assertThat(logs).singleElement().satisfies(log ->
                     assertThat(Files.readString(log)).contains("=== Backup #7 iniciado"));
         }
+    }
+
+    @Test
+    void verifyBackupShouldReportACorruptedFileInTheSnapshot(@TempDir Path tempDir) throws IOException {
+        BackupRepository repository = mock(BackupRepository.class);
+        BackupService service = new BackupService(mock(BackupManager.class), repository, mock(ProgressEmitter.class),
+                mock(BackupTaskManager.class), mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
+                mock(PathSecurityService.class), Runnable::run, mock(BackupService.class));
+        Path snapshot = Files.createDirectories(tempDir.resolve("snapshot"));
+        Files.writeString(snapshot.resolve("a.txt"), "original");
+        BackupManifest.write(snapshot, tempDir.resolve("sem-base"), true);
+        Files.writeString(snapshot.resolve("a.txt"), "alterado");
+        BackupTask task = backupTask(Status.CONCLUIDO, false);
+        task.setSnapshotPath(snapshot.toString());
+        when(repository.findById(7L)).thenReturn(Optional.of(task));
+
+        BackupVerificationResponse result = service.verifyBackup(7L);
+
+        assertThat(result.isIntact()).isFalse();
+        assertThat(result.getChanged()).containsExactly("a.txt");
+        assertThat(result.getCheckedFiles()).isEqualTo(1);
+    }
+
+    @Test
+    void verifyBackupShouldExplainThatLegacyBackupsHaveNoManifest() {
+        BackupRepository repository = mock(BackupRepository.class);
+        BackupService service = new BackupService(mock(BackupManager.class), repository, mock(ProgressEmitter.class),
+                mock(BackupTaskManager.class), mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
+                mock(PathSecurityService.class), Runnable::run, mock(BackupService.class));
+        when(repository.findById(7L)).thenReturn(Optional.of(backupTask(Status.CONCLUIDO, false)));
+
+        assertThatThrownBy(() -> service.verifyBackup(7L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("anterior aos snapshots");
     }
 
     @Test

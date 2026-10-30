@@ -1,9 +1,12 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.application.dto.BackupVerificationResponse;
 import com.backup_manager.application.dto.Progress;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
+import com.backup_manager.domain.exception.BackupResourceNotFoundException;
+import com.backup_manager.domain.exception.BackupStorageNotFoundException;
 import com.backup_manager.domain.event.BackupCompletedEvent;
 import com.backup_manager.domain.event.BackupFailedEvent;
 import com.backup_manager.domain.event.BackupStartedEvent;
@@ -12,6 +15,7 @@ import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.storage.BackupManifest;
 import com.backup_manager.infrastructure.storage.BackupMetadata;
 import com.backup_manager.infrastructure.storage.BackupSnapshots;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
@@ -70,6 +74,10 @@ public class BackupService {
     // Logs de alertas mantidos por destino (um por execucao); o da execucao atual nunca e removido.
     @Value("${backup.warnings.max-logs:20}")
     private int maxWarningLogs = 20;
+
+    // SHA-256 no manifesto de cada snapshot. Desligado, o manifesto guarda so tamanho e data (sem reler nada).
+    @Value("${backup.integrity.hash-enabled:true}")
+    private boolean integrityHashEnabled = true;
 
     public BackupService(
             BackupManager backupManager,
@@ -268,6 +276,7 @@ public class BackupService {
                     logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
                     discardPartialSnapshot(partial);
                 } else {
+                    writeManifest(partial, reference, logFile);
                     BackupSnapshots.publish(partial, snapshot);
                     if (finalizeTask(task.getId(), fileCount, sizeMB, run.warnings(), logFile).isEmpty()) {
                         logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
@@ -310,6 +319,16 @@ public class BackupService {
         }
         LocalDateTime startedAt = task.getStartedAt() != null ? task.getStartedAt() : LocalDateTime.now();
         return BackupSnapshots.snapshotFor(destination, task.getId(), startedAt);
+    }
+
+    // Sem manifesto o snapshot continua restauravel, so nao pode ser verificado: a falha vira alerta, nao erro.
+    private void writeManifest(Path snapshot, Path reference, Path logFile) {
+        try {
+            BackupManifest.write(snapshot, reference, integrityHashEnabled);
+        } catch (IOException | RuntimeException e) {
+            logger.warn("Nao foi possivel gravar o manifesto de {}: {}", snapshot, e.getMessage());
+            logDetail(logFile, "Manifesto de integridade nao gravado: " + e.getMessage(), snapshot);
+        }
     }
 
     // Snapshot incompleto nao serve para restaurar nem como base de hardlinks: falha e cancelamento o descartam.
@@ -482,6 +501,35 @@ public class BackupService {
             rejected.setErrorMessage("Fila de backups cheia: tarefa nao iniciada");
             rejected.setFinishedAt(LocalDateTime.now());
         });
+    }
+
+    /**
+     * Confere o snapshot de uma entrada do historico contra o manifesto dela. Le todos os arquivos com hash,
+     * por isso so roda sob demanda.
+     */
+    public BackupVerificationResponse verifyBackup(Long backupId) throws IOException {
+        BackupTask task = backupRepository.findById(backupId)
+                .orElseThrow(() -> new BackupResourceNotFoundException(backupId));
+        if (task.legacyMirror()) {
+            throw new IllegalStateException("Backup anterior aos snapshots: nao ha manifesto para verificar.");
+        }
+        if (task.getSnapshotRemovedAt() != null) {
+            throw new BackupStorageNotFoundException(backupId, task.getSnapshotPath(),
+                    "O snapshot deste backup foi removido pela politica de retencao.");
+        }
+        Path snapshot = Paths.get(task.getSnapshotPath());
+        if (!Files.isDirectory(snapshot)) {
+            throw new BackupStorageNotFoundException(backupId, snapshot.toString());
+        }
+
+        BackupManifest.Verification verification = BackupManifest.verify(snapshot);
+        if (!verification.manifestFound()) {
+            throw new IllegalStateException("O snapshot deste backup nao tem manifesto de integridade.");
+        }
+        logger.info("Verificacao do backup {}: {} arquivos, {} ausentes, {} divergentes, {} inesperados",
+                backupId, verification.checked(), verification.missing().size(), verification.changed().size(),
+                verification.unexpected().size());
+        return BackupVerificationResponse.of(backupId, snapshot.toString(), verification);
     }
 
     /** Mais recentes primeiro; sem limite o historico inteiro ia para a memoria (e para a resposta). */
