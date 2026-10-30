@@ -24,6 +24,8 @@ public interface BackupRepository extends JpaRepository<BackupTask, Long> {
             List<Status> statuses
     );
 
+    List<BackupTask> findBySnapshotPathIn(List<String> snapshotPaths);
+
     @Query("SELECT b FROM BackupTask b WHERE b.status IN :statuses")
     List<BackupTask> findByStatusIn(@Param("statuses") List<Status> statuses);
 

@@ -57,11 +57,29 @@ public class BackupTask {
     @Column(name = "is_cancelled", nullable = false)
     private boolean cancelled = false;
 
+    // Pasta do snapshot desta execucao. Nulo em backups anteriores aos snapshots: o conteudo deles e o
+    // espelho da raiz do destino, ou seja, o estado da ultima execucao e nao o desta.
+    @Column(name = "snapshot_path", length = 1000)
+    private String snapshotPath;
+
+    @Column(name = "snapshot_removed_at")
+    private LocalDateTime snapshotRemovedAt;
+
     // Pausa, cancelamento e finalizacao vem de threads diferentes: sem versao, o ultimo save vencia
     // (ex.: o worker gravando CONCLUIDO por cima de um CANCELADO feito instantes antes).
     @Version
     @Column(name = "version", nullable = false)
     private long version;
+
+    /** Pasta com o conteudo desta execucao: o snapshot ou, em backups antigos, o espelho da raiz do destino. */
+    public String contentPath() {
+        return snapshotPath != null ? snapshotPath : destinationPath;
+    }
+
+    /** Backup anterior aos snapshots: restaurar devolve o estado atual do destino, nao o desta execucao. */
+    public boolean legacyMirror() {
+        return snapshotPath == null;
+    }
 
     @PrePersist
     public void prePersist() {

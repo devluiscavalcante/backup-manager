@@ -20,4 +20,7 @@ public class FileTreeDTO {
     private Long totalFiles;
     private BigDecimal totalSizeMB;
     private List<FileNodeDTO> files;
+    // Backup anterior aos snapshots: o conteudo e o estado atual do destino, nao o desta execucao.
+    private boolean legacyMirror;
+    private String warning;
 }

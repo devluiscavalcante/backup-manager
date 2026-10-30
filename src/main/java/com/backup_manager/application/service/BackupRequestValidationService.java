@@ -1,6 +1,7 @@
 package com.backup_manager.application.service;
 
 import com.backup_manager.domain.service.BackupManager;
+import com.backup_manager.infrastructure.storage.BackupSnapshots;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.springframework.stereotype.Service;
 
@@ -61,12 +62,19 @@ public class BackupRequestValidationService {
         }
     }
 
-    // Backup incremental: o que ja esta no destino nao sera copiado de novo, entao exigir o tamanho
+    // O que nao mudou desde o ultimo snapshot vira hardlink e nao ocupa espaco, entao exigir o tamanho
     // inteiro da origem recusava backups que cabiam com folga. A estimativa e o que falta copiar, arquivo a
-    // arquivo: descontar o tamanho total do destino zerava a conta quando ele tinha outros arquivos.
+    // arquivo: descontar o tamanho total do destino zerava a conta quando ele tinha outros arquivos. Sem
+    // hardlinks (FAT/exFAT) cada snapshot e uma copia completa.
     long estimateRequiredBytes(File sourceFolder, Path destinationPath) {
         try {
-            return storageOps.estimatePendingBytes(sourceFolder.toPath(), destinationPath);
+            if (Files.isDirectory(destinationPath) && !FileStorageOperations.supportsHardLinks(destinationPath)) {
+                return backupManager.scan(sourceFolder).totalBytes();
+            }
+            Path reference = Files.isDirectory(destinationPath)
+                    ? BackupSnapshots.referenceFor(destinationPath)
+                    : destinationPath;
+            return storageOps.estimatePendingBytes(sourceFolder.toPath(), reference);
         } catch (IOException e) {
             throw new IllegalStateException("Nao foi possivel estimar o tamanho da origem " + sourceFolder, e);
         }

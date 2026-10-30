@@ -1,7 +1,10 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.application.dto.FileNodeDTO;
+import com.backup_manager.application.dto.FileTreeDTO;
 import com.backup_manager.application.dto.RestoreRequest;
 import com.backup_manager.application.dto.SelectiveRestoreRequest;
+import com.backup_manager.domain.exception.BackupStorageNotFoundException;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.RestoreStatus;
 import com.backup_manager.domain.model.RestoreTask;
@@ -21,6 +24,7 @@ import org.springframework.core.task.TaskRejectedException;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -138,5 +142,47 @@ class RestoreServiceTests {
         ArgumentCaptor<RestoreTask> saved = ArgumentCaptor.forClass(RestoreTask.class);
         verify(restoreRepository, times(2)).save(saved.capture());
         assertThat(saved.getValue().getStatus()).isEqualTo(RestoreStatus.FALHA);
+    }
+
+    @Test
+    void previewShouldShowTheSnapshotOfTheHistoryEntryInsteadOfTheCurrentDestination() throws IOException {
+        // Raiz com o estado atual; o snapshot da entrada guarda a versao daquela execucao.
+        Path snapshot = Files.createDirectories(backupRoot.resolve(".backup-manager/snapshots/20261028-100000-3"));
+        Files.writeString(snapshot.resolve("antigo.txt"), "versao da execucao 3");
+        backup().setSnapshotPath(snapshot.toString());
+
+        FileTreeDTO tree = service.previewFiles(BACKUP_ID);
+
+        assertThat(tree.getFiles()).extracting(FileNodeDTO::getName).containsExactly("antigo.txt");
+        assertThat(tree.getBackupPath()).isEqualTo(snapshot.toString());
+        assertThat(tree.isLegacyMirror()).isFalse();
+        assertThat(tree.getWarning()).isNull();
+    }
+
+    @Test
+    void previewOfALegacyBackupShouldWarnThatItIsTheCurrentDestinationState() throws IOException {
+        FileTreeDTO tree = service.previewFiles(BACKUP_ID);
+
+        assertThat(tree.isLegacyMirror()).isTrue();
+        assertThat(tree.getWarning()).isEqualTo(RestoreService.LEGACY_MIRROR_WARNING);
+    }
+
+    @Test
+    void restoreOfASnapshotRemovedByRetentionShouldExplainWhy() {
+        backup().setSnapshotPath(backupRoot.resolve(".backup-manager/snapshots/20260101-100000-3").toString());
+        backup().setSnapshotRemovedAt(LocalDateTime.now());
+        RestoreRequest request = new RestoreRequest();
+        request.setTargetPath(tempDir.resolve("restored").toString());
+
+        assertThatThrownBy(() -> service.startFullRestore(BACKUP_ID, request))
+                .isInstanceOf(BackupStorageNotFoundException.class)
+                .hasMessage("O snapshot deste backup foi removido pela politica de retencao.");
+        assertThatThrownBy(() -> service.previewFiles(BACKUP_ID))
+                .isInstanceOf(BackupStorageNotFoundException.class);
+        verify(restoreRepository, never()).save(any());
+    }
+
+    private BackupTask backup() {
+        return backupRepository.findById(BACKUP_ID).orElseThrow();
     }
 }

@@ -9,6 +9,7 @@ import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.storage.BackupSnapshots;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -18,7 +19,9 @@ import org.springframework.core.task.TaskRejectedException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -206,7 +209,7 @@ class BackupServiceTests {
         worker.service.processBackupAsync(worker.task);
         worker.assertCopyRunsMatched();
 
-        verify(worker.storageOps, times(1)).copyDirectoryIncremental(any(), any(), any(), any());
+        verify(worker.storageOps, times(1)).copyDirectoryIncremental(any(), any(), any(), any(), any());
         verify(worker.repository, never()).save(any(BackupTask.class));
         verify(worker.taskManager, never()).unregisterTask(7L);
         verify(worker.progressEmitter, never()).sendControlEvent(eq("complete"), any(), any());
@@ -218,8 +221,9 @@ class BackupServiceTests {
         BackupTask paused = backupTask(Status.PAUSADO, false);
         paused.setPaused(true);
         BackupTask running = backupTask(Status.EM_ANDAMENTO, false);
-        // 1a copia ve a pausa; a retomada chega antes de o worker soltar a thread.
-        when(worker.taskManager.getTask(7L)).thenReturn(paused, running);
+        // Gravar o caminho do snapshot consulta a tarefa; depois a 1a copia ve a pausa e a retomada chega
+        // antes de o worker soltar a thread.
+        when(worker.taskManager.getTask(7L)).thenReturn(running, paused, running);
         when(worker.taskManager.releaseIfPaused(7L)).thenReturn(false);
         when(worker.repository.findById(7L)).thenReturn(Optional.of(running));
         when(worker.repository.save(any(BackupTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
@@ -228,7 +232,7 @@ class BackupServiceTests {
         worker.service.processBackupAsync(worker.task);
         worker.assertCopyRunsMatched();
 
-        verify(worker.storageOps, times(2)).copyDirectoryIncremental(any(), any(), any(), any());
+        verify(worker.storageOps, times(2)).copyDirectoryIncremental(any(), any(), any(), any(), any());
         assertThat(running.getStatus()).isEqualTo(Status.CONCLUIDO);
         verify(worker.taskManager).unregisterTask(7L);
     }
@@ -238,6 +242,7 @@ class BackupServiceTests {
         Worker worker = new Worker(tempDir);
         when(worker.taskManager.getTask(7L)).thenReturn(backupTask(Status.EM_ANDAMENTO, false));
         when(worker.repository.findById(7L)).thenReturn(Optional.of(backupTask(Status.EM_ANDAMENTO, false)));
+        when(worker.repository.save(any(BackupTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
         worker.copyRunsStoppingWhen(false);
 
         worker.service.resumeBackupAsync(worker.task);
@@ -245,7 +250,49 @@ class BackupServiceTests {
 
         verify(worker.eventPublisher, never()).publishEvent(any(BackupStartedEvent.class));
         verify(worker.progressEmitter, never()).sendControlEvent(eq("start"), any(), any());
-        verify(worker.storageOps).copyDirectoryIncremental(any(), any(), any(), any());
+        verify(worker.storageOps).copyDirectoryIncremental(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void completedWorkerShouldPublishTheSnapshotAndRecordItsPath(@TempDir Path tempDir) throws IOException {
+        Worker worker = new Worker(tempDir);
+        BackupTask running = backupTask(Status.EM_ANDAMENTO, false);
+        LocalDateTime startedAt = LocalDateTime.of(2026, 10, 28, 17, 0);
+        worker.task.setStartedAt(startedAt);
+        when(worker.taskManager.getTask(7L)).thenReturn(running);
+        when(worker.repository.findById(7L)).thenReturn(Optional.of(running));
+        when(worker.repository.save(any(BackupTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        worker.copyRunsStoppingWhen(false);
+
+        worker.service.processBackupAsync(worker.task);
+
+        Path snapshot = BackupSnapshots.snapshotFor(tempDir.resolve("destination"), 7L, startedAt);
+        assertThat(running.getStatus()).isEqualTo(Status.CONCLUIDO);
+        assertThat(running.getSnapshotPath()).isEqualTo(snapshot.toString());
+        assertThat(snapshot).isDirectory();
+        assertThat(BackupSnapshots.partialOf(snapshot)).doesNotExist();
+        // A copia grava no .partial e usa o snapshot anterior (aqui, a raiz vazia) como base dos hardlinks.
+        verify(worker.storageOps).copyDirectoryIncremental(any(), eq(BackupSnapshots.partialOf(snapshot)),
+                eq(tempDir.resolve("destination")), any(), any());
+    }
+
+    @Test
+    void failedWorkerShouldDiscardThePartialSnapshot(@TempDir Path tempDir) throws IOException {
+        Worker worker = new Worker(tempDir);
+        BackupTask running = backupTask(Status.EM_ANDAMENTO, false);
+        when(worker.taskManager.getTask(7L)).thenReturn(running);
+        when(worker.repository.findById(7L)).thenReturn(Optional.of(running));
+        when(worker.repository.save(any(BackupTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(worker.storageOps.copyDirectoryIncremental(any(), any(), any(), any(), any()))
+                .thenThrow(new IOException("disco cheio"));
+
+        worker.service.processBackupAsync(worker.task);
+
+        assertThat(running.getStatus()).isEqualTo(Status.FALHA);
+        Path snapshots = BackupSnapshots.directory(tempDir.resolve("destination"));
+        try (var entries = Files.list(snapshots)) {
+            assertThat(entries).isEmpty();
+        }
     }
 
     @Test
@@ -287,8 +334,8 @@ class BackupServiceTests {
 
         // Cada execucao da copia consulta shouldContinue uma vez, como faria no primeiro arquivo.
         void copyRunsStoppingWhen(Boolean... expectedStops) throws IOException {
-            when(storageOps.copyDirectoryIncremental(any(), any(), any(), any())).thenAnswer(invocation -> {
-                FileStorageOperations.BackupProgressCallback callback = invocation.getArgument(3);
+            when(storageOps.copyDirectoryIncremental(any(), any(), any(), any(), any())).thenAnswer(invocation -> {
+                FileStorageOperations.BackupProgressCallback callback = invocation.getArgument(4);
                 continueAnswers.add(callback.shouldContinue());
                 return 0;
             });

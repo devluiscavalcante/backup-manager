@@ -13,6 +13,7 @@ import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
 import com.backup_manager.infrastructure.storage.BackupMetadata;
+import com.backup_manager.infrastructure.storage.BackupSnapshots;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -205,6 +206,7 @@ public class BackupService {
             }
 
             boolean released = false;
+            Path partial = null;
             try {
                 File sourceFolder = backupManager.validateSource(task.getSourcePath());
                 BackupManager.FolderScan scan = backupManager.scan(sourceFolder);
@@ -216,6 +218,15 @@ public class BackupService {
                 if (!Files.exists(destination)) {
                     Files.createDirectories(destination);
                 }
+
+                // Cada execucao grava o proprio snapshot; a retomada reencontra a mesma pasta .partial.
+                Path snapshot = snapshotOf(task, destination);
+                partial = BackupSnapshots.partialOf(snapshot);
+                BackupSnapshots.deleteStalePartials(destination, partial);
+                Path reference = BackupSnapshots.referenceFor(destination);
+                Files.createDirectories(partial);
+                Path snapshotPath = snapshot;
+                updateUnlessCancelled(task.getId(), current -> current.setSnapshotPath(snapshotPath.toString()));
 
                 progressEmitter.sendProgress(new Progress(
                         0,
@@ -230,7 +241,7 @@ public class BackupService {
                 appendLog(logFile, String.format("%n=== Backup #%d %s em %s ===%n",
                         task.getId(), resumed ? "retomado" : "iniciado", LocalDateTime.now()));
 
-                CopyRun run = executeStorageOperation(source, destination, logFile, task.getId(), (int) fileCount);
+                CopyRun run = executeStorageOperation(source, partial, reference, logFile, task.getId(), (int) fileCount);
                 while (run.stoppedForPause()) {
                     if (taskManager.releaseIfPaused(task.getId())) {
                         released = true;
@@ -241,14 +252,21 @@ public class BackupService {
                         break;
                     }
                     // A retomada chegou enquanto a copia parava: o mesmo worker continua.
-                    run = executeStorageOperation(source, destination, logFile, task.getId(), (int) fileCount);
+                    run = executeStorageOperation(source, partial, reference, logFile, task.getId(), (int) fileCount);
                 }
 
-                if (finalizeTask(task.getId(), fileCount, sizeMB, run.warnings()).isEmpty()) {
+                if (isCancelled(taskManager.getTask(task.getId()))) {
                     logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
+                    discardPartialSnapshot(partial);
+                } else {
+                    BackupSnapshots.publish(partial, snapshot);
+                    if (finalizeTask(task.getId(), fileCount, sizeMB, run.warnings()).isEmpty()) {
+                        logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
+                    }
                 }
 
             } catch (Exception e) {
+                discardPartialSnapshot(partial);
                 if (handleBackupFailure(task.getId(), e).isEmpty()) {
                     logger.info("Backup {} cancelado (exception capturada), pulando tratamento de falha", task.getId());
                 }
@@ -276,14 +294,36 @@ public class BackupService {
     private record CopyRun(int warnings, boolean stoppedForPause) {
     }
 
-    private CopyRun executeStorageOperation(Path source, Path destination, Path logFile, Long taskId, int totalFiles)
-            throws IOException {
+    // O startedAt da tarefa fixa o nome do snapshot, entao a retomada apos uma pausa cai na mesma pasta.
+    private static Path snapshotOf(BackupTask task, Path destination) {
+        if (task.getSnapshotPath() != null) {
+            return Paths.get(task.getSnapshotPath());
+        }
+        LocalDateTime startedAt = task.getStartedAt() != null ? task.getStartedAt() : LocalDateTime.now();
+        return BackupSnapshots.snapshotFor(destination, task.getId(), startedAt);
+    }
+
+    // Snapshot incompleto nao serve para restaurar nem como base de hardlinks: falha e cancelamento o descartam.
+    private void discardPartialSnapshot(Path partial) {
+        if (partial == null) {
+            return;
+        }
+        try {
+            BackupSnapshots.deleteTree(partial);
+        } catch (IOException e) {
+            logger.warn("Nao foi possivel remover o snapshot incompleto {}: {}", partial, e.getMessage());
+        }
+    }
+
+    private CopyRun executeStorageOperation(Path source, Path destination, Path reference, Path logFile, Long taskId,
+                                            int totalFiles) throws IOException {
         AtomicInteger processed = new AtomicInteger(0);
         AtomicBoolean stoppedForPause = new AtomicBoolean(false);
 
         int warnings = storageOps.copyDirectoryIncremental(
                 source,
                 destination,
+                reference,
                 excludedFolders,
                 new FileStorageOperations.BackupProgressCallback() {
                     @Override

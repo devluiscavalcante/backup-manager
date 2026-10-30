@@ -45,6 +45,8 @@ import java.util.stream.Stream;
 public class RestoreService {
 
     private static final Logger logger = LoggerFactory.getLogger(RestoreService.class);
+    static final String LEGACY_MIRROR_WARNING = "Backup anterior aos snapshots: o conteudo e o estado atual do "
+            + "destino (ultima execucao), nao o desta entrada do historico.";
 
     private final BackupRepository backupRepository;
     private final RestoreRepository restoreRepository;
@@ -76,14 +78,8 @@ public class RestoreService {
     public FileTreeDTO previewFiles(Long backupId) throws IOException {
         logger.info("Gerando preview de arquivos para backup ID={}", backupId);
 
-        BackupTask backup = backupRepository.findById(backupId)
-                .orElseThrow(() -> new BackupResourceNotFoundException(backupId));
-
-        Path backupPath = Paths.get(backup.getDestinationPath());
-
-        if (!Files.exists(backupPath)) {
-            throw new BackupStorageNotFoundException(backupId, backupPath.toString());
-        }
+        BackupTask backup = validateBackup(backupId);
+        Path backupPath = Paths.get(backup.contentPath());
 
         List<Path> backupEntries;
         try (Stream<Path> stream = Files.list(backupPath)) {
@@ -123,11 +119,15 @@ public class RestoreService {
         FileTreeDTO tree = new FileTreeDTO();
         tree.setBackupId(backupId);
         tree.setSourcePath(backup.getSourcePath());
-        tree.setBackupPath(backup.getDestinationPath());
+        tree.setBackupPath(backup.contentPath());
         tree.setBackupDate(backup.getFinishedAt());
         tree.setTotalFiles(totalFiles[0]);
         tree.setTotalSizeMB(totalSizeMB);
         tree.setFiles(files);
+        if (backup.legacyMirror()) {
+            tree.setLegacyMirror(true);
+            tree.setWarning(LEGACY_MIRROR_WARNING);
+        }
 
         logger.info("Preview gerado: {} arquivos, {} MB", totalFiles[0], totalSizeMB);
         return tree;
@@ -203,10 +203,10 @@ public class RestoreService {
                 request.getSelectedFiles() != null ? request.getSelectedFiles().size() : 0);
 
         BackupTask backup = validateBackup(backupId);
-        Path backupRoot = Paths.get(backup.getDestinationPath());
+        Path backupRoot = Paths.get(backup.contentPath());
 
         Path targetPath = pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
-        pathSecurityService.ensureNotOverlapping(backupRoot, targetPath, "restauracao");
+        pathSecurityService.ensureNotOverlapping(Paths.get(backup.getDestinationPath()), targetPath, "restauracao");
         validateSelectedFiles(request.getSelectedFiles(), backupRoot);
 
         RestoreTask task = createRestoreTask(
@@ -248,7 +248,7 @@ public class RestoreService {
             taskManager.registerTask(task.getId(), task);
             eventPublisher.publishEvent(new RestoreStartedEvent(task));
 
-            Path backupSource = Paths.get(task.getSourceBackup().getDestinationPath());
+            Path backupSource = Paths.get(task.getSourceBackup().contentPath());
             Path targetDestination = Paths.get(task.getTargetPath());
 
             try {
@@ -410,7 +410,12 @@ public class RestoreService {
         BackupTask backup = backupRepository.findById(backupId)
                 .orElseThrow(() -> new BackupResourceNotFoundException(backupId));
 
-        Path backupPath = Paths.get(backup.getDestinationPath());
+        if (backup.getSnapshotRemovedAt() != null) {
+            throw new BackupStorageNotFoundException(backupId, backup.contentPath(),
+                    "O snapshot deste backup foi removido pela politica de retencao.");
+        }
+
+        Path backupPath = Paths.get(backup.contentPath());
         if (!Files.exists(backupPath)) {
             throw new BackupStorageNotFoundException(backupId, backupPath.toString());
         }
