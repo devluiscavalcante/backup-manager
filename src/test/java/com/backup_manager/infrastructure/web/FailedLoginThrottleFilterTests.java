@@ -3,6 +3,8 @@ package com.backup_manager.infrastructure.web;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -87,6 +89,25 @@ class FailedLoginThrottleFilterTests {
         }
 
         assertThat(perform("10.0.0.1", BASIC, 200).getStatus()).isEqualTo(200);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "basic YWRtaW46ZXJyYWRh",
+            "BASIC YWRtaW46ZXJyYWRh",
+            "Basic\tYWRtaW46ZXJyYWRh",
+            "Basic!YWRtaW46ZXJyYWRh",
+            "  Basic YWRtaW46ZXJyYWRh  ",
+            "Basic  YWRtaW46ZXJyYWRh",
+            "Bearer qualquer-coisa"
+    })
+    void shouldCountAnyAuthorizationHeaderVariant(String authorization) throws Exception {
+        for (int i = 0; i < 3; i++) {
+            perform("10.0.0.1", authorization, 401);
+        }
+
+        assertThat(perform("10.0.0.1", authorization, 200).getStatus()).isEqualTo(429);
+        assertThat(perform("10.0.0.1", BASIC, 200).getStatus()).isEqualTo(429);
     }
 
     private MockHttpServletResponse perform(String remoteAddr, String authorization, int chainStatus)
