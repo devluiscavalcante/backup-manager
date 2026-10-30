@@ -15,6 +15,8 @@ import java.util.concurrent.atomic.AtomicLong;
 public class FileRestoreOperations {
 
     private static final Logger logger = LoggerFactory.getLogger(FileRestoreOperations.class);
+    private static final String TARGET_REDIRECTED_WARNING =
+            "Destino ignorado: link simbolico/junction leva para fora da restauracao";
 
     public interface RestoreProgressCallback {
         void onFileRestored(Path file, BasicFileAttributes attrs);
@@ -32,7 +34,7 @@ public class FileRestoreOperations {
             throw new IllegalArgumentException("Backup não encontrado: " + backupSource);
         }
 
-        Files.createDirectories(targetDestination);
+        Path targetRoot = createTargetRoot(targetDestination);
 
         AtomicInteger processedFiles = new AtomicInteger(0);
         AtomicInteger warnings = new AtomicInteger(0);
@@ -58,7 +60,12 @@ public class FileRestoreOperations {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
 
-                Path targetDir = targetDestination.resolve(realBackup.relativize(dir));
+                Path targetDir = targetRoot.resolve(realBackup.relativize(dir));
+                if (!isInsideTarget(targetDir, targetRoot)) {
+                    callback.onWarning(TARGET_REDIRECTED_WARNING, targetDir);
+                    warnings.incrementAndGet();
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
                 if (!Files.exists(targetDir)) {
                     Files.createDirectories(targetDir);
                 }
@@ -81,7 +88,12 @@ public class FileRestoreOperations {
                     return FileVisitResult.CONTINUE;
                 }
 
-                Path targetFile = targetDestination.resolve(realBackup.relativize(file));
+                Path targetFile = targetRoot.resolve(realBackup.relativize(file));
+                if (!isInsideTarget(targetFile.getParent(), targetRoot)) {
+                    callback.onWarning(TARGET_REDIRECTED_WARNING, targetFile);
+                    warnings.incrementAndGet();
+                    return FileVisitResult.CONTINUE;
+                }
 
                 try {
                     if (!overwriteExisting && Files.exists(targetFile)) {
@@ -132,7 +144,7 @@ public class FileRestoreOperations {
             throw new IllegalArgumentException("Backup não encontrado: " + backupSource);
         }
 
-        Files.createDirectories(targetDestination);
+        Path targetRoot = createTargetRoot(targetDestination);
 
         AtomicInteger processedFiles = new AtomicInteger(0);
         AtomicInteger warnings = new AtomicInteger(0);
@@ -174,11 +186,11 @@ public class FileRestoreOperations {
                 }
 
                 if (Files.isDirectory(realSourceFile)) {
-                    restoreDirectory(realSourceFile, realBackup, targetDestination,
+                    restoreDirectory(realSourceFile, realBackup, targetRoot,
                             overwriteExisting, callback, processedFiles,
                             warnings, totalSize, totalFilesToRestore);
                 } else {
-                    restoreFile(realSourceFile, realBackup, targetDestination,
+                    restoreFile(realSourceFile, realBackup, targetRoot,
                             overwriteExisting, callback, processedFiles,
                             warnings, totalSize, totalFilesToRestore);
                 }
@@ -219,6 +231,11 @@ public class FileRestoreOperations {
                 Path relativePath = backupRoot.relativize(dir);
                 Path targetDir = targetRoot.resolve(relativePath);
 
+                if (!isInsideTarget(targetDir, targetRoot)) {
+                    callback.onWarning(TARGET_REDIRECTED_WARNING, targetDir);
+                    warnings.incrementAndGet();
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
                 if (!Files.exists(targetDir)) {
                     Files.createDirectories(targetDir);
                 }
@@ -243,6 +260,11 @@ public class FileRestoreOperations {
 
                 Path relativePath = backupRoot.relativize(file);
                 Path targetFile = targetRoot.resolve(relativePath);
+                if (!isInsideTarget(targetFile.getParent(), targetRoot)) {
+                    callback.onWarning(TARGET_REDIRECTED_WARNING, targetFile);
+                    warnings.incrementAndGet();
+                    return FileVisitResult.CONTINUE;
+                }
 
                 try {
                     if (!overwriteExisting && Files.exists(targetFile)) {
@@ -286,6 +308,11 @@ public class FileRestoreOperations {
         Path relativePath = backupRoot.relativize(sourceFile);
         Path targetFile = targetRoot.resolve(relativePath);
 
+        if (!isInsideTarget(targetFile.getParent(), targetRoot)) {
+            callback.onWarning(TARGET_REDIRECTED_WARNING, targetFile);
+            warnings.incrementAndGet();
+            return;
+        }
         Files.createDirectories(targetFile.getParent());
 
         if (!overwriteExisting && Files.exists(targetFile)) {
@@ -304,6 +331,33 @@ public class FileRestoreOperations {
 
         callback.onFileRestored(sourceFile, attrs);
         callback.onProgress(processed, totalFiles);
+    }
+
+    // As escritas partem da raiz real do destino, nao do texto recebido.
+    private static Path createTargetRoot(Path targetDestination) throws IOException {
+        Files.createDirectories(targetDestination);
+        return targetDestination.toRealPath();
+    }
+
+    // Symlinks/junctions ja existentes no destino (ou criados durante a restauracao) redirecionariam
+    // createDirectories/copy: o diretorio que recebe a escrita precisa estar, pelo caminho real, dentro
+    // da raiz real do destino. O trecho ainda inexistente e criado dentro do ancestral validado.
+    static boolean isInsideTarget(Path dir, Path targetRoot) {
+        Path existingAncestor = dir;
+        while (existingAncestor != null && !Files.exists(existingAncestor, LinkOption.NOFOLLOW_LINKS)) {
+            existingAncestor = existingAncestor.getParent();
+        }
+
+        if (existingAncestor == null) {
+            return false;
+        }
+
+        try {
+            return existingAncestor.toRealPath().startsWith(targetRoot);
+        } catch (IOException e) {
+            // Link quebrado ou sem acesso: na duvida, nao escreve.
+            return false;
+        }
     }
 
     private Path generateUniqueFileName(Path file) {

@@ -47,8 +47,9 @@ public class FailedLoginThrottleFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String header = request.getHeader(HttpHeaders.AUTHORIZATION);
-        if (header == null || !header.regionMatches(true, 0, "Basic ", 0, 6)) {
+        // Qualquer Authorization conta como tentativa: o BasicAuthenticationConverter aceita variantes
+        // (trim, caixa, separador apos "Basic") que um teste textual do prefixo deixaria passar sem limite.
+        if (request.getHeader(HttpHeaders.AUTHORIZATION) == null) {
             filterChain.doFilter(request, response);
             return;
         }

@@ -233,7 +233,7 @@ O usuário `OPERATOR` é opcional e habilitado com `APP_SECURITY_OPERATOR_ENABLE
 - symlinks e junctions são resolvidos para o caminho real antes da checagem e **não são seguidos** durante cópia, restauração ou contagem de arquivos;
 - origem e destino não podem se sobrepor.
 
-**Limite de tentativas de login.** Depois de `APP_SECURITY_MAX_FAILED_LOGINS` credenciais recusadas (padrão 10) vindas do mesmo IP, esse IP recebe `429` com `Retry-After` durante `APP_SECURITY_FAILED_LOGIN_LOCKOUT` (padrão `5m`), mesmo com a senha correta. Atrás de um proxy reverso, todos os clientes compartilham o IP do proxy.
+**Limite de tentativas de login.** Depois de `APP_SECURITY_MAX_FAILED_LOGINS` credenciais recusadas (padrão 10) vindas do mesmo IP, esse IP recebe `429` com `Retry-After` durante `APP_SECURITY_FAILED_LOGIN_LOCKOUT` (padrão `5m`), mesmo com a senha correta. Conta como tentativa qualquer requisição com cabeçalho `Authorization` que receba `401`, seja qual for o formato do cabeçalho. Atrás de um proxy reverso, todos os clientes compartilham o IP do proxy.
 
 **Proteção contra requisições de outra origem.** Escritas (`POST`, `PUT`, `PATCH`, `DELETE`) enviadas por navegador a partir de uma origem fora de `APP_SECURITY_ALLOWED_ORIGINS` recebem `403`, mesmo com credenciais em cache. Clientes fora do navegador, como `curl` e scripts, não são afetados.
 

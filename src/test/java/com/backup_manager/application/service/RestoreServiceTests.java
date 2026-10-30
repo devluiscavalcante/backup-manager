@@ -8,6 +8,7 @@ import com.backup_manager.domain.exception.BackupStorageNotFoundException;
 import com.backup_manager.domain.model.BackupTask;
 import com.backup_manager.domain.model.RestoreStatus;
 import com.backup_manager.domain.model.RestoreTask;
+import com.backup_manager.domain.model.RestoreType;
 import com.backup_manager.domain.service.RestoreTaskManager;
 import com.backup_manager.infrastructure.config.AppSecurityProperties;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
@@ -237,5 +238,51 @@ class RestoreServiceTests {
 
     private BackupTask backup() {
         return backupRepository.findById(BACKUP_ID).orElseThrow();
+    }
+
+    @Test
+    void shouldPersistTheValidatedRealTargetPathInsteadOfTheRequestText() throws IOException {
+        Path realTarget = Files.createDirectories(tempDir.resolve("restored"));
+        RestoreRequest request = new RestoreRequest();
+        request.setTargetPath(tempDir + "/./restored");
+        when(restoreRepository.save(any(RestoreTask.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        service.startFullRestore(BACKUP_ID, request);
+
+        ArgumentCaptor<RestoreTask> saved = ArgumentCaptor.forClass(RestoreTask.class);
+        verify(restoreRepository).save(saved.capture());
+        assertThat(saved.getValue().getTargetPath()).isEqualTo(realTarget.toRealPath().toString());
+    }
+
+    @Test
+    void shouldFailTheRestoreWhenTheTargetLeavesTheAllowlistBeforeExecution() throws IOException {
+        FileRestoreOperations restoreOps = mock(FileRestoreOperations.class);
+        RestoreService executor = new RestoreService(
+                backupRepository,
+                restoreRepository,
+                mock(RestoreTaskManager.class),
+                restoreOps,
+                mock(ApplicationEventPublisher.class),
+                new ObjectMapper(),
+                new PathSecurityService(allowedRoots(tempDir.resolve("permitida"))),
+                asyncProxy
+        );
+        RestoreTask task = new RestoreTask();
+        task.setId(21L);
+        task.setSourceBackup(backupRepository.findById(BACKUP_ID).orElseThrow());
+        task.setTargetPath(tempDir.resolve("fora").toString());
+        task.setRestoreType(RestoreType.FULL);
+        when(restoreRepository.findById(21L)).thenReturn(Optional.of(task));
+
+        executor.processRestoreAsync(task, false, null);
+
+        verify(restoreOps, never()).restoreAll(any(), any(), anyBoolean(), any());
+        assertThat(task.getStatus()).isEqualTo(RestoreStatus.FALHA);
+    }
+
+    private AppSecurityProperties allowedRoots(Path root) {
+        AppSecurityProperties properties = new AppSecurityProperties();
+        properties.setAllowedPathRoots(List.of(root.toString()));
+        return properties;
     }
 }
