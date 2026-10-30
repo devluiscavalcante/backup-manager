@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Component
@@ -36,10 +37,26 @@ public class FileStorageOperations {
 
     public int copyDirectoryIncremental(Path source, Path destination, List<String> excludedFolders,
                                         BackupProgressCallback callback) throws IOException {
+        return copyDirectoryIncremental(source, destination, destination, excludedFolders, callback);
+    }
+
+    /**
+     * Copia source para destination. Arquivo que ja esta em destination igual a origem (retomada) e pulado;
+     * arquivo igual ao de reference (o snapshot anterior) vira hardlink dele em vez de nova copia. Nada e
+     * gravado por cima de um arquivo existente: a entrada antiga e removida e uma nova e criada, entao um
+     * hardlink compartilhado com outro snapshot nunca e alterado.
+     */
+    public int copyDirectoryIncremental(Path source, Path destination, Path reference, List<String> excludedFolders,
+                                        BackupProgressCallback callback) throws IOException {
         AtomicInteger warnings = new AtomicInteger(0);
         // A varredura parte do caminho real para que links internos possam ser detectados e ignorados.
         Path realSource = source.toRealPath();
         long modifyWindowMillis = modifyWindowFor(destination);
+        boolean useLinks = !destination.equals(reference) && supportsHardLinks(destination);
+        AtomicBoolean linksFailed = new AtomicBoolean(!useLinks);
+        if (!destination.equals(reference) && !useLinks) {
+            callback.onWarning("Sistema de arquivos sem hardlinks: snapshot gravado como copia completa", destination);
+        }
 
         Files.walkFileTree(realSource, new SimpleFileVisitor<>() {
             @Override
@@ -86,12 +103,25 @@ public class FileStorageOperations {
                     return FileVisitResult.CONTINUE;
                 }
 
-                Path targetFile = destination.resolve(realSource.relativize(file));
+                Path relative = realSource.relativize(file);
+                Path targetFile = destination.resolve(relative);
                 try {
                     if (isIncrementalNeeded(targetFile, attrs, modifyWindowMillis)) {
                         Files.createDirectories(targetFile.getParent());
-                        Files.copy(file, targetFile, StandardCopyOption.REPLACE_EXISTING,
-                                StandardCopyOption.COPY_ATTRIBUTES);
+                        Files.deleteIfExists(targetFile);
+                        Path referenceFile = reference.resolve(relative);
+                        boolean linked = false;
+                        if (!linksFailed.get() && !isIncrementalNeeded(referenceFile, attrs, modifyWindowMillis)) {
+                            linked = link(targetFile, referenceFile);
+                            if (!linked && linksFailed.compareAndSet(false, true)) {
+                                callback.onWarning("Falha ao criar hardlink: o restante do snapshot sera copiado",
+                                        referenceFile);
+                                warnings.incrementAndGet();
+                            }
+                        }
+                        if (!linked) {
+                            Files.copy(file, targetFile, StandardCopyOption.COPY_ATTRIBUTES);
+                        }
                     }
                     callback.onFileProcessed(file, attrs);
                 } catch (IOException e) {
@@ -115,6 +145,69 @@ public class FileStorageOperations {
         });
 
         return warnings.get();
+    }
+
+    /**
+     * Bytes que a copia incremental de source para destination gravaria: so arquivos ausentes no destino ou
+     * diferentes deles. Arquivos do destino que nao vem da origem nao reduzem a estimativa. As exclusoes nao
+     * sao aplicadas, entao a estimativa erra para mais, nunca para menos.
+     */
+    public long estimatePendingBytes(Path source, Path destination) throws IOException {
+        Path realSource = source.toRealPath();
+        long modifyWindowMillis = Files.isDirectory(destination) ? modifyWindowFor(destination) : 0;
+        long[] pending = {0};
+
+        Files.walkFileTree(realSource, new SimpleFileVisitor<>() {
+            @Override
+            public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                if (BackupMetadata.isMetadataDirectoryOf(dir, realSource)
+                        || (!dir.equals(realSource) && FileLinks.isRedirected(dir))) {
+                    return FileVisitResult.SKIP_SUBTREE;
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                if (!attrs.isRegularFile()) return FileVisitResult.CONTINUE;
+                try {
+                    if (isIncrementalNeeded(destination.resolve(realSource.relativize(file)), attrs,
+                            modifyWindowMillis)) {
+                        pending[0] += attrs.size();
+                    }
+                } catch (IOException e) {
+                    pending[0] += attrs.size();
+                }
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override
+            public FileVisitResult visitFileFailed(Path file, IOException exc) {
+                return FileVisitResult.CONTINUE;
+            }
+        });
+
+        return pending[0];
+    }
+
+    private static boolean link(Path target, Path existing) {
+        try {
+            Files.createLink(target, existing);
+            return true;
+        } catch (IOException | UnsupportedOperationException | SecurityException e) {
+            logger.debug("Hardlink {} -> {} indisponivel: {}", target, existing, e.getMessage());
+            return false;
+        }
+    }
+
+    // FAT/exFAT nao tem hardlinks; nos demais a primeira falha de createLink desliga os links da execucao.
+    public static boolean supportsHardLinks(Path destination) {
+        try {
+            String type = Files.getFileStore(destination).type();
+            return type == null || !FAT_FILE_STORE_TYPES.contains(type.toLowerCase(Locale.ROOT));
+        } catch (IOException | SecurityException e) {
+            return true;
+        }
     }
 
     private boolean isIncrementalNeeded(Path target, BasicFileAttributes sourceAttrs, long modifyWindowMillis)

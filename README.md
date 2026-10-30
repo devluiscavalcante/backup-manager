@@ -28,7 +28,7 @@ O **Backup Manager** troca scripts manuais e tarefas soltas do sistema operacion
 
 | | |
 |---|---|
-| **Backups** | Execução sob demanda, cópia incremental, progresso em tempo real, pausa, retomada e cancelamento (inclusive de tarefas ainda na fila). Bloqueia execuções duplicadas para a mesma origem e destino. |
+| **Backups** | Execução sob demanda, snapshot por execução com hardlinks para o que não mudou, retenção configurável, progresso em tempo real, pausa, retomada e cancelamento (inclusive de tarefas ainda na fila). Bloqueia execuções duplicadas para a mesma origem e destino. |
 | **Restauração** | Pré-visualização em árvore do conteúdo, restauração completa ou seletiva por arquivo/diretório, opção de sobrescrever e histórico por backup. |
 | **Agendamento** | Rotinas recorrentes por expressão cron (validada antes de salvar), execuções únicas futuras, disparo imediato e recarga automática dos agendamentos ativos na inicialização. |
 | **Operação** | Health checks da aplicação, do banco e do schema, métricas de armazenamento por unidade, logs e warnings consultáveis e notificações por e-mail. |
@@ -256,6 +256,7 @@ Toda resposta inclui o cabeçalho `X-Request-Id`. Envie o seu próprio valor nes
 | `POST` | `/api/backup/{taskId}/pause` | Pausa |
 | `POST` | `/api/backup/{taskId}/resume` | Retoma |
 | `POST` | `/api/backup/{taskId}/cancel` | Cancela (inclusive na fila) |
+| `POST` | `/api/backup/{taskId}/verify` | Confere o snapshot contra o manifesto de integridade |
 | `GET` | `/api/backup/history?limit=N` | Execuções mais recentes primeiro (padrão 500, máximo 1000) |
 | `GET` | `/api/backup/history/search` | Busca no histórico |
 | `GET` | `/api/backup/history/stats` | Estatísticas |
@@ -315,7 +316,7 @@ No perfil `dev` também existem `POST /api/backup/scheduler/test-quick` e `POST 
 | `GET` | `/api/system/audit` | Eventos de auditoria, com filtros e paginação |
 | `POST` | `/api/system/audit/cleanup` | Limpa eventos fora da retenção |
 | `GET` | `/api/logs` | Conteúdo do log |
-| `GET` | `/api/logs/warnings` | Warnings operacionais do backup mais recente (gravados em `<destino>/.backup-manager/warnings.log`, fora do conteúdo restaurável) |
+| `GET` | `/api/logs/warnings` | Warnings operacionais do backup mais recente (um log por execução em `<destino>/.backup-manager/logs/<snapshot>.warnings.log`, fora do conteúdo restaurável) |
 | `GET` | `/api/backup/notifications/settings` | Configuração de notificações |
 | `POST` | `/api/backup/notifications/test` | Envia e-mail de teste |
 
@@ -379,6 +380,26 @@ Todas as opções vêm de variáveis de ambiente ou de um arquivo `.env` na raiz
 | `APP_SECURITY_ALLOWED_ORIGINS` | `http://localhost:4200` | Origens de navegador aceitas (CORS e escrita), separadas por vírgula |
 | `APP_SECURITY_MAX_FAILED_LOGINS` | `10` | Credenciais recusadas por IP antes do bloqueio temporário |
 | `APP_SECURITY_FAILED_LOGIN_LOCKOUT` | `5m` | Janela de contagem e duração do bloqueio |
+
+</details>
+
+<details>
+<summary><b>Snapshots e retenção</b></summary>
+
+Cada execução grava um snapshot próprio em `<destino>/.backup-manager/snapshots/<aaaaMMdd-HHmmss>-<id>/`. Arquivos que não mudaram desde o snapshot anterior viram hardlinks dele, ou seja, ocupam espaço uma vez só. Uma execução nunca sobrescreve o que outra gravou. Em FAT32/exFAT, que não têm hardlinks, cada snapshot é uma cópia completa. Enquanto a cópia não termina, a pasta leva o sufixo `.partial`; em falha ou cancelamento, ela é descartada.
+
+Restaurar ou pré-visualizar uma entrada do histórico usa o snapshot daquela execução. Backups gravados antes dos snapshots continuam no histórico. Eles apontam para o espelho da raiz do destino (o estado da última execução antiga), e o preview avisa isso com `legacyMirror: true`. A primeira execução nova usa esse espelho como base dos hardlinks. Quando ele não for mais necessário, apague os arquivos da raiz do destino e mantenha `.backup-manager/`.
+
+| Variável | Padrão | Descrição |
+|---|---|---|
+| `BACKUP_RETENTION_MAX_SNAPSHOTS` | `10` | Snapshots mantidos por destino (`0` desliga o limite) |
+| `BACKUP_RETENTION_MAX_DAYS` | `0` | Idade máxima dos snapshots em dias (`0` desliga) |
+| `BACKUP_WARNINGS_MAX_LOGS` | `20` | Logs de alertas mantidos por destino, um por execução (`0` desliga o limite) |
+| `BACKUP_INTEGRITY_HASH` | `true` | Grava o SHA-256 de cada arquivo no manifesto do snapshot (`false` guarda só tamanho e data) |
+
+Cada snapshot tem um manifesto (`.backup-manager/manifest.tsv`) com caminho, tamanho, data e SHA-256 de cada arquivo. Arquivos que viraram hardlink herdam o hash do snapshot anterior sem serem relidos. `POST /api/backup/{id}/verify` relê o snapshot e lista arquivos ausentes, alterados (bit rot, falha de disco) ou que não constam no manifesto. A verificação lê o backup inteiro, então só roda quando pedida.
+
+A retenção roda ao fim de cada backup concluído e nunca remove o snapshot mais recente. A entrada do histórico cujo snapshot expirou continua listada, com `snapshotRemovedAt`, e restaurá-la responde `409`.
 
 </details>
 

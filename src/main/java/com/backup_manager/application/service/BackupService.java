@@ -1,9 +1,12 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.application.dto.BackupVerificationResponse;
 import com.backup_manager.application.dto.Progress;
 import com.backup_manager.application.progress.ProgressEmitter;
 import com.backup_manager.domain.exception.ActiveBackupConflictException;
 import com.backup_manager.domain.exception.BackupInitializationException;
+import com.backup_manager.domain.exception.BackupResourceNotFoundException;
+import com.backup_manager.domain.exception.BackupStorageNotFoundException;
 import com.backup_manager.domain.event.BackupCompletedEvent;
 import com.backup_manager.domain.event.BackupFailedEvent;
 import com.backup_manager.domain.event.BackupStartedEvent;
@@ -12,7 +15,9 @@ import com.backup_manager.domain.model.Status;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.service.BackupTaskManager;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.storage.BackupManifest;
 import com.backup_manager.infrastructure.storage.BackupMetadata;
+import com.backup_manager.infrastructure.storage.BackupSnapshots;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +71,14 @@ public class BackupService {
     @Value("${backup.exclusions:AppData,Temp,node_modules,.git,$RECYCLE.BIN}")
     private List<String> excludedFolders;
 
+    // Logs de alertas mantidos por destino (um por execucao); o da execucao atual nunca e removido.
+    @Value("${backup.warnings.max-logs:20}")
+    private int maxWarningLogs = 20;
+
+    // SHA-256 no manifesto de cada snapshot. Desligado, o manifesto guarda so tamanho e data (sem reler nada).
+    @Value("${backup.integrity.hash-enabled:true}")
+    private boolean integrityHashEnabled = true;
+
     public BackupService(
             BackupManager backupManager,
             BackupRepository backupRepository,
@@ -116,10 +129,10 @@ public class BackupService {
             // Persiste o caminho real: "C:/Dados", "c:\dados\" e uma junction para ele sao o mesmo par.
             BackupTask task;
             synchronized (startLock) {
-                Optional<BackupTask> active = findActiveTask(validatedSource, validatedDestination);
+                Optional<BackupTask> active = findActiveTask(validatedDestination);
                 if (active.isPresent()) {
                     throw new ActiveBackupConflictException(
-                            active.get().getId(), validatedSource.toString(), validatedDestination.toString());
+                            active.get().getId(), active.get().getSourcePath(), validatedDestination.toString());
                 }
                 task = backupRepository.save(
                         createInitialTask(validatedSource.toString(), validatedDestination.toString()));
@@ -146,7 +159,7 @@ public class BackupService {
             return taskId;
 
         } catch (ActiveBackupConflictException conflict) {
-            logger.warn("Backup duplicado recusado: ja existe a tarefa {} para o par", conflict.getConflictingTaskId());
+            logger.warn("Backup duplicado recusado: ja existe a tarefa {} no destino", conflict.getConflictingTaskId());
             throw conflict;
         } catch (SecurityException se) {
             logger.error("BLOQUEIO DE SEGURANCA: {}", se.getMessage());
@@ -205,6 +218,7 @@ public class BackupService {
             }
 
             boolean released = false;
+            Path partial = null;
             try {
                 File sourceFolder = backupManager.validateSource(task.getSourcePath());
                 BackupManager.FolderScan scan = backupManager.scan(sourceFolder);
@@ -216,6 +230,18 @@ public class BackupService {
                 if (!Files.exists(destination)) {
                     Files.createDirectories(destination);
                 }
+                // Antes de criar a pasta de metadados: num destino antigo, o warnings.log da raiz e do backup
+                // e so e reconhecido como tal enquanto a pasta nao existe.
+                BackupMetadata.prepareWarningsLog(destination);
+
+                // Cada execucao grava o proprio snapshot; a retomada reencontra a mesma pasta .partial.
+                Path snapshot = snapshotOf(task, destination);
+                partial = BackupSnapshots.partialOf(snapshot);
+                BackupSnapshots.deleteStalePartials(destination, partial);
+                Path reference = BackupSnapshots.referenceFor(destination);
+                Files.createDirectories(partial);
+                Path snapshotPath = snapshot;
+                updateUnlessCancelled(task.getId(), current -> current.setSnapshotPath(snapshotPath.toString()));
 
                 progressEmitter.sendProgress(new Progress(
                         0,
@@ -225,12 +251,14 @@ public class BackupService {
                         task.getId().toString()
                 ));
 
-                Path logFile = BackupMetadata.prepareWarningsLog(destination);
-                // O arquivo acumula execucoes: o cabecalho separa os alertas de cada uma.
+                // Um log por execucao; a retomada continua no mesmo arquivo e o cabecalho marca cada trecho.
+                Path logFile = BackupMetadata.runWarningsLog(destination, snapshot);
+                Files.createDirectories(logFile.getParent());
                 appendLog(logFile, String.format("%n=== Backup #%d %s em %s ===%n",
                         task.getId(), resumed ? "retomado" : "iniciado", LocalDateTime.now()));
+                BackupMetadata.pruneRunLogs(destination, logFile, maxWarningLogs);
 
-                CopyRun run = executeStorageOperation(source, destination, logFile, task.getId(), (int) fileCount);
+                CopyRun run = executeStorageOperation(source, partial, reference, logFile, task.getId(), (int) fileCount);
                 while (run.stoppedForPause()) {
                     if (taskManager.releaseIfPaused(task.getId())) {
                         released = true;
@@ -241,14 +269,22 @@ public class BackupService {
                         break;
                     }
                     // A retomada chegou enquanto a copia parava: o mesmo worker continua.
-                    run = executeStorageOperation(source, destination, logFile, task.getId(), (int) fileCount);
+                    run = executeStorageOperation(source, partial, reference, logFile, task.getId(), (int) fileCount);
                 }
 
-                if (finalizeTask(task.getId(), fileCount, sizeMB, run.warnings()).isEmpty()) {
+                if (isCancelled(taskManager.getTask(task.getId()))) {
                     logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
+                    discardPartialSnapshot(partial);
+                } else {
+                    writeManifest(partial, reference, logFile);
+                    BackupSnapshots.publish(partial, snapshot);
+                    if (finalizeTask(task.getId(), fileCount, sizeMB, run.warnings(), logFile).isEmpty()) {
+                        logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
+                    }
                 }
 
             } catch (Exception e) {
+                discardPartialSnapshot(partial);
                 if (handleBackupFailure(task.getId(), e).isEmpty()) {
                     logger.info("Backup {} cancelado (exception capturada), pulando tratamento de falha", task.getId());
                 }
@@ -276,14 +312,46 @@ public class BackupService {
     private record CopyRun(int warnings, boolean stoppedForPause) {
     }
 
-    private CopyRun executeStorageOperation(Path source, Path destination, Path logFile, Long taskId, int totalFiles)
-            throws IOException {
+    // O startedAt da tarefa fixa o nome do snapshot, entao a retomada apos uma pausa cai na mesma pasta.
+    private static Path snapshotOf(BackupTask task, Path destination) {
+        if (task.getSnapshotPath() != null) {
+            return Paths.get(task.getSnapshotPath());
+        }
+        LocalDateTime startedAt = task.getStartedAt() != null ? task.getStartedAt() : LocalDateTime.now();
+        return BackupSnapshots.snapshotFor(destination, task.getId(), startedAt);
+    }
+
+    // Sem manifesto o snapshot continua restauravel, so nao pode ser verificado: a falha vira alerta, nao erro.
+    private void writeManifest(Path snapshot, Path reference, Path logFile) {
+        try {
+            BackupManifest.write(snapshot, reference, integrityHashEnabled);
+        } catch (IOException | RuntimeException e) {
+            logger.warn("Nao foi possivel gravar o manifesto de {}: {}", snapshot, e.getMessage());
+            logDetail(logFile, "Manifesto de integridade nao gravado: " + e.getMessage(), snapshot);
+        }
+    }
+
+    // Snapshot incompleto nao serve para restaurar nem como base de hardlinks: falha e cancelamento o descartam.
+    private void discardPartialSnapshot(Path partial) {
+        if (partial == null) {
+            return;
+        }
+        try {
+            BackupSnapshots.deleteTree(partial);
+        } catch (IOException e) {
+            logger.warn("Nao foi possivel remover o snapshot incompleto {}: {}", partial, e.getMessage());
+        }
+    }
+
+    private CopyRun executeStorageOperation(Path source, Path destination, Path reference, Path logFile, Long taskId,
+                                            int totalFiles) throws IOException {
         AtomicInteger processed = new AtomicInteger(0);
         AtomicBoolean stoppedForPause = new AtomicBoolean(false);
 
         int warnings = storageOps.copyDirectoryIncremental(
                 source,
                 destination,
+                reference,
                 excludedFolders,
                 new FileStorageOperations.BackupProgressCallback() {
                     @Override
@@ -350,15 +418,15 @@ public class BackupService {
         return task;
     }
 
-    private Optional<BackupTask> finalizeTask(Long taskId, long fileCount, BigDecimal sizeMB, int warnings) {
+    private Optional<BackupTask> finalizeTask(Long taskId, long fileCount, BigDecimal sizeMB, int warnings,
+                                              Path logFile) {
         Optional<BackupTask> finalized = updateUnlessCancelled(taskId, task -> {
             task.setFinishedAt(LocalDateTime.now());
             task.setFileCount(fileCount);
             task.setTotalSizeMB(sizeMB);
             task.setStatus(Status.CONCLUIDO);
             task.setErrorMessage(warnings > 0
-                    ? "Concluido com " + warnings + " alertas. Verifique "
-                            + BackupMetadata.DIRECTORY + "/" + FileStorageOperations.WARNINGS_LOG + "."
+                    ? "Concluido com " + warnings + " alertas. Verifique " + logFile + "."
                     : null);
         });
         if (finalized.isEmpty()) {
@@ -435,6 +503,35 @@ public class BackupService {
         });
     }
 
+    /**
+     * Confere o snapshot de uma entrada do historico contra o manifesto dela. Le todos os arquivos com hash,
+     * por isso so roda sob demanda.
+     */
+    public BackupVerificationResponse verifyBackup(Long backupId) throws IOException {
+        BackupTask task = backupRepository.findById(backupId)
+                .orElseThrow(() -> new BackupResourceNotFoundException(backupId));
+        if (task.legacyMirror()) {
+            throw new IllegalStateException("Backup anterior aos snapshots: nao ha manifesto para verificar.");
+        }
+        if (task.getSnapshotRemovedAt() != null) {
+            throw new BackupStorageNotFoundException(backupId, task.getSnapshotPath(),
+                    "O snapshot deste backup foi removido pela politica de retencao.");
+        }
+        Path snapshot = Paths.get(task.getSnapshotPath());
+        if (!Files.isDirectory(snapshot)) {
+            throw new BackupStorageNotFoundException(backupId, snapshot.toString());
+        }
+
+        BackupManifest.Verification verification = BackupManifest.verify(snapshot);
+        if (!verification.manifestFound()) {
+            throw new IllegalStateException("O snapshot deste backup nao tem manifesto de integridade.");
+        }
+        logger.info("Verificacao do backup {}: {} arquivos, {} ausentes, {} divergentes, {} inesperados",
+                backupId, verification.checked(), verification.missing().size(), verification.changed().size(),
+                verification.unexpected().size());
+        return BackupVerificationResponse.of(backupId, snapshot.toString(), verification);
+    }
+
     /** Mais recentes primeiro; sem limite o historico inteiro ia para a memoria (e para a resposta). */
     public List<BackupTask> getRecentTasks(int limit) {
         return backupRepository.findTopNByOrderByStartedAtDesc(PageRequest.of(0, limit));
@@ -460,13 +557,15 @@ public class BackupService {
     }
 
     public Optional<BackupTask> getActiveTask(String sourcePath, String destinationPath) {
-        return findActiveTask(validateSafePath(sourcePath), validateSafePath(destinationPath));
+        validateSafePath(sourcePath);
+        return findActiveTask(validateSafePath(destinationPath));
     }
 
-    private Optional<BackupTask> findActiveTask(Path source, Path destination) {
+    // O conflito e pelo destino, nao pelo par: duas tarefas gravando na mesma arvore (mesmo que de origens
+    // diferentes) disputariam os mesmos snapshots e o mesmo warnings.log.
+    private Optional<BackupTask> findActiveTask(Path destination) {
         // Busca diretamente no banco para evitar carregar todas as tarefas em memoria.
-        return backupRepository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
-                source.toString(),
+        return backupRepository.findFirstByDestinationPathAndStatusInOrderByIdDesc(
                 destination.toString(),
                 List.of(Status.EM_ANDAMENTO, Status.PAUSADO)
         );

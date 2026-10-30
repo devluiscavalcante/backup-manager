@@ -1,17 +1,24 @@
 package com.backup_manager.infrastructure.logging;
 
+import com.backup_manager.domain.model.BackupTask;
+import com.backup_manager.domain.model.Status;
 import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.storage.BackupMetadata;
+import com.backup_manager.infrastructure.storage.BackupSnapshots;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class LogServiceTests {
 
@@ -70,5 +77,22 @@ class LogServiceTests {
 
         assertEquals("[2026-10-23T10:00:00] [WARNING] Link simbolico ignorado: C:/dados/link\n",
                 logService.readLog(logFile));
+    }
+
+    @Test
+    void latestWarningsShouldBeTheLogOfTheLastRunAfterRotation(@TempDir Path tempDir) throws Exception {
+        Path snapshot = BackupSnapshots.snapshotFor(tempDir, 9, LocalDateTime.of(2026, 10, 28, 10, 0));
+        Path runLog = BackupMetadata.runWarningsLog(tempDir, snapshot);
+        Files.createDirectories(runLog.getParent());
+        Files.writeString(runLog, "alertas da execucao 9");
+        // Log unico de antes dos snapshots: nao e mais o da ultima execucao.
+        Files.writeString(BackupMetadata.warningsLog(tempDir), "alertas antigos");
+        BackupTask task = new BackupTask();
+        task.setDestinationPath(tempDir.toString());
+        task.setSnapshotPath(snapshot.toString());
+        when(backupRepository.findTopByStatusOrderByFinishedAtDesc(Status.CONCLUIDO)).thenReturn(Optional.of(task));
+
+        assertEquals(runLog, logService.resolveLatestWarningsLog());
+        assertEquals("alertas da execucao 9", logService.readLog(logService.resolveLatestWarningsLog()));
     }
 }

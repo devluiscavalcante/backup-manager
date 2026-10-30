@@ -61,6 +61,7 @@ public class BackupConfigController {
     public ResponseEntity<Object> createOrUpdate(@Valid @RequestBody ScheduledBackupRequest request) {
         try {
             backupRequestValidationService.validateSchedulableRequest(
+                    request.getId(),
                     request.getSources(),
                     request.getDestinations()
             );

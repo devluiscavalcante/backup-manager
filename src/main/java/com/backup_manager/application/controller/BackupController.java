@@ -4,6 +4,7 @@ import com.backup_manager.application.dto.BackupRequest;
 import com.backup_manager.application.dto.BackupResponse;
 import com.backup_manager.application.dto.BackupStatsResponse;
 import com.backup_manager.application.dto.BackupTaskSummaryResponse;
+import com.backup_manager.application.dto.BackupVerificationResponse;
 import com.backup_manager.application.dto.ApiErrorResponse;
 import com.backup_manager.application.dto.CollectionResponse;
 import com.backup_manager.application.dto.OperationResponse;
@@ -34,6 +35,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -107,9 +109,9 @@ public class BackupController {
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(
                             ApiErrorResponse.of(
                                     HttpStatus.CONFLICT,
-                                    "Ja existe um backup ativo para este par origem/destino",
+                                    "Ja existe um backup ativo neste destino",
                                     "active_backup_conflict",
-                                    conflictDetails(source, destination, activeTask.get().getId()),
+                                    conflictDetails(activeTask.get().getSourcePath(), destination, activeTask.get().getId()),
                                     "/api/backup/start",
                                     activeTask.get().getId()
                             )
@@ -429,6 +431,15 @@ public class BackupController {
                     "/api/backup/" + taskId + "/status"
             );
         }
+    }
+
+    // Le o snapshot inteiro para conferir os hashes: roda so quando pedido, nunca a cada consulta.
+    @PostMapping("/{taskId}/verify")
+    public ResponseEntity<BackupVerificationResponse> verifyBackup(@PathVariable Long taskId) throws IOException {
+        BackupVerificationResponse result = backupService.verifyBackup(taskId);
+        securityAuditService.recordSuccess("backup.verify", "backup_task",
+                Map.of("taskId", taskId, "intact", result.isIntact()));
+        return ResponseEntity.ok(result);
     }
 
     @GetMapping("/active")

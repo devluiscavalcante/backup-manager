@@ -25,6 +25,10 @@ public class BackupTaskSummaryResponse {
     private final LocalDateTime finishedAt;
     private final LocalDateTime pausedAt;
     private final String duration;
+    private final String snapshotPath;
+    private final LocalDateTime snapshotRemovedAt;
+    // So aparece (true) em backups anteriores aos snapshots: restaura-los devolve o estado atual do destino.
+    private final Boolean legacyMirror;
 
     public static BackupTaskSummaryResponse fromTask(BackupTask task) {
         return new BackupTaskSummaryResponse(
@@ -38,7 +42,10 @@ public class BackupTaskSummaryResponse {
                 task.getStartedAt(),
                 task.getFinishedAt(),
                 task.getPausedAt(),
-                ResponseFormattingUtils.formatDuration(task.getStartedAt(), task.getFinishedAt())
+                ResponseFormattingUtils.formatDuration(task.getStartedAt(), task.getFinishedAt()),
+                task.getSnapshotPath(),
+                task.getSnapshotRemovedAt(),
+                task.legacyMirror() ? Boolean.TRUE : null
         );
     }
 }

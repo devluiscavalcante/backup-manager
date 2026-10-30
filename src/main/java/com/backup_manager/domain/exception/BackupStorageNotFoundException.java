@@ -6,7 +6,11 @@ public class BackupStorageNotFoundException extends RuntimeException {
     private final String backupPath;
 
     public BackupStorageNotFoundException(Long backupId, String backupPath) {
-        super("Os arquivos do backup nao estao disponiveis no disco.");
+        this(backupId, backupPath, "Os arquivos do backup nao estao disponiveis no disco.");
+    }
+
+    public BackupStorageNotFoundException(Long backupId, String backupPath, String message) {
+        super(message);
         this.backupId = backupId;
         this.backupPath = backupPath;
     }
