@@ -60,10 +60,11 @@ public class RestoreController {
     }
 
     @GetMapping("/backup/{id}/restore/preview")
-    public ResponseEntity<Object> previewBackupFiles(@PathVariable Long id) {
+    public ResponseEntity<Object> previewBackupFiles(@PathVariable Long id,
+                                                     @RequestParam(required = false) String path) {
         try {
             logger.info("Preview solicitado para backup ID={}", id);
-            FileTreeDTO tree = restoreService.previewFiles(id);
+            FileTreeDTO tree = restoreService.previewFiles(id, path);
             return ResponseEntity.ok(tree);
 
         } catch (BackupResourceNotFoundException | BackupStorageNotFoundException

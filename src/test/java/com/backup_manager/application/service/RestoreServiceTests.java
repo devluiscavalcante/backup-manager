@@ -22,6 +22,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.task.TaskRejectedException;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -180,6 +181,58 @@ class RestoreServiceTests {
         assertThatThrownBy(() -> service.previewFiles(BACKUP_ID))
                 .isInstanceOf(BackupStorageNotFoundException.class);
         verify(restoreRepository, never()).save(any());
+    }
+
+    @Test
+    void previewShouldListOnlyDirectChildrenWithoutWalkingTheSubtree() throws IOException {
+        Path deep = Files.createDirectories(backupRoot.resolve("docs").resolve("2026").resolve("10"));
+        Files.writeString(deep.resolve("relatorio.txt"), "conteudo");
+        backup().setFileCount(2L);
+        backup().setTotalSizeMB(new BigDecimal("1.50"));
+
+        FileTreeDTO root = service.previewFiles(BACKUP_ID);
+
+        assertThat(root.getFiles()).extracting(FileNodeDTO::getName).containsExactly("docs", "file.txt");
+        FileNodeDTO docs = root.getFiles().get(0);
+        // Pasta sem totais recursivos: o conteudo vem ao abri-la.
+        assertThat(docs.getType()).isEqualTo("directory");
+        assertThat(docs.getFileCount()).isNull();
+        assertThat(docs.getSizeMB()).isNull();
+        // Os totais sao os registrados pela execucao, nao uma varredura a cada GET.
+        assertThat(root.getTotalFiles()).isEqualTo(2L);
+        assertThat(root.getTotalSizeMB()).isEqualByComparingTo("1.50");
+
+        FileTreeDTO opened = service.previewFiles(BACKUP_ID, "docs/2026/10");
+        assertThat(opened.getFiles()).extracting(FileNodeDTO::getRelativePath)
+                .containsExactly(Path.of("docs", "2026", "10", "relatorio.txt").toString());
+        assertThat(opened.getPath()).isEqualTo(Path.of("docs", "2026", "10").toString());
+    }
+
+    @Test
+    void previewShouldRejectPathsOutsideTheBackupOrIntoItsMetadata() throws IOException {
+        Files.createDirectories(backupRoot.resolve(".backup-manager").resolve("logs"));
+
+        assertThatThrownBy(() -> service.previewFiles(BACKUP_ID, "../"))
+                .isInstanceOf(SecurityException.class);
+        assertThatThrownBy(() -> service.previewFiles(BACKUP_ID, tempDir.toString()))
+                .isInstanceOf(SecurityException.class);
+        assertThatThrownBy(() -> service.previewFiles(BACKUP_ID, ".backup-manager/logs"))
+                .isInstanceOf(SecurityException.class);
+        assertThatThrownBy(() -> service.previewFiles(BACKUP_ID, "nao-existe"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void previewOfAHugeDirectoryShouldBeTruncated() throws IOException {
+        Path big = Files.createDirectories(backupRoot.resolve("grande"));
+        for (int i = 0; i <= RestoreService.MAX_PREVIEW_ENTRIES; i++) {
+            Files.createFile(big.resolve("f" + i));
+        }
+
+        FileTreeDTO tree = service.previewFiles(BACKUP_ID, "grande");
+
+        assertThat(tree.getFiles()).hasSize(RestoreService.MAX_PREVIEW_ENTRIES);
+        assertThat(tree.isTruncated()).isTrue();
     }
 
     private BackupTask backup() {
