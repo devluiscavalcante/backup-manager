@@ -18,13 +18,14 @@ import java.nio.file.attribute.FileTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 @Service
 public class LogService {
 
-    // O warnings.log acumula todas as execucoes do destino e nunca e truncado: a consulta devolve so o
-    // final (os alertas recentes) em vez de carregar o arquivo inteiro na memoria e na resposta.
+    // Uma execucao com muitos alertas (e o log unico de backups antigos) pode ser grande: a consulta devolve
+    // so o final (os alertas recentes) em vez de carregar o arquivo inteiro na memoria e na resposta.
     static final int MAX_LOG_BYTES = 256 * 1024;
 
     private final BackupRepository backupRepository;
@@ -72,13 +73,13 @@ public class LogService {
 
         Optional<BackupTask> lastOk = backupRepository.findTopByStatusOrderByFinishedAtDesc(Status.CONCLUIDO);
         if (lastOk.isPresent()) {
-            Path fromDb = BackupMetadata.locateWarningsLog(Path.of(lastOk.get().getDestinationPath()));
+            Path fromDb = warningsLogOf(lastOk.get());
             if (Files.exists(fromDb)) return fromDb;
         }
 
         Optional<BackupTask> lastAny = backupRepository.findTopByOrderByFinishedAtDesc();
         if (lastAny.isPresent()) {
-            Path fromDbAny = BackupMetadata.locateWarningsLog(Path.of(lastAny.get().getDestinationPath()));
+            Path fromDbAny = warningsLogOf(lastAny.get());
             if (Files.exists(fromDbAny)) return fromDbAny;
         }
 
@@ -86,6 +87,14 @@ public class LogService {
         if (found != null) return found;
 
         throw new IOException("Nenhum warnings.log encontrado. Ajuste 'logs.base-paths' ou execute um backup.");
+    }
+
+    // Com snapshots cada execucao tem o proprio log; backups antigos usavam o log unico do destino.
+    private static Path warningsLogOf(BackupTask task) {
+        Path destination = Path.of(task.getDestinationPath());
+        return task.getSnapshotPath() != null
+                ? BackupMetadata.runWarningsLog(destination, Path.of(task.getSnapshotPath()))
+                : BackupMetadata.locateWarningsLog(destination);
     }
 
     private static List<Path> parseBasePaths(String cfg) {
@@ -114,7 +123,7 @@ public class LogService {
         if (!Files.exists(base)) return Optional.empty();
         try (var walk = Files.walk(base, 5)) {
             return walk
-                    .filter(p -> p.getFileName().toString().equalsIgnoreCase("warnings.log"))
+                    .filter(p -> p.getFileName().toString().toLowerCase(Locale.ROOT).endsWith("warnings.log"))
                     .max(Comparator.comparing(this::safeLastModified));
         } catch (IOException e) {
             return Optional.empty();

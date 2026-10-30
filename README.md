@@ -315,7 +315,7 @@ No perfil `dev` também existem `POST /api/backup/scheduler/test-quick` e `POST 
 | `GET` | `/api/system/audit` | Eventos de auditoria, com filtros e paginação |
 | `POST` | `/api/system/audit/cleanup` | Limpa eventos fora da retenção |
 | `GET` | `/api/logs` | Conteúdo do log |
-| `GET` | `/api/logs/warnings` | Warnings operacionais do backup mais recente (gravados em `<destino>/.backup-manager/warnings.log`, fora do conteúdo restaurável) |
+| `GET` | `/api/logs/warnings` | Warnings operacionais do backup mais recente (um log por execução em `<destino>/.backup-manager/logs/<snapshot>.warnings.log`, fora do conteúdo restaurável) |
 | `GET` | `/api/backup/notifications/settings` | Configuração de notificações |
 | `POST` | `/api/backup/notifications/test` | Envia e-mail de teste |
 
@@ -393,6 +393,7 @@ Restaurar ou pré-visualizar uma entrada do histórico usa o snapshot daquela ex
 |---|---|---|
 | `BACKUP_RETENTION_MAX_SNAPSHOTS` | `10` | Snapshots mantidos por destino (`0` desliga o limite) |
 | `BACKUP_RETENTION_MAX_DAYS` | `0` | Idade máxima dos snapshots em dias (`0` desliga) |
+| `BACKUP_WARNINGS_MAX_LOGS` | `20` | Logs de alertas mantidos por destino, um por execução (`0` desliga o limite) |
 
 A retenção roda ao fim de cada backup concluído e nunca remove o snapshot mais recente. A entrada do histórico cujo snapshot expirou continua listada, com `snapshotRemovedAt`, e restaurá-la responde `409`.
 

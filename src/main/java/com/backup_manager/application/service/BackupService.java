@@ -67,6 +67,10 @@ public class BackupService {
     @Value("${backup.exclusions:AppData,Temp,node_modules,.git,$RECYCLE.BIN}")
     private List<String> excludedFolders;
 
+    // Logs de alertas mantidos por destino (um por execucao); o da execucao atual nunca e removido.
+    @Value("${backup.warnings.max-logs:20}")
+    private int maxWarningLogs = 20;
+
     public BackupService(
             BackupManager backupManager,
             BackupRepository backupRepository,
@@ -218,6 +222,9 @@ public class BackupService {
                 if (!Files.exists(destination)) {
                     Files.createDirectories(destination);
                 }
+                // Antes de criar a pasta de metadados: num destino antigo, o warnings.log da raiz e do backup
+                // e so e reconhecido como tal enquanto a pasta nao existe.
+                BackupMetadata.prepareWarningsLog(destination);
 
                 // Cada execucao grava o proprio snapshot; a retomada reencontra a mesma pasta .partial.
                 Path snapshot = snapshotOf(task, destination);
@@ -236,10 +243,12 @@ public class BackupService {
                         task.getId().toString()
                 ));
 
-                Path logFile = BackupMetadata.prepareWarningsLog(destination);
-                // O arquivo acumula execucoes: o cabecalho separa os alertas de cada uma.
+                // Um log por execucao; a retomada continua no mesmo arquivo e o cabecalho marca cada trecho.
+                Path logFile = BackupMetadata.runWarningsLog(destination, snapshot);
+                Files.createDirectories(logFile.getParent());
                 appendLog(logFile, String.format("%n=== Backup #%d %s em %s ===%n",
                         task.getId(), resumed ? "retomado" : "iniciado", LocalDateTime.now()));
+                BackupMetadata.pruneRunLogs(destination, logFile, maxWarningLogs);
 
                 CopyRun run = executeStorageOperation(source, partial, reference, logFile, task.getId(), (int) fileCount);
                 while (run.stoppedForPause()) {
@@ -260,7 +269,7 @@ public class BackupService {
                     discardPartialSnapshot(partial);
                 } else {
                     BackupSnapshots.publish(partial, snapshot);
-                    if (finalizeTask(task.getId(), fileCount, sizeMB, run.warnings()).isEmpty()) {
+                    if (finalizeTask(task.getId(), fileCount, sizeMB, run.warnings(), logFile).isEmpty()) {
                         logger.info("Backup {} cancelado, pulando finalizacao", task.getId());
                     }
                 }
@@ -390,15 +399,15 @@ public class BackupService {
         return task;
     }
 
-    private Optional<BackupTask> finalizeTask(Long taskId, long fileCount, BigDecimal sizeMB, int warnings) {
+    private Optional<BackupTask> finalizeTask(Long taskId, long fileCount, BigDecimal sizeMB, int warnings,
+                                              Path logFile) {
         Optional<BackupTask> finalized = updateUnlessCancelled(taskId, task -> {
             task.setFinishedAt(LocalDateTime.now());
             task.setFileCount(fileCount);
             task.setTotalSizeMB(sizeMB);
             task.setStatus(Status.CONCLUIDO);
             task.setErrorMessage(warnings > 0
-                    ? "Concluido com " + warnings + " alertas. Verifique "
-                            + BackupMetadata.DIRECTORY + "/" + FileStorageOperations.WARNINGS_LOG + "."
+                    ? "Concluido com " + warnings + " alertas. Verifique " + logFile + "."
                     : null);
         });
         if (finalized.isEmpty()) {

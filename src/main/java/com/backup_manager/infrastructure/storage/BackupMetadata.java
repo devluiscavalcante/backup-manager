@@ -3,6 +3,9 @@ package com.backup_manager.infrastructure.storage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * Arquivos que o proprio backup grava no destino. Ficam numa pasta reservada para nao disputar nome com o
@@ -11,6 +14,7 @@ import java.nio.file.Path;
 public final class BackupMetadata {
 
     public static final String DIRECTORY = ".backup-manager";
+    static final String LOGS_DIRECTORY = "logs";
 
     private BackupMetadata() {
     }
@@ -34,6 +38,38 @@ public final class BackupMetadata {
             }
         }
         return log;
+    }
+
+    /**
+     * Log de alertas de uma execucao. Fica fora do snapshot para sobreviver a uma execucao que falhou (cujo
+     * snapshot e descartado) e leva o nome do snapshot, entao a ordem alfabetica e a cronologica.
+     */
+    public static Path runWarningsLog(Path backupRoot, Path snapshot) {
+        return backupRoot.resolve(DIRECTORY).resolve(LOGS_DIRECTORY)
+                .resolve(snapshot.getFileName() + "." + FileStorageOperations.WARNINGS_LOG);
+    }
+
+    /**
+     * Mantem so os maxFiles logs de execucao mais recentes do destino, sem nunca remover keep (o da execucao
+     * atual). Antes cada destino tinha um unico warnings.log que crescia sem limite.
+     */
+    public static void pruneRunLogs(Path backupRoot, Path keep, int maxFiles) throws IOException {
+        Path directory = backupRoot.resolve(DIRECTORY).resolve(LOGS_DIRECTORY);
+        if (maxFiles <= 0 || !Files.isDirectory(directory)) {
+            return;
+        }
+        List<Path> logs;
+        try (Stream<Path> entries = Files.list(directory)) {
+            logs = entries
+                    .filter(path -> path.getFileName().toString().endsWith("." + FileStorageOperations.WARNINGS_LOG))
+                    .sorted(Comparator.comparing((Path path) -> path.getFileName().toString()).reversed())
+                    .toList();
+        }
+        for (int i = maxFiles; i < logs.size(); i++) {
+            if (!logs.get(i).equals(keep)) {
+                Files.deleteIfExists(logs.get(i));
+            }
+        }
     }
 
     /** Log de alertas do backup, no local atual ou, em backups antigos, na raiz. */

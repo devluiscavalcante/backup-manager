@@ -312,6 +312,11 @@ class BackupServiceTests {
         try (var entries = Files.list(snapshots)) {
             assertThat(entries).isEmpty();
         }
+        // O log da execucao fica fora do snapshot descartado: os alertas da falha continuam consultaveis.
+        try (var logs = Files.list(tempDir.resolve("destination").resolve(".backup-manager").resolve("logs"))) {
+            assertThat(logs).singleElement().satisfies(log ->
+                    assertThat(Files.readString(log)).contains("=== Backup #7 iniciado"));
+        }
     }
 
     @Test
