@@ -12,6 +12,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.FileTime;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -225,6 +226,48 @@ class FileStorageOperationsTests {
         assertThat(destination.resolve(BackupMetadata.DIRECTORY)).doesNotExist();
         // So a pasta da raiz e reservada; o mesmo nome em subpasta e conteudo do usuario.
         assertThat(destination.resolve("pasta").resolve(BackupMetadata.DIRECTORY).resolve("nota.txt")).exists();
+    }
+
+    @Test
+    void fileChangedBetweenTwoRunsShouldStayRecoverableInThePreviousSnapshot() throws IOException {
+        Path source = tempDir.resolve("origem");
+        Path destination = tempDir.resolve("destino");
+        Files.createDirectories(source);
+        Files.writeString(source.resolve("relatorio.txt"), "versao 1");
+        Files.writeString(source.resolve("fixo.txt"), "nao muda");
+        Path first = BackupSnapshots.snapshotFor(destination, 1, LocalDateTime.of(2026, 1, 1, 10, 0));
+        Path second = BackupSnapshots.snapshotFor(destination, 2, LocalDateTime.of(2026, 1, 2, 10, 0));
+
+        storageOperations.copyDirectoryIncremental(source, first, BackupSnapshots.referenceFor(destination),
+                List.of(), noOpCallback());
+        // Ransomware/corrupcao: o arquivo muda na origem antes da proxima execucao.
+        Files.writeString(source.resolve("relatorio.txt"), "conteudo corrompido");
+        storageOperations.copyDirectoryIncremental(source, second, first, List.of(), noOpCallback());
+
+        assertThat(first.resolve("relatorio.txt")).hasContent("versao 1");
+        assertThat(second.resolve("relatorio.txt")).hasContent("conteudo corrompido");
+        assertThat(second.resolve("fixo.txt")).hasContent("nao muda");
+        assumeTrue(FileStorageOperations.supportsHardLinks(destination), "destino sem hardlinks");
+        // Inalterado: o segundo snapshot aponta para o mesmo arquivo em vez de ocupar espaco de novo.
+        assertThat(Files.isSameFile(first.resolve("fixo.txt"), second.resolve("fixo.txt"))).isTrue();
+        assertThat(Files.isSameFile(first.resolve("relatorio.txt"), second.resolve("relatorio.txt"))).isFalse();
+    }
+
+    @Test
+    void resumedSnapshotShouldReplaceAFileThatChangedWithoutTouchingTheReference() throws IOException {
+        Path source = tempDir.resolve("origem");
+        Path reference = tempDir.resolve("anterior");
+        Path snapshot = tempDir.resolve("atual");
+        write(source.resolve("a.txt"));
+        storageOperations.copyDirectoryIncremental(source, reference, List.of(), noOpCallback());
+        storageOperations.copyDirectoryIncremental(source, snapshot, reference, List.of(), noOpCallback());
+
+        // Mudou durante a pausa: o hardlink do snapshot em andamento e trocado, a referencia continua igual.
+        Files.writeString(source.resolve("a.txt"), "alterado durante a pausa");
+        storageOperations.copyDirectoryIncremental(source, snapshot, reference, List.of(), noOpCallback());
+
+        assertThat(snapshot.resolve("a.txt")).hasContent("alterado durante a pausa");
+        assertThat(reference.resolve("a.txt")).hasContent("conteudo");
     }
 
     private void write(Path file) throws IOException {

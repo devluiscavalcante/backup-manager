@@ -9,6 +9,7 @@ import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.scheduling.support.CronExpression;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -70,6 +71,35 @@ class CronValidationServiceTests {
 
         assertThat(response.isValid()).isFalse();
         assertThat(response.getErrorMessage()).startsWith("Expressao cron invalida:");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"* * * * * *", "0 * * * * *", "0 */2 * * * *", "0 0,1 2 * * *", "0 * 3 1 * *"})
+    void rejectsExpressionsFiringBelowMinimumInterval(String expression) {
+        CronValidationResponse response = service.validateCronExpression(expression);
+
+        assertThat(response.isValid()).isFalse();
+        assertThat(response.getErrorMessage()).contains("minimo permitido de 5 minutos");
+        assertThat(service.minimumIntervalError(expression)).isNotNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"0 */5 * * * *", "0 0 * * * *", "0 0 2 * * *", "0 0 0 30 2 *"})
+    void acceptsExpressionsRespectingMinimumInterval(String expression) {
+        assertThat(service.minimumIntervalError(expression)).isNull();
+    }
+
+    @Test
+    void minimumIntervalIsConfigurable() {
+        BackupSchedulerProperties hourly = new BackupSchedulerProperties();
+        hourly.setMinInterval(Duration.ofHours(1));
+        CronValidationService strict = new CronValidationService(hourly);
+
+        assertThat(strict.validateCronExpression("0 */30 * * * *").isValid()).isFalse();
+        assertThat(strict.validateCronExpression("0 0 * * * *").isValid()).isTrue();
+
+        hourly.setMinInterval(Duration.ZERO);
+        assertThat(strict.validateCronExpression("* * * * * *").isValid()).isTrue();
     }
 
     @Test

@@ -10,11 +10,13 @@ import com.backup_manager.infrastructure.persistence.OneTimeBackupRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.core.task.TaskRejectedException;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ScheduledFuture;
@@ -96,7 +98,7 @@ class BackupSchedulerTests {
         ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
         BackupScheduler scheduler = new BackupScheduler(mock(BackupService.class), validation,
                 mock(ThreadPoolTaskScheduler.class), mock(BackupSchedulerProperties.class), publisher,
-                mock(OneTimeBackupRepository.class));
+                mock(OneTimeBackupRepository.class), Runnable::run);
         BackupRequest request = request("source", "destination");
 
         doThrow(new IllegalStateException("disco_indisponivel"))
@@ -162,7 +164,7 @@ class BackupSchedulerTests {
         properties.setScheduledBackups(List.of(nightly));
         BackupScheduler scheduler = new BackupScheduler(backupService, mock(BackupRequestValidationService.class),
                 mock(ThreadPoolTaskScheduler.class), properties, mock(ApplicationEventPublisher.class),
-                mock(OneTimeBackupRepository.class));
+                mock(OneTimeBackupRepository.class), Runnable::run);
 
         when(backupService.getActiveTask("source", "destination")).thenReturn(Optional.empty());
         when(backupService.runBackup("source", "destination")).thenReturn(7L);
@@ -183,7 +185,8 @@ class BackupSchedulerTests {
                 mock(ThreadPoolTaskScheduler.class),
                 mock(BackupSchedulerProperties.class),
                 publisher,
-                mock(OneTimeBackupRepository.class)
+                mock(OneTimeBackupRepository.class),
+                Runnable::run
         );
     }
 
@@ -230,6 +233,54 @@ class BackupSchedulerTests {
         verify(taskScheduler, times(2)).schedule(any(Runnable.class), when.capture());
         assertThat(when.getAllValues().get(0)).isBetween(before, Instant.now());
         assertThat(when.getAllValues().get(1)).isAfter(Instant.now().plusSeconds(3600));
+    }
+
+    @Test
+    void oneTimeTriggerShouldOnlyHandOffToDispatchExecutor() {
+        BackupService backupService = mock(BackupService.class);
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        ThreadPoolTaskScheduler taskScheduler = mock(ThreadPoolTaskScheduler.class);
+        List<Runnable> dispatched = new ArrayList<>();
+        BackupScheduler scheduler = new BackupScheduler(backupService, mock(BackupRequestValidationService.class),
+                taskScheduler, mock(BackupSchedulerProperties.class), mock(ApplicationEventPublisher.class),
+                repository, dispatched::add);
+        when(repository.findByStatusOrderByScheduledForAsc(OneTimeBackupStatus.PENDENTE))
+                .thenReturn(List.of(oneTime(9L, LocalDateTime.now())));
+        when(repository.findById(9L)).thenReturn(Optional.of(oneTime(9L, LocalDateTime.now())));
+        when(backupService.getActiveTask("source", "destination")).thenReturn(Optional.empty());
+        doReturn(mock(ScheduledFuture.class)).when(taskScheduler).schedule(any(Runnable.class), any(Instant.class));
+
+        scheduler.reschedulePendingOneTimeBackups();
+        ArgumentCaptor<Runnable> trigger = ArgumentCaptor.forClass(Runnable.class);
+        verify(taskScheduler).schedule(trigger.capture(), any(Instant.class));
+        trigger.getValue().run();
+
+        // Na thread do agendador nada foi validado nem iniciado: so o repasse ao pool de disparo.
+        verify(repository, never()).findById(9L);
+        assertThat(dispatched).hasSize(1);
+
+        dispatched.getFirst().run();
+        verify(backupService).runBackup("source", "destination");
+    }
+
+    @Test
+    void rejectedOneTimeDispatchShouldFailEntryAndNotify() {
+        OneTimeBackupRepository repository = mock(OneTimeBackupRepository.class);
+        ApplicationEventPublisher publisher = mock(ApplicationEventPublisher.class);
+        BackupScheduler scheduler = new BackupScheduler(mock(BackupService.class),
+                mock(BackupRequestValidationService.class), mock(ThreadPoolTaskScheduler.class),
+                mock(BackupSchedulerProperties.class), publisher, repository,
+                task -> {
+                    throw new TaskRejectedException("fila cheia");
+                });
+        OneTimeBackupEntity pending = oneTime(10L, LocalDateTime.now());
+        when(repository.findById(10L)).thenReturn(Optional.of(pending));
+
+        scheduler.dispatchOneTime(10L);
+
+        assertThat(pending.getStatus()).isEqualTo(OneTimeBackupStatus.FALHA);
+        verify(repository).save(pending);
+        verify(publisher).publishEvent(any(ScheduledBackupFailedEvent.class));
     }
 
     @Test
@@ -316,7 +367,7 @@ class BackupSchedulerTests {
                                              ThreadPoolTaskScheduler taskScheduler,
                                              OneTimeBackupRepository repository) {
         return new BackupScheduler(backupService, mock(BackupRequestValidationService.class), taskScheduler,
-                mock(BackupSchedulerProperties.class), mock(ApplicationEventPublisher.class), repository);
+                mock(BackupSchedulerProperties.class), mock(ApplicationEventPublisher.class), repository, Runnable::run);
     }
 
     private OneTimeBackupEntity oneTime(Long id, LocalDateTime scheduledFor) {

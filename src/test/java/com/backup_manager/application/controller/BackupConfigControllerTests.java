@@ -10,6 +10,7 @@ import com.backup_manager.application.service.DynamicSchedulerService;
 import com.backup_manager.application.service.SecurityAuditService;
 import com.backup_manager.domain.exception.FolderNotFoundException;
 import com.backup_manager.domain.model.ScheduledBackupEntity;
+import com.backup_manager.infrastructure.config.BackupSchedulerProperties;
 import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -24,6 +25,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -61,6 +63,31 @@ class BackupConfigControllerTests {
     }
 
     @Test
+    void createOrUpdateShouldRejectCronBelowMinimumIntervalWithoutSaving() {
+        ScheduledBackupRepository repository = mock(ScheduledBackupRepository.class);
+        DynamicSchedulerService dynamicSchedulerService = mock(DynamicSchedulerService.class);
+        BackupConfigController controller = new BackupConfigController(
+                mock(ApplicationEventPublisher.class),
+                repository,
+                dynamicSchedulerService,
+                mock(BackupRequestValidationService.class),
+                new CronValidationService(new BackupSchedulerProperties()),
+                mock(SecurityAuditService.class)
+        );
+        ScheduledBackupRequest request = validRequest();
+        request.setCronExpression("* * * * * *");
+
+        ResponseEntity<Object> response = controller.createOrUpdate(request);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        ApiErrorResponse body = (ApiErrorResponse) response.getBody();
+        assertThat(body.getCode()).isEqualTo("invalid_cron_expression");
+        assertThat(body.getDetails()).isEqualTo("Intervalo entre execucoes menor que o minimo permitido de 5 minutos.");
+        verify(repository, never()).save(any());
+        verify(dynamicSchedulerService, never()).refreshAllTasks();
+    }
+
+    @Test
     void createOrUpdateShouldReturnStructuredBadRequestWhenValidationFails() {
         BackupRequestValidationService validationService = mock(BackupRequestValidationService.class);
         BackupConfigController controller = new BackupConfigController(
@@ -74,7 +101,7 @@ class BackupConfigControllerTests {
 
         doThrow(new IllegalArgumentException("A pasta de origem esta vazia"))
                 .when(validationService)
-                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+                .validateSchedulableRequest(any(), eq(List.of("C:/temp/source")), eq(List.of("C:/temp/destination")));
 
         ResponseEntity<Object> response = controller.createOrUpdate(validRequest());
 
@@ -104,7 +131,7 @@ class BackupConfigControllerTests {
 
         doThrow(new SecurityException("fora da allowlist"))
                 .when(validationService)
-                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+                .validateSchedulableRequest(any(), eq(List.of("C:/temp/source")), eq(List.of("C:/temp/destination")));
 
         // O GlobalExceptionHandler responde 403; o controller nao pode converter em 500.
         assertThatThrownBy(() -> controller.createOrUpdate(validRequest()))
@@ -128,7 +155,7 @@ class BackupConfigControllerTests {
 
         doThrow(new FolderNotFoundException("C:/temp/source"))
                 .when(validationService)
-                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+                .validateSchedulableRequest(any(), eq(List.of("C:/temp/source")), eq(List.of("C:/temp/destination")));
 
         assertThatThrownBy(() -> controller.createOrUpdate(validRequest()))
                 .isInstanceOf(FolderNotFoundException.class);

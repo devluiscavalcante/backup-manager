@@ -100,7 +100,7 @@ class EmailNotificationServiceTests {
     void regularNotificationsShouldSendOnceAndPropagateMailErrors() {
         doThrow(new MailSendException("smtp unavailable")).when(mailSender).send(any(MimeMessage.class));
 
-        assertThatThrownBy(() -> service.sendSuccessNotification(new BackupTask(), 10))
+        assertThatThrownBy(() -> service.sendCancellationNotification(new BackupTask()))
                 .isInstanceOf(MailException.class);
 
         verify(mailSender, times(1)).send(any(MimeMessage.class));

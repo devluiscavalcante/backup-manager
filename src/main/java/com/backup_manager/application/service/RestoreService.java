@@ -38,13 +38,19 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 
 @Service
 public class RestoreService {
 
     private static final Logger logger = LoggerFactory.getLogger(RestoreService.class);
+    // Uma pasta com centenas de milhares de arquivos tambem nao pode virar uma resposta gigante.
+    static final int MAX_PREVIEW_ENTRIES = 1000;
+    static final String LEGACY_MIRROR_WARNING = "Backup anterior aos snapshots: o conteudo e o estado atual do "
+            + "destino (ultima execucao), nao o desta entrada do historico.";
 
     private final BackupRepository backupRepository;
     private final RestoreRepository restoreRepository;
@@ -74,63 +80,81 @@ public class RestoreService {
     }
 
     public FileTreeDTO previewFiles(Long backupId) throws IOException {
-        logger.info("Gerando preview de arquivos para backup ID={}", backupId);
+        return previewFiles(backupId, null);
+    }
 
-        BackupTask backup = backupRepository.findById(backupId)
-                .orElseThrow(() -> new BackupResourceNotFoundException(backupId));
+    /**
+     * Lista so os filhos diretos de uma pasta do backup (a raiz, sem path), sem totais recursivos: percorrer a
+     * subarvore inteira a cada GET prendia a thread HTTP e o disco em backups grandes. Os totais do backup vem
+     * do que a propria execucao registrou; as subpastas sao abertas sob demanda pelo path.
+     */
+    public FileTreeDTO previewFiles(Long backupId, String path) throws IOException {
+        logger.info("Gerando preview de arquivos para backup ID={}, pasta={}", backupId, path);
 
-        Path backupPath = Paths.get(backup.getDestinationPath());
+        BackupTask backup = validateBackup(backupId);
+        Path backupPath = Paths.get(backup.contentPath());
+        Path directory = resolvePreviewDirectory(backupPath, path);
 
-        if (!Files.exists(backupPath)) {
-            throw new BackupStorageNotFoundException(backupId, backupPath.toString());
-        }
-
-        List<Path> backupEntries;
-        try (Stream<Path> stream = Files.list(backupPath)) {
-            backupEntries = stream
-                    .filter(path -> !BackupMetadata.isMetadata(path, backupPath))
+        List<Path> entries;
+        try (Stream<Path> stream = Files.list(directory)) {
+            entries = stream
+                    .filter(entry -> !BackupMetadata.isMetadata(entry, backupPath))
+                    .limit(MAX_PREVIEW_ENTRIES + 1L)
                     .toList();
         }
 
-        if (backupEntries.isEmpty()) {
+        if (entries.isEmpty() && directory.equals(backupPath)) {
             throw new IllegalStateException("Backup vazio: " + backupPath);
         }
 
         List<FileNodeDTO> files = new ArrayList<>();
-        long[] totalFiles = {0};
-        long[] totalSize = {0};
-
-        backupEntries.forEach(path -> {
-            try {
-                FileNodeDTO node = buildFileNode(path, backupPath);
-                files.add(node);
-
-                if ("directory".equals(node.getType())) {
-                    totalFiles[0] += node.getFileCount();
-                } else {
-                    totalFiles[0]++;
-                }
-
-                totalSize[0] += node.getSizeMB().multiply(BigDecimal.valueOf(1024 * 1024)).longValue();
-            } catch (IOException e) {
-                logger.warn("Erro ao processar arquivo {}: {}", path, e.getMessage());
-            }
-        });
-
-        BigDecimal totalSizeMB = BigDecimal.valueOf(totalSize[0])
-                .divide(BigDecimal.valueOf(1024 * 1024), 2, RoundingMode.HALF_UP);
+        entries.stream()
+                .limit(MAX_PREVIEW_ENTRIES)
+                .sorted(Comparator.comparing((Path entry) -> entry.getFileName().toString().toLowerCase(Locale.ROOT)))
+                .forEach(entry -> {
+                    try {
+                        files.add(buildFileNode(entry, backupPath));
+                    } catch (IOException e) {
+                        logger.warn("Erro ao processar arquivo {}: {}", entry, e.getMessage());
+                    }
+                });
 
         FileTreeDTO tree = new FileTreeDTO();
         tree.setBackupId(backupId);
         tree.setSourcePath(backup.getSourcePath());
-        tree.setBackupPath(backup.getDestinationPath());
+        tree.setBackupPath(backup.contentPath());
+        tree.setPath(backupPath.relativize(directory).toString());
         tree.setBackupDate(backup.getFinishedAt());
-        tree.setTotalFiles(totalFiles[0]);
-        tree.setTotalSizeMB(totalSizeMB);
+        tree.setTotalFiles(backup.getFileCount());
+        tree.setTotalSizeMB(backup.getTotalSizeMB());
         tree.setFiles(files);
+        tree.setTruncated(entries.size() > MAX_PREVIEW_ENTRIES);
+        if (backup.legacyMirror()) {
+            tree.setLegacyMirror(true);
+            tree.setWarning(LEGACY_MIRROR_WARNING);
+        }
 
-        logger.info("Preview gerado: {} arquivos, {} MB", totalFiles[0], totalSizeMB);
+        logger.info("Preview gerado: {} entradas em '{}'", files.size(), tree.getPath());
         return tree;
+    }
+
+    // A pasta pedida precisa estar dentro do backup tambem depois de resolver links (um espelho antigo pode
+    // ter junctions), e a pasta de metadados nao e conteudo do usuario.
+    private static Path resolvePreviewDirectory(Path backupPath, String path) throws IOException {
+        if (path == null || path.isBlank()) {
+            return backupPath;
+        }
+        Path directory = backupPath.resolve(path).normalize();
+        if (!directory.startsWith(backupPath) || BackupMetadata.isMetadata(directory, backupPath)) {
+            throw new SecurityException("Path fora do backup: " + path);
+        }
+        if (!Files.isDirectory(directory)) {
+            throw new IllegalArgumentException("Pasta nao encontrada no backup: " + path);
+        }
+        if (!directory.toRealPath().startsWith(backupPath.toRealPath())) {
+            throw new SecurityException("Path fora do backup: " + path);
+        }
+        return directory;
     }
 
     private FileNodeDTO buildFileNode(Path path, Path root) throws IOException {
@@ -145,28 +169,11 @@ public class RestoreService {
                 java.time.ZoneId.systemDefault()
         ));
 
-        if (Files.isDirectory(path)) {
+        if (attrs.isDirectory()) {
+            // Sem contagem nem tamanho: exigiria percorrer a subarvore. O conteudo vem ao abrir a pasta.
             node.setType("directory");
-
-            long[] count = {0};
-            long[] size = {0};
-
-            try (Stream<Path> walk = Files.walk(path)) {
-                walk.forEach(p -> {
-                    try {
-                        if (Files.isRegularFile(p)) {
-                            count[0]++;
-                            size[0] += Files.size(p);
-                        }
-                    } catch (IOException e) {
-                        logger.debug("Erro ao processar {}: {}", p, e.getMessage());
-                    }
-                });
-            }
-
-            node.setFileCount(count[0]);
-            node.setSizeMB(BigDecimal.valueOf(size[0])
-                    .divide(BigDecimal.valueOf(1024 * 1024), 2, RoundingMode.HALF_UP));
+            node.setSizeMB(null);
+            node.setFileCount(null);
             node.setChildren(null);
         } else {
             node.setType("file");
@@ -204,10 +211,10 @@ public class RestoreService {
                 request.getSelectedFiles() != null ? request.getSelectedFiles().size() : 0);
 
         BackupTask backup = validateBackup(backupId);
-        Path backupRoot = Paths.get(backup.getDestinationPath());
+        Path backupRoot = Paths.get(backup.contentPath());
 
         Path targetPath = pathSecurityService.validateWritableManagedPath(request.getTargetPath(), "restauracao");
-        pathSecurityService.ensureNotOverlapping(backupRoot, targetPath, "restauracao");
+        pathSecurityService.ensureNotOverlapping(Paths.get(backup.getDestinationPath()), targetPath, "restauracao");
         validateSelectedFiles(request.getSelectedFiles(), backupRoot);
 
         RestoreTask task = createRestoreTask(
@@ -249,7 +256,7 @@ public class RestoreService {
             taskManager.registerTask(task.getId(), task);
             eventPublisher.publishEvent(new RestoreStartedEvent(task));
 
-            Path backupSource = Paths.get(task.getSourceBackup().getDestinationPath());
+            Path backupSource = Paths.get(task.getSourceBackup().contentPath());
 
             try {
                 // Revalida na execucao: entre o pedido e o inicio da tarefa o destino pode ter virado um link.
@@ -413,7 +420,12 @@ public class RestoreService {
         BackupTask backup = backupRepository.findById(backupId)
                 .orElseThrow(() -> new BackupResourceNotFoundException(backupId));
 
-        Path backupPath = Paths.get(backup.getDestinationPath());
+        if (backup.getSnapshotRemovedAt() != null) {
+            throw new BackupStorageNotFoundException(backupId, backup.contentPath(),
+                    "O snapshot deste backup foi removido pela politica de retencao.");
+        }
+
+        Path backupPath = Paths.get(backup.contentPath());
         if (!Files.exists(backupPath)) {
             throw new BackupStorageNotFoundException(backupId, backupPath.toString());
         }

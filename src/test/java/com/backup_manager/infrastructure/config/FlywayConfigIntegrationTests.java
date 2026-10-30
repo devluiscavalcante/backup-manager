@@ -140,7 +140,7 @@ class FlywayConfigIntegrationTests {
 
         new FlywayConfig().flyway(dataSource(), strictEnvironment());
 
-        assertThat(appliedVersions(schemaName)).contains("0", "1", "1.1", "2", "4", "5", "6", "7");
+        assertThat(appliedVersions(schemaName)).contains("0", "1", "1.1", "2", "4", "5", "6", "7", "8");
     }
 
     @Test

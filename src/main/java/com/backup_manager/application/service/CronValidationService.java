@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,6 +21,7 @@ public class CronValidationService {
 
     private static final Logger logger = LoggerFactory.getLogger(CronValidationService.class);
     private static final int DEFAULT_NEXT_EXECUTIONS_COUNT = 5;
+    private static final int INTERVAL_SAMPLE_SIZE = 100;
 
     private static final List<CronTemplateResponse> TEMPLATES = List.of(
             template("daily_2am", "0 0 2 * * *", "Todos os dias as 2:00 AM", "Diario"),
@@ -56,6 +58,12 @@ public class CronValidationService {
         try {
             CronExpression cron = CronExpression.parse(cronExpression);
 
+            String intervalError = minimumIntervalError(cron);
+            if (intervalError != null) {
+                logger.warn("Expressao cron recusada: {} - {}", cronExpression, intervalError);
+                return CronValidationResponse.of(false, null, intervalError, null);
+            }
+
             List<LocalDateTime> nextExecutions = calculateNextExecutions(cron, DEFAULT_NEXT_EXECUTIONS_COUNT);
             String description = generateDescription(cronExpression);
 
@@ -78,6 +86,39 @@ public class CronValidationService {
                     null
             );
         }
+    }
+
+    /**
+     * Motivo da recusa quando a expressao dispara mais de uma vez dentro do intervalo minimo
+     * (ex.: "* * * * * *"); null se respeita o minimo. Expressao malformada propaga IllegalArgumentException.
+     */
+    public String minimumIntervalError(String cronExpression) {
+        return minimumIntervalError(CronExpression.parse(cronExpression));
+    }
+
+    // Amostra de execucoes consecutivas: um cron que dispara em rajadas (ex.: a cada minuto so no dia 1)
+    // comeca a proxima rajada ja nas primeiras execucoes, entao a amostra pega o menor intervalo.
+    private String minimumIntervalError(CronExpression cron) {
+        Duration minimum = schedulerProperties.getMinInterval();
+        if (minimum == null || minimum.isZero() || minimum.isNegative()) {
+            return null;
+        }
+
+        List<LocalDateTime> executions = calculateNextExecutions(cron, INTERVAL_SAMPLE_SIZE);
+        for (int i = 1; i < executions.size(); i++) {
+            if (Duration.between(executions.get(i - 1), executions.get(i)).compareTo(minimum) < 0) {
+                return "Intervalo entre execucoes menor que o minimo permitido de " + describe(minimum) + ".";
+            }
+        }
+        return null;
+    }
+
+    private static String describe(Duration duration) {
+        long minutes = duration.toMinutes();
+        if (minutes > 0 && duration.equals(Duration.ofMinutes(minutes))) {
+            return minutes + (minutes == 1 ? " minuto" : " minutos");
+        }
+        return duration.toSeconds() + " segundos";
     }
 
     public List<LocalDateTime> calculateNextExecutions(String cronExpression, int count) {
