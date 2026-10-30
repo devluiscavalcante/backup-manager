@@ -101,7 +101,7 @@ class BackupConfigControllerTests {
 
         doThrow(new IllegalArgumentException("A pasta de origem esta vazia"))
                 .when(validationService)
-                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+                .validateSchedulableRequest(any(), eq(List.of("C:/temp/source")), eq(List.of("C:/temp/destination")));
 
         ResponseEntity<Object> response = controller.createOrUpdate(validRequest());
 
@@ -131,7 +131,7 @@ class BackupConfigControllerTests {
 
         doThrow(new SecurityException("fora da allowlist"))
                 .when(validationService)
-                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+                .validateSchedulableRequest(any(), eq(List.of("C:/temp/source")), eq(List.of("C:/temp/destination")));
 
         // O GlobalExceptionHandler responde 403; o controller nao pode converter em 500.
         assertThatThrownBy(() -> controller.createOrUpdate(validRequest()))
@@ -155,7 +155,7 @@ class BackupConfigControllerTests {
 
         doThrow(new FolderNotFoundException("C:/temp/source"))
                 .when(validationService)
-                .validateSchedulableRequest(List.of("C:/temp/source"), List.of("C:/temp/destination"));
+                .validateSchedulableRequest(any(), eq(List.of("C:/temp/source")), eq(List.of("C:/temp/destination")));
 
         assertThatThrownBy(() -> controller.createOrUpdate(validRequest()))
                 .isInstanceOf(FolderNotFoundException.class);

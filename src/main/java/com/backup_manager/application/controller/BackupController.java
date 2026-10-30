@@ -107,9 +107,9 @@ public class BackupController {
                     return ResponseEntity.status(HttpStatus.CONFLICT).body(
                             ApiErrorResponse.of(
                                     HttpStatus.CONFLICT,
-                                    "Ja existe um backup ativo para este par origem/destino",
+                                    "Ja existe um backup ativo neste destino",
                                     "active_backup_conflict",
-                                    conflictDetails(source, destination, activeTask.get().getId()),
+                                    conflictDetails(activeTask.get().getSourcePath(), destination, activeTask.get().getId()),
                                     "/api/backup/start",
                                     activeTask.get().getId()
                             )

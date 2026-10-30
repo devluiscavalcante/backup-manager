@@ -136,13 +136,32 @@ class BackupServiceTests {
         BackupTask active = backupTask(Status.EM_ANDAMENTO, false);
 
         doNothing().when(service).validatePathAndDriveSpace("c:/dados/", "e:/backup");
-        when(repository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
-                eq(REAL_SOURCE.toString()), eq(REAL_DESTINATION.toString()), any()))
+        when(repository.findFirstByDestinationPathAndStatusInOrderByIdDesc(eq(REAL_DESTINATION.toString()), any()))
                 .thenReturn(Optional.of(active));
 
         assertThatThrownBy(() -> service.runBackup("c:/dados/", "e:/backup"))
                 .isInstanceOf(ActiveBackupConflictException.class)
                 .extracting("conflictingTaskId").isEqualTo(7L);
+        verify(repository, never()).save(any(BackupTask.class));
+    }
+
+    @Test
+    void runBackupShouldRejectAnotherSourceWhileTheDestinationIsBusy() throws IOException {
+        BackupRepository repository = mock(BackupRepository.class);
+        BackupService service = spy(new BackupService(mock(BackupManager.class), repository, mock(ProgressEmitter.class),
+                mock(BackupTaskManager.class), mock(FileStorageOperations.class), mock(ApplicationEventPublisher.class),
+                realPaths(), Runnable::run, mock(BackupService.class)));
+        // Outra origem gravando no mesmo destino: as duas copias disputariam a mesma arvore.
+        BackupTask otherSource = backupTask(Status.EM_ANDAMENTO, false);
+        otherSource.setSourcePath("outra-origem");
+
+        doNothing().when(service).validatePathAndDriveSpace("c:/dados/", "e:/backup");
+        when(repository.findFirstByDestinationPathAndStatusInOrderByIdDesc(eq(REAL_DESTINATION.toString()), any()))
+                .thenReturn(Optional.of(otherSource));
+
+        assertThatThrownBy(() -> service.runBackup("c:/dados/", "e:/backup"))
+                .isInstanceOf(ActiveBackupConflictException.class)
+                .extracting("sourcePath").isEqualTo("outra-origem");
         verify(repository, never()).save(any(BackupTask.class));
     }
 
@@ -154,7 +173,7 @@ class BackupServiceTests {
                 realPaths(), Runnable::run, mock(BackupService.class)));
 
         doNothing().when(service).validatePathAndDriveSpace("c:/dados/", "e:/backup");
-        when(repository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(any(), any(), any()))
+        when(repository.findFirstByDestinationPathAndStatusInOrderByIdDesc(any(), any()))
                 .thenReturn(Optional.empty());
         when(repository.save(any(BackupTask.class))).thenAnswer(invocation -> {
             BackupTask task = invocation.getArgument(0);
@@ -182,7 +201,7 @@ class BackupServiceTests {
         when(taskManager.claimWorker(7L)).thenReturn(true);
 
         doNothing().when(service).validatePathAndDriveSpace("source", "destination");
-        when(repository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(any(), any(), any()))
+        when(repository.findFirstByDestinationPathAndStatusInOrderByIdDesc(any(), any()))
                 .thenReturn(Optional.empty());
         when(repository.save(any(BackupTask.class))).thenReturn(saved);
         when(repository.findById(7L)).thenReturn(Optional.of(saved));

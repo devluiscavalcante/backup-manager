@@ -18,10 +18,15 @@ public interface BackupRepository extends JpaRepository<BackupTask, Long> {
     Optional<BackupTask> findTopByStatusOrderByFinishedAtDesc(Status status);
     Optional<BackupTask> findTopByOrderByFinishedAtDesc();
     List<BackupTask> findBySourcePathAndDestinationPathOrderByIdDesc(String sourcePath, String destinationPath);
-    Optional<BackupTask> findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
-            String sourcePath,
+    Optional<BackupTask> findFirstByDestinationPathAndStatusInOrderByIdDesc(
             String destinationPath,
             List<Status> statuses
+    );
+
+    // Snapshot ainda guardado no destino por outra origem: o destino ja pertence a ela.
+    Optional<BackupTask> findFirstByDestinationPathAndSourcePathNotAndSnapshotPathIsNotNullAndSnapshotRemovedAtIsNullOrderByIdDesc(
+            String destinationPath,
+            String sourcePath
     );
 
     List<BackupTask> findBySnapshotPathIn(List<String> snapshotPaths);

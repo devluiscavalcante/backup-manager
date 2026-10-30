@@ -1,8 +1,15 @@
 package com.backup_manager.application.service;
 
+import com.backup_manager.domain.model.BackupTask;
+import com.backup_manager.domain.model.OneTimeBackupEntity;
+import com.backup_manager.domain.model.OneTimeBackupStatus;
+import com.backup_manager.domain.model.ScheduledBackupEntity;
 import com.backup_manager.domain.service.BackupManager;
 import com.backup_manager.domain.exception.FolderEmptyException;
 import com.backup_manager.infrastructure.config.AppSecurityProperties;
+import com.backup_manager.infrastructure.persistence.BackupRepository;
+import com.backup_manager.infrastructure.persistence.OneTimeBackupRepository;
+import com.backup_manager.infrastructure.persistence.ScheduledBackupRepository;
 import com.backup_manager.infrastructure.storage.FileStorageOperations;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -12,10 +19,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class BackupRequestValidationServiceTests {
 
@@ -218,11 +229,108 @@ class BackupRequestValidationServiceTests {
         assertEquals(Files.getFileStore(tempDir), BackupRequestValidationService.destinationStore(tempDir));
     }
 
+    @Test
+    void shouldRejectTheSameDestinationTwiceInOneRequest() throws IOException {
+        Path sourceA = createSource("A");
+        Path sourceB = createSource("B");
+        Path destination = Files.createDirectories(tempDir.resolve("bk"));
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                service.validateSchedulableRequest(
+                        List.of(sourceA.toString(), sourceB.toString()),
+                        List.of(destination.toString(), destination.toString())
+                )
+        );
+
+        assertTrue(exception.getMessage().startsWith("O destino " + destination.toRealPath()
+                + " foi informado mais de uma vez"));
+    }
+
+    @Test
+    void shouldRejectADestinationAlreadyScheduledForAnotherSource() throws IOException {
+        Path sourceA = createSource("A");
+        Path sourceB = createSource("B");
+        Path destination = Files.createDirectories(tempDir.resolve("bk"));
+        ScheduledBackupEntity existing = schedule(1L, "Diario A", sourceA, destination);
+        when(scheduledBackupRepository.findAll()).thenReturn(List.of(existing));
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                service.validateSchedulableRequest(List.of(sourceB.toString()), List.of(destination.toString())));
+
+        assertTrue(exception.getMessage().contains("agendamento 'Diario A'"));
+        // Editar o proprio agendamento (ou agendar a mesma origem de novo) nao conflita.
+        assertDoesNotThrow(() ->
+                service.validateSchedulableRequest(1L, List.of(sourceB.toString()), List.of(destination.toString())));
+        assertDoesNotThrow(() ->
+                service.validateSchedulableRequest(List.of(sourceA.toString()), List.of(destination.toString())));
+        // Na execucao vale o mesmo: agendamentos antigos que dividem o destino param com a explicacao.
+        assertThrows(IllegalArgumentException.class, () ->
+                service.validateExecutableRequest(List.of(sourceB.toString()), List.of(destination.toString())));
+    }
+
+    @Test
+    void shouldRejectADestinationPendingInAOneTimeBackupOfAnotherSource() throws IOException {
+        Path sourceA = createSource("A");
+        Path sourceB = createSource("B");
+        Path destination = Files.createDirectories(tempDir.resolve("bk"));
+        OneTimeBackupEntity pending = new OneTimeBackupEntity();
+        pending.setName("Unico A");
+        pending.setSources(List.of(sourceA.toString()));
+        pending.setDestinations(List.of(destination.toString()));
+        when(oneTimeBackupRepository.findByStatusOrderByScheduledForAsc(OneTimeBackupStatus.PENDENTE))
+                .thenReturn(List.of(pending));
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                service.validateSchedulableRequest(List.of(sourceB.toString()), List.of(destination.toString())));
+
+        assertTrue(exception.getMessage().contains("backup unico 'Unico A'"));
+    }
+
+    @Test
+    void shouldRejectADestinationHoldingSnapshotsOfAnotherSource() throws IOException {
+        Path sourceB = createSource("B");
+        Path destination = Files.createDirectories(tempDir.resolve("bk"));
+        BackupTask owner = new BackupTask();
+        owner.setSourcePath(tempDir.resolve("A").toString());
+        when(backupRepository.findFirstByDestinationPathAndSourcePathNotAndSnapshotPathIsNotNullAndSnapshotRemovedAtIsNullOrderByIdDesc(
+                destination.toRealPath().toString(), sourceB.toRealPath().toString()))
+                .thenReturn(Optional.of(owner));
+        BackupRequestValidationService service = createService(List.of(tempDir.toString()));
+
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class, () ->
+                service.validateSchedulableRequest(List.of(sourceB.toString()), List.of(destination.toString())));
+
+        assertTrue(exception.getMessage().contains("ja guarda snapshots da origem " + tempDir.resolve("A")));
+    }
+
+    private Path createSource(String name) throws IOException {
+        Path source = Files.createDirectories(tempDir.resolve(name));
+        Files.writeString(source.resolve("doc.txt"), name);
+        return source;
+    }
+
+    private ScheduledBackupEntity schedule(Long id, String name, Path source, Path destination) {
+        ScheduledBackupEntity schedule = new ScheduledBackupEntity();
+        schedule.setId(id);
+        schedule.setName(name);
+        schedule.setSources(List.of(source.toString()));
+        schedule.setDestinations(List.of(destination.toString()));
+        return schedule;
+    }
+
+    private final BackupRepository backupRepository = mock(BackupRepository.class);
+    private final ScheduledBackupRepository scheduledBackupRepository = mock(ScheduledBackupRepository.class);
+    private final OneTimeBackupRepository oneTimeBackupRepository = mock(OneTimeBackupRepository.class);
+
     private BackupRequestValidationService createService(List<String> allowedRoots) {
         AppSecurityProperties properties = new AppSecurityProperties();
         properties.setAllowedPathRoots(allowedRoots);
 
         PathSecurityService pathSecurityService = new PathSecurityService(properties);
-        return new BackupRequestValidationService(new BackupManager(), pathSecurityService, new FileStorageOperations());
+        return new BackupRequestValidationService(new BackupManager(), pathSecurityService, new FileStorageOperations(),
+                backupRepository, scheduledBackupRepository, oneTimeBackupRepository);
     }
 }

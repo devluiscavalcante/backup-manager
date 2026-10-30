@@ -117,10 +117,10 @@ public class BackupService {
             // Persiste o caminho real: "C:/Dados", "c:\dados\" e uma junction para ele sao o mesmo par.
             BackupTask task;
             synchronized (startLock) {
-                Optional<BackupTask> active = findActiveTask(validatedSource, validatedDestination);
+                Optional<BackupTask> active = findActiveTask(validatedDestination);
                 if (active.isPresent()) {
                     throw new ActiveBackupConflictException(
-                            active.get().getId(), validatedSource.toString(), validatedDestination.toString());
+                            active.get().getId(), active.get().getSourcePath(), validatedDestination.toString());
                 }
                 task = backupRepository.save(
                         createInitialTask(validatedSource.toString(), validatedDestination.toString()));
@@ -147,7 +147,7 @@ public class BackupService {
             return taskId;
 
         } catch (ActiveBackupConflictException conflict) {
-            logger.warn("Backup duplicado recusado: ja existe a tarefa {} para o par", conflict.getConflictingTaskId());
+            logger.warn("Backup duplicado recusado: ja existe a tarefa {} no destino", conflict.getConflictingTaskId());
             throw conflict;
         } catch (SecurityException se) {
             logger.error("BLOQUEIO DE SEGURANCA: {}", se.getMessage());
@@ -500,13 +500,15 @@ public class BackupService {
     }
 
     public Optional<BackupTask> getActiveTask(String sourcePath, String destinationPath) {
-        return findActiveTask(validateSafePath(sourcePath), validateSafePath(destinationPath));
+        validateSafePath(sourcePath);
+        return findActiveTask(validateSafePath(destinationPath));
     }
 
-    private Optional<BackupTask> findActiveTask(Path source, Path destination) {
+    // O conflito e pelo destino, nao pelo par: duas tarefas gravando na mesma arvore (mesmo que de origens
+    // diferentes) disputariam os mesmos snapshots e o mesmo warnings.log.
+    private Optional<BackupTask> findActiveTask(Path destination) {
         // Busca diretamente no banco para evitar carregar todas as tarefas em memoria.
-        return backupRepository.findFirstBySourcePathAndDestinationPathAndStatusInOrderByIdDesc(
-                source.toString(),
+        return backupRepository.findFirstByDestinationPathAndStatusInOrderByIdDesc(
                 destination.toString(),
                 List.of(Status.EM_ANDAMENTO, Status.PAUSADO)
         );
